@@ -296,45 +296,45 @@ class RawTranscriptionConfig(BaseModel):
     The default value is `en_us`.
     """
 
-    punctuate: bool = False
+    punctuate: Optional[bool]
     "Enable Automatic Punctuation"
 
-    format_text: bool = False
+    format_text: Optional[bool]
     "Enable Text Formatting"
 
-    dual_channel: bool = False
+    dual_channel: Optional[bool]
     "Enable Dual Channel transcription"
 
-    webhook_url: Optional[str] = None
+    webhook_url: Optional[str]
     "The URL we should send webhooks to when your transcript is complete."
-    webhook_auth_header_name: Optional[str] = None
+    webhook_auth_header_name: Optional[str]
     "The name of the header that is sent when the `webhook_url` is being called."
-    webhook_auth_header_value: Optional[str] = None
+    webhook_auth_header_value: Optional[str]
     "The value of the `webhook_auth_header_name` that is sent when the `webhook_url` is being called."
 
-    audio_start_from: Optional[int] = None
+    audio_start_from: Optional[int]
     "The point in time, in milliseconds, to begin transcription from in your media file."
-    audio_end_at: Optional[int] = None
+    audio_end_at: Optional[int]
     "The point in time, in milliseconds, to stop transcribing in your media file."
 
-    word_boost: Optional[List[str]] = None
+    word_boost: Optional[List[str]]
     "A list of custom vocabulary to boost accuracy for."
-    boost_param: Optional[WordBoost] = None
+    boost_param: Optional[WordBoost]
     "The weight to apply to words/phrases in the word_boost array."
 
-    filter_profanity: bool = False
+    filter_profanity: Optional[bool]
     "Filter profanity from the transcribed text."
 
-    redact_pii: bool = False
+    redact_pii: Optional[bool]
     "Redact PII from the transcribed text."
-    redact_pii_audio: bool = False
+    redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None
+    redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
-    redact_pii_sub: Optional[PIISubstitutionPolicy] = None
+    redact_pii_sub: Optional[PIISubstitutionPolicy]
     "The replacement logic for detected PII."
 
-    speaker_labels: bool = False
+    speaker_labels: Optional[bool]
     "Enable Speaker Diarization."
 
     # content_safety: bool = False
@@ -343,10 +343,10 @@ class RawTranscriptionConfig(BaseModel):
     # iab_categories: bool = False
     # "Enable Topic Detection."
 
-    custom_spelling: Optional[List[Dict[str, List[str]]]] = None
+    custom_spelling: Optional[List[Dict[str, List[str]]]]
     "Customize how words are spelled and formatted using to and from values"
 
-    disfluencies: bool = False
+    disfluencies: Optional[bool]
     "Transcribe Filler Words, like 'umm', in your media file."
 
     # sentiment_analysis: bool = False
@@ -358,19 +358,19 @@ class RawTranscriptionConfig(BaseModel):
     # entity_detection: bool = False
     # "Enable Entity Detection."
 
-    summarization: bool = False
+    summarization: Optional[bool]
     "Enable Summarization"
-    summary_model: Optional[SummarizationModel] = None
+    summary_model: Optional[SummarizationModel]
     "The summarization model to use in case `summarization` is enabled"
-    summary_type: Optional[SummarizationType] = None
+    summary_type: Optional[SummarizationType]
     "The summarization type to use in case `summarization` is enabled"
 
     # auto_highlights: bool = False
     # "Detect important phrases and words in your transcription text."
 
-    language_detection: bool = False
+    language_detection: Optional[bool]
     """
-    Identify the dominant language that’s spoken in an audio file, and route the file to the appropriate model for the detected language.
+    Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
     Automatic Language Detection is supported for the following languages:
 
@@ -391,9 +391,9 @@ class TranscriptionConfig:
     def __init__(
         self,
         language_code: LanguageCode = LanguageCode.en_us,
-        punctuate: bool = False,
-        format_text: bool = False,
-        dual_channel: bool = False,
+        punctuate: Optional[bool] = None,
+        format_text: Optional[bool] = None,
+        dual_channel: Optional[bool] = None,
         webhook_url: Optional[str] = None,
         webhook_auth_header_name: Optional[str] = None,
         webhook_auth_header_value: Optional[str] = None,
@@ -401,24 +401,24 @@ class TranscriptionConfig:
         audio_end_at: Optional[int] = None,
         word_boost: List[str] = [],
         boost_param: Optional[WordBoost] = None,
-        filter_profanity: bool = False,
-        redact_pii: bool = False,
-        redact_pii_audio: bool = False,
+        filter_profanity: Optional[bool] = None,
+        redact_pii: Optional[bool] = None,
+        redact_pii_audio: Optional[bool] = None,
         redact_pii_policies: Optional[PIIRedactionPolicy] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
-        speaker_labels: bool = False,
+        speaker_labels: Optional[bool] = None,
         # content_safety: bool = False,
         # iab_categories: bool = False,
-        custom_spelling: Dict[str, Union[str, Sequence[str]]] = {},
-        disfluencies: bool = False,
+        custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
+        disfluencies: Optional[bool] = None,
         # sentiment_analysis: bool = False,
         # auto_chapters: bool = False,
         # entity_detection: bool = False,
-        summarization: bool = False,
+        summarization: Optional[bool] = None,
         summary_model: Optional[SummarizationModel] = None,
         summary_type: Optional[SummarizationType] = None,
         # auto_highlights: bool = False,
-        language_detection: bool = False,
+        language_detection: Optional[bool] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
     ) -> None:
         """
@@ -515,37 +515,37 @@ class TranscriptionConfig:
         self._raw_transcription_config.language_code = language_code
 
     @property
-    def punctuate(self) -> bool:
+    def punctuate(self) -> Optional[bool]:
         "Returns the status of the Automatic Punctuation feature."
 
         return self._raw_transcription_config.punctuate
 
     @punctuate.setter
-    def punctuate(self, enable: bool) -> None:
+    def punctuate(self, enable: Optional[bool]) -> None:
         "Enable Automatic Punctuation feature."
 
         self._raw_transcription_config.punctuate = enable
 
     @property
-    def format_text(self) -> bool:
+    def format_text(self) -> Optional[bool]:
         "Returns the status of the Text Formatting feature."
 
         return self._raw_transcription_config.format_text
 
     @format_text.setter
-    def format_text(self, enable: bool) -> None:
+    def format_text(self, enable: Optional[bool]) -> None:
         "Enables Formatting Text feature."
 
         self._raw_transcription_config.format_text = enable
 
     @property
-    def dual_channel(self) -> bool:
+    def dual_channel(self) -> Optional[bool]:
         "Returns the status of the Dual Channel transcription feature"
 
         return self._raw_transcription_config.dual_channel
 
     @dual_channel.setter
-    def dual_channel(self, enable: bool = True) -> None:
+    def dual_channel(self, enable: Optional[bool]) -> None:
         "Enable Dual Channel transcription"
 
         self._raw_transcription_config.dual_channel = enable
@@ -581,7 +581,7 @@ class TranscriptionConfig:
         return self._raw_transcription_config.audio_end_at
 
     @property
-    def word_boost(self) -> List[str]:
+    def word_boost(self) -> Optional[List[str]]:
         "Returns the list of custom vocabulary to boost accuracy for."
 
         return self._raw_transcription_config.word_boost
@@ -593,49 +593,49 @@ class TranscriptionConfig:
         return self._raw_transcription_config.boost_param
 
     @property
-    def filter_profanity(self) -> bool:
+    def filter_profanity(self) -> Optional[bool]:
         "Returns the status of whether filtering profanity is enabled or not."
 
         return self._raw_transcription_config.filter_profanity
 
     @filter_profanity.setter
-    def filter_profanity(self, enable: bool) -> None:
+    def filter_profanity(self, enable: Optional[bool]) -> None:
         "Filter profanity from the transcribed text."
 
         self._raw_transcription_config.filter_profanity = enable
 
     @property
-    def redact_pii(self) -> bool:
+    def redact_pii(self) -> Optional[bool]:
         "Returns the status of the PII Redaction feature."
 
         return self._raw_transcription_config.redact_pii
 
     @property
-    def redact_pii_audio(self) -> bool:
+    def redact_pii_audio(self) -> Optional[bool]:
         "Whether or not to generate a copy of the original media file with spoken PII 'beeped' out."
 
         return self._raw_transcription_config.redact_pii_audio
 
     @property
-    def redact_pii_policies(self) -> List[PIIRedactionPolicy]:
+    def redact_pii_policies(self) -> Optional[List[PIIRedactionPolicy]]:
         "Returns a list of set of defined PII redaction policies."
 
         return self._raw_transcription_config.redact_pii_policies
 
     @property
-    def redact_pii_sub(self) -> PIISubstitutionPolicy:
+    def redact_pii_sub(self) -> Optional[PIISubstitutionPolicy]:
         "Returns the replacement logic for detected PII."
 
         return self._raw_transcription_config.redact_pii_sub
 
     @property
-    def speaker_labels(self) -> bool:
+    def speaker_labels(self) -> Optional[bool]:
         "Returns the status of the Speaker Diarization feature."
 
         return self._raw_transcription_config.speaker_labels
 
     @speaker_labels.setter
-    def speaker_labels(self, enable: bool) -> None:
+    def speaker_labels(self, enable: Optional[bool]) -> None:
         "Enable Speaker Diarization feature."
 
         self._raw_transcription_config.speaker_labels = enable
@@ -665,8 +665,11 @@ class TranscriptionConfig:
     #     self._raw_transcription_config.iab_categories = enable
 
     @property
-    def custom_spelling(self) -> Dict[str, List[str]]:
+    def custom_spelling(self) -> Optional[Dict[str, List[str]]]:
         "Returns the current set custom spellings."
+
+        if self._raw_transcription_config.custom_spelling is None:
+            return None
 
         custom_spellings = {}
         for custom_spelling in self._raw_transcription_config.custom_spelling:
@@ -675,13 +678,13 @@ class TranscriptionConfig:
         return custom_spellings
 
     @property
-    def disfluencies(self) -> bool:
+    def disfluencies(self) -> Optional[bool]:
         "Returns whether to transcribing filler words is enabled or not."
 
         return self._raw_transcription_config.disfluencies
 
     @disfluencies.setter
-    def disfluencies(self, enable: bool) -> None:
+    def disfluencies(self, enable: Optional[bool]) -> None:
         "Transcribe filler words, like 'umm', in your media file."
 
         self._raw_transcription_config.disfluencies = enable
@@ -725,7 +728,7 @@ class TranscriptionConfig:
     #     self._raw_transcription_config.entity_detection = enable
 
     @property
-    def summarization(self) -> bool:
+    def summarization(self) -> Optional[bool]:
         "Returns whether the Summarization feature is enabled or not."
 
         return self._raw_transcription_config.summarization
@@ -755,13 +758,13 @@ class TranscriptionConfig:
     #     self._raw_transcription_config.auto_highlights = enable
 
     @property
-    def language_detection(self) -> bool:
+    def language_detection(self) -> Optional[bool]:
         "Returns whether Automatic Language Detection is enabled or not."
 
         return self._raw_transcription_config.language_detection
 
     @language_detection.setter
-    def language_detection(self, enable: bool) -> None:
+    def language_detection(self, enable: Optional[bool]) -> None:
         """
         Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
@@ -899,8 +902,8 @@ class TranscriptionConfig:
         """
 
         if not enable:
-            self._raw_transcription_config.redact_pii = False
-            self._raw_transcription_config.redact_pii_audio = False
+            self._raw_transcription_config.redact_pii = None
+            self._raw_transcription_config.redact_pii_audio = None
             self._raw_transcription_config.redact_pii_policies = None
             self._raw_transcription_config.redact_pii_sub = None
 
@@ -915,7 +918,7 @@ class TranscriptionConfig:
 
     def set_custom_spelling(
         self,
-        replacement: Dict[str, Union[str, Sequence[str]]],
+        replacement: Optional[Dict[str, Union[str, Sequence[str]]]],
         override: bool = True,
     ) -> Self:
         """
@@ -933,6 +936,9 @@ class TranscriptionConfig:
             })
             ```
         """
+        if replacement is None:
+            self._raw_transcription_config.custom_spelling = None
+            return self
 
         if self._raw_transcription_config.custom_spelling is None or override:
             self._raw_transcription_config.custom_spelling = []
@@ -952,7 +958,7 @@ class TranscriptionConfig:
 
     def set_summarize(
         self,
-        enable: bool,
+        enable: bool = True,
         model: Optional[SummarizationModel] = None,
         type: Optional[SummarizationType] = None,
     ) -> Self:
@@ -966,7 +972,7 @@ class TranscriptionConfig:
         """
 
         if not enable:
-            self._raw_transcription_config.summarization = False
+            self._raw_transcription_config.summarization = None
             self._raw_transcription_config.summary_model = None
             self._raw_transcription_config.summary_type = None
 
@@ -1220,43 +1226,43 @@ class BaseTranscript(BaseModel):
     audio_url: str
     "The URL of your media file to transcribe."
 
-    punctuate: bool = False
+    punctuate: Optional[bool]
     "Enable Automatic Punctuation"
 
-    format_text: bool = False
+    format_text: Optional[bool]
     "Enable Text Formatting"
 
-    dual_channel: bool = False
+    dual_channel: Optional[bool]
     "Enable Dual Channel transcription"
 
-    webhook_url: Optional[str] = None
+    webhook_url: Optional[str]
     "The URL we should send webhooks to when your transcript is complete."
-    webhook_auth_header_name: Optional[str] = None
+    webhook_auth_header_name: Optional[str]
     "The name of the header that is sent when the `webhook_url` is being called."
 
-    audio_start_from: Optional[int] = None
+    audio_start_from: Optional[int]
     "The point in time, in milliseconds, to begin transcription from in your media file."
-    audio_end_at: Optional[int] = None
+    audio_end_at: Optional[int]
     "The point in time, in milliseconds, to stop transcribing in your media file."
 
-    word_boost: Optional[List[str]] = None
+    word_boost: Optional[List[str]]
     "A list of custom vocabulary to boost accuracy for."
-    boost_param: Optional[WordBoost] = None
+    boost_param: Optional[WordBoost]
     "The weight to apply to words/phrases in the word_boost array."
 
-    filter_profanity: bool = False
+    filter_profanity: Optional[bool]
     "Filter profanity from the transcribed text."
 
-    redact_pii: bool = False
+    redact_pii: Optional[bool]
     "Redact PII from the transcribed text."
-    redact_pii_audio: bool = False
+    redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None
+    redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
-    redact_pii_sub: Optional[PIISubstitutionPolicy] = None
+    redact_pii_sub: Optional[PIISubstitutionPolicy]
     "The replacement logic for detected PII."
 
-    speaker_labels: bool = False
+    speaker_labels: Optional[bool]
     "Enable Speaker Diarization."
 
     # content_safety: bool = False
@@ -1265,10 +1271,10 @@ class BaseTranscript(BaseModel):
     # iab_categories: bool = False
     # "Enable Topic Detection."
 
-    custom_spelling: Optional[List[dict]] = None
+    custom_spelling: Optional[List[dict]]
     "Customize how words are spelled and formatted using to and from values"
 
-    disfluencies: bool = False
+    disfluencies: Optional[bool]
     "Transcribe Filler Words, like 'umm', in your media file."
 
     # sentiment_analysis: bool = False
@@ -1280,19 +1286,19 @@ class BaseTranscript(BaseModel):
     # entity_detection: bool = False
     # "Enable Entity Detection."
 
-    summarization: bool = False
+    summarization: Optional[bool]
     "Enable Summarization"
-    summary_model: Optional[SummarizationModel] = None
+    summary_model: Optional[SummarizationModel]
     "The summarization model to use in case `summarization` is enabled"
-    summary_type: Optional[SummarizationType] = None
+    summary_type: Optional[SummarizationType]
     "The summarization type to use in case `summarization` is enabled"
 
     # auto_highlights: bool = False
     # "Detect important phrases and words in your transcription text."
 
-    language_detection: bool = False
+    language_detection: Optional[bool]
     """
-    Identify the dominant language that’s spoken in an audio file, and route the file to the appropriate model for the detected language.
+    Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
     Automatic Language Detection is supported for the following languages:
 
@@ -1323,27 +1329,27 @@ class TranscriptResponse(BaseTranscript):
     status: TranscriptStatus
     "The status of your transcription. queued, processing, completed, or error"
 
-    error: Optional[str] = None
+    error: Optional[str]
     "The error message in case the transcription fails"
 
-    text: Optional[str] = None
+    text: Optional[str]
     "The text transcription of your media file"
 
-    words: Optional[List[Word]] = None
+    words: Optional[List[Word]]
     "A list of all the individual words transcribed"
 
-    utterances: Optional[List[Utterance]] = None
+    utterances: Optional[List[Utterance]]
     "When `dual_channel` or `speaker_labels` is enabled, a list of turn-by-turn utterances"
 
-    confidence: Optional[float] = None
+    confidence: Optional[float]
     "The confidence our model has in the transcribed text, between 0.0 and 1.0"
 
-    audio_duration: Optional[float] = None
+    audio_duration: Optional[float]
     "The duration of your media file, in seconds"
 
-    webhook_status_code: Optional[str] = None
+    webhook_status_code: Optional[str]
     "The status code we received from your server when delivering your webhook"
-    webhook_auth: bool = False
+    webhook_auth: Optional[bool]
     "Whether the webhook was sent with an HTTP authentication header"
 
     # auto_highlights_result: Optional[AutohighlightResponse] = None
