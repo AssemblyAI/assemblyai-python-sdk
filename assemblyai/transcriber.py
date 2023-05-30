@@ -442,8 +442,10 @@ class _TranscriberImpl:
         self,
         *,
         client: _client.Client,
+        config: types.TranscriptionConfig,
     ) -> None:
         self._client = client
+        self.config = config
 
     def transcribe_url(
         self,
@@ -517,7 +519,7 @@ class _TranscriberImpl:
         poll: bool,
     ) -> Transcript:
         if config is None:
-            config = types.TranscriptionConfig()
+            config = self.config
 
         if urlparse(data).scheme in {"http", "https"}:
             return self.transcribe_url(
@@ -536,9 +538,12 @@ class _TranscriberImpl:
         self,
         *,
         data: List[str],
-        config: types.TranscriptionConfig,
+        config: Optional[types.TranscriptionConfig],
         poll: bool,
     ) -> TranscriptGroup:
+        if config is None:
+            config = self.config
+
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
         future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
 
@@ -576,6 +581,7 @@ class Transcriber:
         self,
         *,
         client: Optional[_client.Client] = None,
+        config: Optional[types.TranscriptionConfig] = None,
         max_workers: Optional[int] = None,
     ) -> None:
         """
@@ -584,13 +590,29 @@ class Transcriber:
         Args:
             `client`: The `Client` to use for the `Transcriber`. If `None` is given, the
                 default settings for the `Client` will be used.
+            `config`: The default configuration for the `Transcriber`. If `None` is given,
+                the default configuration of a `TranscriptionConfig` will be used.
             `max_workers`: The maximum number of parallel jobs when using the `_async`
                 methods on the `Transcriber`. By default it uses `os.cpu_count() - 1`
+
+        Example:
+            To use the `Transcriber` with the default settings, you can simply do:
+            ```
+            transcriber = aai.Transcriber()
+            ```
+
+            To use the `Transcriber` with a custom configuration, you can do:
+            ```
+            config = aai.TranscriptionConfig(punctuate=False, format_text=False)
+
+            transcriber = aai.Transcriber(config=config)
+            ```
         """
         self._client = client or _client.Client.get_default()
 
         self._impl = _TranscriberImpl(
             client=self._client,
+            config=config or types.TranscriptionConfig(),
         )
 
         if not max_workers:
@@ -599,6 +621,23 @@ class Transcriber:
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
         )
+
+    @property
+    def config(self) -> types.TranscriptionConfig:
+        """
+        Returns the default configuration of the `Transcriber`.
+        """
+        return self._impl.config
+
+    @config.setter
+    def config(self, config: types.TranscriptionConfig) -> None:
+        """
+        Sets the default configuration of the `Transcriber`.
+
+        Args:
+            `config`: The new default configuration.
+        """
+        self._impl.config = config
 
     def submit(
         self,
@@ -610,7 +649,8 @@ class Transcriber:
 
         Args:
             data: An URL or a local file (as path)
-            config: Transcription options and features.
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
         """
         return self._impl.transcribe(
             data=data,
@@ -628,8 +668,8 @@ class Transcriber:
 
         Args:
             data: An URL or a local file (as path)
-            config: Transcription options and features.
-            poll: Whether the transcript should be polled for its completion.
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
         """
 
         return self._impl.transcribe(
@@ -648,8 +688,8 @@ class Transcriber:
 
         Args:
             data: An URL or a local file (as path)
-            config: Transcription options and features.
-            poll: Whether the transcript should be polled for its completion.
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
         """
 
         return self._executor.submit(
@@ -669,11 +709,9 @@ class Transcriber:
 
         Args:
             data: A list of paths or URLs (can be mixed)
-            config: Transcription options and features.
-            poll: Whether the transcripts should be polled for their completion.
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
         """
-        if config is None:
-            config = types.TranscriptionConfig()
 
         return self._impl.transcribe_group(
             data=data,
@@ -683,7 +721,7 @@ class Transcriber:
 
     def transcribe_group_async(
         self,
-        data: str,
+        data: List[str],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> concurrent.futures.Future[TranscriptGroup]:
         """
@@ -692,8 +730,8 @@ class Transcriber:
 
         Args:
             data: A list of paths or URLs (can be mixed)
-            config: Transcription options and features.
-            poll: Whether the transcripts should be polled for their completion.
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
         """
 
         return self._executor.submit(

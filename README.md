@@ -260,8 +260,51 @@ Visit one of our Playgrounds:
 - [Transcription Playground](https://www.assemblyai.com/playground)
 
 
-# Advanced (TODO)
+# Advanced
 
+## How the SDK handles Default Configurations
+
+### Defining Defaults
+
+When no `TranscriptionConfig` is being passed to the `Transcriber` or its methods, it will use a default instance of a `TranscriptionConfig`.
+
+If you would like to re-use the same `TranscriptionConfig` for all your transcriptions,
+you can set it on the `Transcriber` directly:
+
+```python
+config = aai.TranscriptionConfig(punctuate=False, format_text=False)
+
+transcriber = aai.Transcriber(config=config)
+
+# will use the same config for all `.transcribe*(...)` operations
+transcriber.transcribe("https://example.org/audio.wav")
+```
+
+### Overriding Defaults
+
+You can override the default configuration later via the `.config` property of the `Transcriber`:
+
+```python
+transcriber = aai.Transcriber()
+
+# override the `Transcriber`'s config with a new config
+transcriber.config = aai.TranscriptionConfig(punctuate=False, format_text=False)
+```
+
+
+In case you want to override the `Transcriber`'s configuration for a specific operation with a different one, you can do so via the `config` parameter of a `.transcribe*(...)` method:
+
+```python
+config = aai.TranscriptionConfig(punctuate=False, format_text=False)
+# set a default configuration
+transcriber = aai.Transcriber(config=config)
+
+transcriber.transcribe(
+    "https://example.com/audio.mp3",
+    # overrides the above configuration on the `Transcriber` with the following
+    config=aai.TranscriptionConfig(dual_channel=True, disfluencies=True)
+)
+```
 
 ## Synchronous vs Asynchronous
 
