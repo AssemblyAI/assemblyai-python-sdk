@@ -82,22 +82,6 @@ print(transcript.text)
 </details>
 
 <details>
-  <summary>Add Punctuation, Casing, and Formatting to a Transcript</summary>
-
-```python
-import assemblyai as aai
-
-config = aai.TranscriptionConfig(
-  punctuate = True,
-  format_text = True,
-)
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
-```
-</details>
-
-<details>
   <summary>Export Subtitles of an Audio File</summary>
 
 ```python
@@ -120,13 +104,8 @@ print(transcript.export_subtitles_vtt())
 ```python
 import assemblyai as aai
 
-config = aai.TranscriptionConfig(
-  punctuate = True,
-  format_text = True,
-)
-
 transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
+transcript = transcriber.transcribe("https://example.org/audio.mp3")
 
 sentences = transcript.get_sentences()
 for sentence in sentences:
