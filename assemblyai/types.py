@@ -1072,6 +1072,7 @@ class Word(BaseModel):
 
 
 class UtteranceWord(Word):
+    channel: Optional[str]
     speaker: Optional[str]
 
 
