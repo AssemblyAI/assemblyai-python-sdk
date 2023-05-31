@@ -1,10 +1,10 @@
 import threading
-from typing import Optional, ClassVar
+from typing import ClassVar, Optional
+
+import httpx
 from typing_extensions import Self
 
 from . import types
-
-import httpx
 
 
 class Client:

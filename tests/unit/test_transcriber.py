@@ -1,11 +1,10 @@
-import httpx
-from pytest_httpx import HTTPXMock
-from unittest.mock import patch, mock_open
-import os
 import copy
+import os
+from unittest.mock import mock_open, patch
 
+import httpx
 import pytest
-
+from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from tests.unit import factories

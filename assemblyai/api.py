@@ -1,8 +1,8 @@
-from typing import Optional, List, BinaryIO
-
-from . import types
+from typing import BinaryIO, List, Optional
 
 import httpx
+
+from . import types
 
 
 def _get_error_message(response: httpx.Response) -> str:

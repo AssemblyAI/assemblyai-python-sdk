@@ -4,7 +4,7 @@ from AssemblyAI's API.
 """
 
 from functools import partial
-from typing import Any, Dict, Callable
+from typing import Any, Callable, Dict
 
 import factory
 import factory.base

@@ -1,13 +1,11 @@
-import httpx
-from pytest_httpx import HTTPXMock
 import uuid
 
+import httpx
+import pytest
+from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from tests.unit import factories
-
-import pytest
-
 
 aai.settings.api_key = "test"
 
