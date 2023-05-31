@@ -1,13 +1,16 @@
 from __future__ import annotations
+
+import concurrent.futures
 import os
 import time
+from typing import Dict, Iterator, List, Optional, Union
 from urllib.parse import urlparse
-import concurrent.futures
-from typing import Dict, Iterator, Optional, List, Union
+
 from typing_extensions import Self
 
-from . import lemur, types, api
+from . import api
 from . import client as _client
+from . import lemur, types
 
 
 class _TranscriptImpl:
@@ -212,6 +215,45 @@ class Transcript:
         "The error message in case the transcription fails"
 
         return self._impl.transcript.error
+
+    @property
+    def words(self) -> Optional[List[types.Word]]:
+        "The list of words in the transcript"
+
+        return self._impl.transcript.words
+
+    @property
+    def utterances(self) -> Optional[List[types.Utterance]]:
+        """
+        When `dual_channel` or `speaker_labels` is enabled,
+        a list of utterances in the transcript.
+        """
+
+        return self._impl.transcript.utterances
+
+    @property
+    def confidence(self) -> Optional[float]:
+        "The confidence our model has in the transcribed text, between 0 and 1"
+
+        return self._impl.transcript.confidence
+
+    @property
+    def audio_duration(self) -> Optional[float]:
+        "The duration of the audio in seconds"
+
+        return self._impl.transcript.audio_duration
+
+    @property
+    def webhook_status_code(self) -> Optional[int]:
+        "The status code we received from your server when delivering your webhook"
+
+        return self._impl.transcript.webhook_status_code
+
+    @property
+    def webhook_auth(self) -> Optional[bool]:
+        "Whether the webhook was sent with an HTTP authentication header"
+
+        return self._impl.transcript.webhook_auth
 
     @property
     def lemur(self) -> lemur.Lemur:

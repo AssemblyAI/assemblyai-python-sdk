@@ -1,9 +1,8 @@
 from enum import Enum
-
-from typing import Optional, Dict, Any, List, Tuple, Union, Sequence
-from typing_extensions import Self
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from pydantic import BaseModel, BaseSettings, Extra
+from typing_extensions import Self
 
 
 class AssemblyAIError(Exception):
@@ -1271,7 +1270,7 @@ class BaseTranscript(BaseModel):
     # iab_categories: bool = False
     # "Enable Topic Detection."
 
-    custom_spelling: Optional[List[dict]]
+    custom_spelling: Optional[List[Dict[str, str]]]
     "Customize how words are spelled and formatted using to and from values"
 
     disfluencies: Optional[bool]
@@ -1347,7 +1346,7 @@ class TranscriptResponse(BaseTranscript):
     audio_duration: Optional[float]
     "The duration of your media file, in seconds"
 
-    webhook_status_code: Optional[str]
+    webhook_status_code: Optional[int]
     "The status code we received from your server when delivering your webhook"
     webhook_auth: Optional[bool]
     "Whether the webhook was sent with an HTTP authentication header"

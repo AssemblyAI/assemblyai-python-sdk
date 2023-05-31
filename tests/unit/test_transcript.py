@@ -1,14 +1,12 @@
 from typing import Any, Dict, List
-import httpx
-from pytest_httpx import HTTPXMock
 
+import httpx
+import pytest
+from faker import Faker
+from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from tests.unit import factories
-
-import pytest
-from faker import Faker
-
 
 aai.settings.api_key = "test"
 

@@ -1,8 +1,8 @@
 import inspect
 
-import assemblyai as aai
-
 import pytest
+
+import assemblyai as aai
 
 
 def test_configuration_are_none_by_default():
