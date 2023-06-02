@@ -336,6 +336,9 @@ class RawTranscriptionConfig(BaseModel):
     speaker_labels: Optional[bool]
     "Enable Speaker Diarization."
 
+    speakers_expected: Optional[int]
+    "The number of speakers you expect to be in your audio file."
+
     # content_safety: bool = False
     # "Enable Content Safety Detection."
 
@@ -406,6 +409,7 @@ class TranscriptionConfig:
         redact_pii_policies: Optional[PIIRedactionPolicy] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
+        speakers_expected: Optional[int] = None,
         # content_safety: bool = False,
         # iab_categories: bool = False,
         custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
@@ -439,6 +443,7 @@ class TranscriptionConfig:
             redact_pii_policies: The list of PII Redaction policies to enable.
             redact_pii_sub: The replacement logic for detected PII.
             speaker_labels: Enable Speaker Diarization.
+            speakers_expected: The number of speakers you expect to hear in your audio file. Up to 10 speakers are supported.
             content_safety: Enable Content Safety Detection.
             iab_categories: Enable Topic Detection.
             custom_spelling: Customize how words are spelled and formatted using to and from values.
@@ -480,7 +485,7 @@ class TranscriptionConfig:
             redact_pii_policies,
             redact_pii_sub,
         )
-        self.speaker_labels = speaker_labels
+        self.set_speaker_diarization(speaker_labels, speakers_expected)
         # self.content_safety = content_safety
         # self.iab_categories = iab_categories
         self.set_custom_spelling(custom_spelling, override=True)
@@ -633,11 +638,11 @@ class TranscriptionConfig:
 
         return self._raw_transcription_config.speaker_labels
 
-    @speaker_labels.setter
-    def speaker_labels(self, enable: Optional[bool]) -> None:
-        "Enable Speaker Diarization feature."
+    @property
+    def speakers_expected(self) -> Optional[int]:
+        "Returns the number of speakers expected to be in the audio file. Used in combination with the `speaker_labels` parameter."
 
-        self._raw_transcription_config.speaker_labels = enable
+        return self._raw_transcription_config.speakers_expected
 
     # @property
     # def content_safety(self) -> bool:
@@ -796,6 +801,28 @@ class TranscriptionConfig:
         """
         self._raw_transcription_config.punctuate = enable
         self._raw_transcription_config.format_text = enable
+
+        return self
+
+    def set_speaker_diarization(
+        self,
+        enable: bool = True,
+        speakers_expected: Optional[int] = None,
+    ) -> Self:
+        """
+        Whether to enable Speaker Diarization on the transcript.
+
+        Args:
+            `enable`: Enable Speaker Diarization
+            `speakers_expected`: The number of speakers in the audio file.
+        """
+
+        if not enable:
+            self._raw_transcription_config.speaker_labels = None
+            self._raw_transcription_config.speakers_expected = None
+        else:
+            self._raw_transcription_config.speaker_labels = True
+            self._raw_transcription_config.speakers_expected = speakers_expected
 
         return self
 
