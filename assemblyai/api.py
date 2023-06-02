@@ -1,4 +1,5 @@
 from typing import BinaryIO, List, Optional
+from urllib.parse import urlencode
 
 import httpx
 
@@ -142,9 +143,11 @@ def word_search(
 ) -> types.WordSearchMatchResponse:
     response = client.get(
         f"/transcript/{transcript_id}/word-search",
-        params={
-            "words": words,
-        },
+        params=urlencode(
+            {
+                "words": ",".join(words),
+            }
+        ),
     )
 
     if response.status_code != httpx.codes.ok:
