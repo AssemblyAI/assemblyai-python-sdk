@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+from urllib.parse import urlencode
 
 import httpx
 import pytest
@@ -114,9 +115,12 @@ def test_word_search_succeeds(httpx_mock: HTTPXMock):
         factories.WordSearchMatchResponseFactory
     )()
 
+    search_words = {
+        "words": ",".join(["test", "me"]),
+    }
     # mock the specific endpoints
     url = httpx.URL(
-        f"{aai.settings.base_url}/transcript/{transcript.id}/word-search?words=test",
+        f"{aai.settings.base_url}/transcript/{transcript.id}/word-search?{urlencode(search_words)}",
     )
 
     httpx_mock.add_response(
@@ -127,7 +131,7 @@ def test_word_search_succeeds(httpx_mock: HTTPXMock):
     )
 
     # mimic the SDK call
-    matches = transcript.word_search(words=["test"])
+    matches = transcript.word_search(words=["test", "me"])
 
     # check integrity of the response
 
