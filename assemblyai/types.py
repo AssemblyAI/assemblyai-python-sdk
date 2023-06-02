@@ -1004,6 +1004,16 @@ class TranscriptionConfig:
 
             return self
 
+        # Validate that required parameters are also set
+        if self._raw_transcription_config.punctuate == False:
+            raise ValueError(
+                "If `summarization` is enabled, then `punctuate` must not be disabled"
+            )
+        if self._raw_transcription_config.format_text == False:
+            raise ValueError(
+                "If `summarization` is enabled, then `format_text` must not be disabled"
+            )
+
         self._raw_transcription_config.summarization = True
         self._raw_transcription_config.summary_model = model
         self._raw_transcription_config.summary_type = type
@@ -1378,6 +1388,9 @@ class TranscriptResponse(BaseTranscript):
     "The status code we received from your server when delivering your webhook"
     webhook_auth: Optional[bool]
     "Whether the webhook was sent with an HTTP authentication header"
+
+    summary: Optional[str]
+    "The summarization of the transcript"
 
     # auto_highlights_result: Optional[AutohighlightResponse] = None
     # "The list of results when enabling Automatic Transcript Highlights"

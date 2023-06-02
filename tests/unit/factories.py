@@ -200,7 +200,7 @@ class ParagraphsResponseFactory(factory.Factory):
     audio_duration = factory.Faker("pyint")
 
 
-def generate_dict_factory(f: factory.Factory) -> Callable[[None], Dict[str, Any]]:
+def generate_dict_factory(f: factory.Factory) -> Callable[[], Dict[str, Any]]:
     """
     Creates a dict factory from the given *Factory class.
 

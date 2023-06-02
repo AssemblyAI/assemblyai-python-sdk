@@ -1,6 +1,7 @@
 <img src="https://github.com/AssemblyAI/assemblyai-python-sdk/blob/master/assemblyai.png?raw=true" width="500"/>
 
 ---
+
 [![CI Passing](https://github.com/AssemblyAI/assemblyai-python-sdk/actions/workflows/test.yml/badge.svg)](https://github.com/AssemblyAI/assemblyai-python-sdk/actions/workflows/test.yml)
 [![GitHub License](https://img.shields.io/github/license/AssemblyAI/assemblyai-python-sdk)](https://github.com/AssemblyAI/assemblyai-python-sdk/blob/master/LICENSE)
 [![PyPI version](https://badge.fury.io/py/assemblyai.svg)](https://badge.fury.io/py/assemblyai)
@@ -26,13 +27,11 @@ With a single API call, get access to AI models built on the latest AI breakthro
 - [Playgrounds](#playgrounds)
 - [Advanced](#advanced-todo)
 
-
 # Documentation
 
 Visit our [AssemblyAI API Documentation](https://www.assemblyai.com/docs) to get an overview of our models!
 
 # Quick Start
-
 
 ## Installation
 
@@ -66,6 +65,7 @@ transcript = transcriber.transcribe("./my-local-audio-file.wav")
 
 print(transcript.text)
 ```
+
 </details>
 
 <details>
@@ -79,6 +79,7 @@ transcript = transcriber.transcribe("https://example.org/audio.mp3")
 
 print(transcript.text)
 ```
+
 </details>
 
 <details>
@@ -96,6 +97,7 @@ print(transcript.export_subtitles_srt())
 # in VTT format
 print(transcript.export_subtitles_vtt())
 ```
+
 </details>
 
 <details>
@@ -115,6 +117,7 @@ paragraphs = transcript.get_paragraphs()
 for paragraph in paragraphs:
   print(paragraph.text)
 ```
+
 </details>
 
 <details>
@@ -131,6 +134,7 @@ matches = transcript.word_search(["price", "product"])
 for match in matches:
   print(f"Found '{match.text}' {match.count} times in the transcript")
 ```
+
 </details>
 
 <details>
@@ -152,9 +156,40 @@ transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
 
 print(transcript.text)
 ```
+
+</details>
+
+<details>
+  <summary>Summarize the content of a transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(summarize=True)
+)
+
+print(transcript.summary)
+```
+
+By default, the summarization model will be `informative` and the summarization type will be `bullets`. [Read more about summarization models and types here](https://www.assemblyai.com/docs/Models/summarization#types-and-models).
+
+To change the model and/or type, pass additional parameters to the `TranscriptionConfig`:
+
+```python
+config=aai.TranscriptionConfig(
+  summarize=True,
+  summary_model=aai.SummarizationModel.catchy,
+  summary_type=aai.Summarizationtype.headline
+)
+```
+
 </details>
 
 ---
+
 ### **LeMUR Examples**
 
 <details>
@@ -175,6 +210,7 @@ summary = transcript_group.lemur.summarize(context="Customers asking for cars", 
 
 print(summary)
 ```
+
 </details>
 
 <details>
@@ -195,6 +231,7 @@ feedback = transcript_group.lemur.ask_coach(context="Who was the best interviewe
 
 print(feedback)
 ```
+
 </details>
 
 <details>
@@ -218,6 +255,7 @@ for result in result:
     print(f"Question: {result.question}")
     print(f"Answer: {result.answer}")
 ```
+
 </details>
 
 ---
@@ -247,8 +285,8 @@ config.set_pii_redact(
 transcriber = aai.Transcriber()
 transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
 ```
-</details>
 
+</details>
 
 ---
 

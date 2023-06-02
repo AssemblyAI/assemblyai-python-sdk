@@ -205,6 +205,12 @@ class Transcript:
         return self._impl.transcript.text
 
     @property
+    def summary(self) -> Optional[str]:
+        "The summarization of the transcript"
+
+        return self._impl.transcript.summary
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 
