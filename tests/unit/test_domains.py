@@ -18,6 +18,7 @@ def test_configuration_drift():
         "set_redact_pii",  # PII redaction
         "set_summarize",  # summarization
         "set_webhook",  # webhook
+        "set_speaker_diarization",  # speaker diarization
     }
 
     # get all members
