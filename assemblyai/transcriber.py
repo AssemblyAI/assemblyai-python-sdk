@@ -211,6 +211,10 @@ class Transcript:
         return self._impl.transcript.summary
 
     @property
+    def chapters(self) -> Optional[List[types.Chapter]]:
+        return self._impl.transcript.chapters
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 

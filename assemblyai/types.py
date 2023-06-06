@@ -354,8 +354,8 @@ class RawTranscriptionConfig(BaseModel):
     # sentiment_analysis: bool = False
     # "Enable Sentiment Analysis."
 
-    # auto_chapters: bool = False
-    # "Enable Auto Chapters."
+    auto_chapters: Optional[bool]
+    "Enable Auto Chapters."
 
     # entity_detection: bool = False
     # "Enable Entity Detection."
@@ -415,7 +415,7 @@ class TranscriptionConfig:
         custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
         disfluencies: Optional[bool] = None,
         # sentiment_analysis: bool = False,
-        # auto_chapters: bool = False,
+        auto_chapters: Optional[bool] = None,
         # entity_detection: bool = False,
         summarization: Optional[bool] = None,
         summary_model: Optional[SummarizationModel] = None,
@@ -491,7 +491,7 @@ class TranscriptionConfig:
         self.set_custom_spelling(custom_spelling, override=True)
         self.disfluencies = disfluencies
         # self.sentiment_analysis = sentiment_analysis
-        # self.auto_chapters = auto_chapters
+        self.auto_chapters = auto_chapters
         # self.entity_detection = entity_detection
         self.set_summarize(
             summarization,
@@ -707,17 +707,23 @@ class TranscriptionConfig:
 
     #     self._raw_transcription_config.sentiment_analysis = enable
 
-    # @property
-    # def auto_chapters(self) -> bool:
-    #     "Returns the status of the Auto Chapters feature."
+    @property
+    def auto_chapters(self) -> bool:
+        "Returns the status of the Auto Chapters feature."
 
-    #     return self._raw_transcription_config.auto_chapters
+        return self._raw_transcription_config.auto_chapters
 
-    # @auto_chapters.setter
-    # def auto_chapters(self, enable: bool) -> None:
-    #     "Enable Auto Chapters."
+    @auto_chapters.setter
+    def auto_chapters(self, enable: bool) -> None:
+        "Enable Auto Chapters."
 
-    #     self._raw_transcription_config.auto_chapters = enable
+        # Validate required params are also set
+        if self.punctuate == False:
+            raise ValueError(
+                "If `auto_chapters` is enabled, then `punctuate` must not be disabled"
+            )
+
+        self._raw_transcription_config.auto_chapters = enable
 
     # @property
     # def entity_detection(self) -> bool:
@@ -1317,8 +1323,8 @@ class BaseTranscript(BaseModel):
     # sentiment_analysis: bool = False
     # "Enable Sentiment Analysis."
 
-    # auto_chapters: bool = False
-    # "Enable Auto Chapters."
+    auto_chapters: Optional[bool]
+    "Enable Auto Chapters."
 
     # entity_detection: bool = False
     # "Enable Entity Detection."
@@ -1401,7 +1407,7 @@ class TranscriptResponse(BaseTranscript):
     # iab_categories_result: Optional[IABResponse] = None
     # "The list of results when Topic Detection is enabled"
 
-    # chapters: Optional[List[Chapter]] = None
+    chapters: Optional[List[Chapter]]
     # "When Auto Chapters is enabled, the list of Auto Chapters results"
 
     # sentiment_analysis_results: Optional[List[Sentiment]] = None

@@ -23,7 +23,7 @@ With a single API call, get access to AI models built on the latest AI breakthro
 - [Example](#examples)
   - [Core Examples](#core-examples)
   - [LeMUR Examples](#lemur-examples)
-  - [Audio Intelligence+ Examples](#audio-intelligence-examples)
+  - [Audio Intelligence Examples](#audio-intelligence-examples)
 - [Playgrounds](#playgrounds)
 - [Advanced](#advanced-todo)
 
@@ -159,35 +159,6 @@ print(transcript.text)
 
 </details>
 
-<details>
-  <summary>Summarize the content of a transcript</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(summarize=True)
-)
-
-print(transcript.summary)
-```
-
-By default, the summarization model will be `informative` and the summarization type will be `bullets`. [Read more about summarization models and types here](https://www.assemblyai.com/docs/Models/summarization#types-and-models).
-
-To change the model and/or type, pass additional parameters to the `TranscriptionConfig`:
-
-```python
-config=aai.TranscriptionConfig(
-  summarize=True,
-  summary_model=aai.SummarizationModel.catchy,
-  summary_type=aai.Summarizationtype.headline
-)
-```
-
-</details>
-
 ---
 
 ### **LeMUR Examples**
@@ -260,7 +231,7 @@ for result in result:
 
 ---
 
-### **Audio Intelligence+ Examples**
+### **Audio Intelligence Examples**
 
 <details>
   <summary>PII Redact a Transcript</summary>
@@ -287,6 +258,57 @@ transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
 ```
 
 </details>
+<details>
+  <summary>Summarize the content of a transcript over time</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(auto_chapters=True)
+)
+
+for chapter in transcript.chapters:
+  print(f"Summary: {chapter.summary}")  # A one paragraph summary of the content spoken during this timeframe
+  print(f"Start: {chapter.start}, End: {chapter.end}")  # Timestamps (in milliseconds) of the chapter
+  print(f"Healine: {chapter.headline}")  # A single sentence summary of the content spoken during this timeframe
+  print(f"Gist: {chapter.gist}")  # An ultra-short summary, just a few words, of the content spoken during this timeframe
+```
+
+[Read more about auto chapters here.](https://www.assemblyai.com/docs/Models/auto_chapters)
+
+</details>
+
+<details>
+  <summary>Summarize the content of a transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(summarization=True)
+)
+
+print(transcript.summary)
+```
+
+By default, the summarization model will be `informative` and the summarization type will be `bullets`. [Read more about summarization models and types here](https://www.assemblyai.com/docs/Models/summarization#types-and-models).
+
+To change the model and/or type, pass additional parameters to the `TranscriptionConfig`:
+
+```python
+config=aai.TranscriptionConfig(
+  summarization=True,
+  summary_model=aai.SummarizationModel.catchy,
+  summary_type=aai.SummarizationType.headline
+)
+```
+
+</details>
 
 ---
 
@@ -296,7 +318,6 @@ Visit one of our Playgrounds:
 
 - [LeMUR Playground](https://www.assemblyai.com/playground/v2/source)
 - [Transcription Playground](https://www.assemblyai.com/playground)
-
 
 # Advanced
 
@@ -328,7 +349,6 @@ transcriber = aai.Transcriber()
 # override the `Transcriber`'s config with a new config
 transcriber.config = aai.TranscriptionConfig(punctuate=False, format_text=False)
 ```
-
 
 In case you want to override the `Transcriber`'s configuration for a specific operation with a different one, you can do so via the `config` parameter of a `.transcribe*(...)` method:
 

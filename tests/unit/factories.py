@@ -37,6 +37,17 @@ class UtteranceFactory(UtteranceWordFactory):
     words = factory.List([factory.SubFactory(UtteranceWordFactory)])
 
 
+class ChapterFactory(factory.Factory):
+    class Meta:
+        model = types.Chapter
+
+    summary = factory.Faker("sentence")
+    headline = factory.Faker("sentence")
+    gist = factory.Faker("sentence")
+    start = factory.Faker("pyint")
+    end = factory.Faker("pyint")
+
+
 class BaseTranscriptFactory(factory.Factory):
     class Meta:
         model = types.BaseTranscript
