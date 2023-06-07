@@ -1314,7 +1314,7 @@ class BaseTranscript(BaseModel):
     # iab_categories: bool = False
     # "Enable Topic Detection."
 
-    custom_spelling: Optional[List[Dict[str, str]]]
+    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]]
     "Customize how words are spelled and formatted using to and from values"
 
     disfluencies: Optional[bool]
