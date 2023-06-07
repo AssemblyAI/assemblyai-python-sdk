@@ -354,8 +354,8 @@ class RawTranscriptionConfig(BaseModel):
     disfluencies: Optional[bool]
     "Transcribe Filler Words, like 'umm', in your media file."
 
-    # sentiment_analysis: bool = False
-    # "Enable Sentiment Analysis."
+    sentiment_analysis: Optional[bool]
+    "Enable Sentiment Analysis."
 
     auto_chapters: Optional[bool]
     "Enable Auto Chapters."
@@ -418,7 +418,7 @@ class TranscriptionConfig:
         # iab_categories: bool = False,
         custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
         disfluencies: Optional[bool] = None,
-        # sentiment_analysis: bool = False,
+        sentiment_analysis: Optional[bool] = None,
         auto_chapters: Optional[bool] = None,
         # entity_detection: bool = False,
         summarization: Optional[bool] = None,
@@ -494,7 +494,7 @@ class TranscriptionConfig:
         # self.iab_categories = iab_categories
         self.set_custom_spelling(custom_spelling, override=True)
         self.disfluencies = disfluencies
-        # self.sentiment_analysis = sentiment_analysis
+        self.sentiment_analysis = sentiment_analysis
         self.auto_chapters = auto_chapters
         # self.entity_detection = entity_detection
         self.set_summarize(
@@ -733,17 +733,17 @@ class TranscriptionConfig:
 
         return self
 
-    # @property
-    # def sentiment_analysis(self) -> bool:
-    #     "Returns the status of the Sentiment Analysis feature."
+    @property
+    def sentiment_analysis(self) -> Optional[bool]:
+        "Returns the status of the Sentiment Analysis feature."
 
-    #     return self._raw_transcription_config.sentiment_analysis
+        return self._raw_transcription_config.sentiment_analysis
 
-    # @sentiment_analysis.setter
-    # def sentiment_analysis(self, enable: bool) -> None:
-    #     "Enable Sentiment Analysis."
+    @sentiment_analysis.setter
+    def sentiment_analysis(self, enable: Optional[bool]) -> None:
+        "Enable Sentiment Analysis."
 
-    #     self._raw_transcription_config.sentiment_analysis = enable
+        self._raw_transcription_config.sentiment_analysis = enable
 
     @property
     def auto_chapters(self) -> bool:
@@ -752,7 +752,7 @@ class TranscriptionConfig:
         return self._raw_transcription_config.auto_chapters
 
     @auto_chapters.setter
-    def auto_chapters(self, enable: bool) -> None:
+    def auto_chapters(self, enable: Optional[bool]) -> None:
         "Enable Auto Chapters."
 
         # Validate required params are also set
@@ -1243,6 +1243,7 @@ class IABResponse(BaseModel):
 
 class Sentiment(Word):
     sentiment: SentimentType
+    speaker: Optional[str]
 
 
 class Entity(BaseModel):
@@ -1363,8 +1364,8 @@ class BaseTranscript(BaseModel):
     disfluencies: Optional[bool]
     "Transcribe Filler Words, like 'umm', in your media file."
 
-    # sentiment_analysis: bool = False
-    # "Enable Sentiment Analysis."
+    sentiment_analysis: Optional[bool]
+    "Enable Sentiment Analysis."
 
     auto_chapters: Optional[bool]
     "Enable Auto Chapters."
@@ -1451,10 +1452,10 @@ class TranscriptResponse(BaseTranscript):
     # "The list of results when Topic Detection is enabled"
 
     chapters: Optional[List[Chapter]]
-    # "When Auto Chapters is enabled, the list of Auto Chapters results"
+    "When Auto Chapters is enabled, the list of Auto Chapters results"
 
-    # sentiment_analysis_results: Optional[List[Sentiment]] = None
-    # "When Sentiment Analysis is enabled, the list of Sentiment Analysis results"
+    sentiment_analysis_results: Optional[List[Sentiment]]
+    "When Sentiment Analysis is enabled, the list of Sentiment Analysis results"
 
     # entities: Optional[List[Entity]] = None
     # "When Entity Detection is enabled, the list of detected Entities"

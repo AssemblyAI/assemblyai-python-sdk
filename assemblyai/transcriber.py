@@ -219,6 +219,10 @@ class Transcript:
         return self._impl.transcript.content_safety_labels
 
     @property
+    def sentiment_analysis_results(self) -> Optional[List[types.Sentiment]]:
+        return self._impl.transcript.sentiment_analysis_results
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 
