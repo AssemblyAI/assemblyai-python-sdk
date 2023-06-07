@@ -357,6 +357,41 @@ config=aai.TranscriptionConfig(
 ```
 
 </details>
+<details>
+  <summary>Analyze the Sentiment of Sentences in a Transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(sentiment_analysis=True)
+)
+
+for sentiment_result in transcript.sentiment_analysis_results:
+  print(sentiment_result.text)
+  print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
+  print(sentiment_result.confidence)
+  print(f"Timestamp: {sentiment_result.timestamp.start} - {sentiment_result.timestamp.end}")
+```
+
+If `speaker_labels` is also enabled, then each sentiment analysis result will also include a `speaker` field.
+
+```python
+# ...
+
+config = aai.TranscriptionConfig(sentiment_analysis=True, speaker_labels=True)
+
+# ...
+
+for sentiment_result in transcript.sentiment_analysis_results:
+  print(sentiment_result.speaker)
+```
+
+[Read more about sentiment analysis here.](https://www.assemblyai.com/docs/Models/sentiment_analysis)
+
+</details>
 
 ---
 

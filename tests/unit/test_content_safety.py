@@ -77,7 +77,6 @@ def __submit_mock_request(
     Helper function to abstract mock transcriber calls with given `TranscriptionConfig`,
     and perform some common assertions.
     """
-    print(mock_response)
 
     mock_transcript_id = mock_response.get("id", "mock_id")
 
