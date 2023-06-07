@@ -215,6 +215,10 @@ class Transcript:
         return self._impl.transcript.chapters
 
     @property
+    def content_safety_labels(self) -> Optional[types.ContentSafetyResponse]:
+        return self._impl.transcript.content_safety_labels
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 

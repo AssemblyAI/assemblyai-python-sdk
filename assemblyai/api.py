@@ -34,7 +34,6 @@ def create_transcript(
             by_alias=True,
         ),
     )
-
     if response.status_code != httpx.codes.ok:
         raise types.TranscriptError(
             f"failed to transcript url {request.audio_url}: {_get_error_message(response)}"

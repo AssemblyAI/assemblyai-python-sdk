@@ -3,6 +3,7 @@ Contains factories that are used for mocking certain requests/responses
 from AssemblyAI's API.
 """
 
+from enum import Enum
 from functools import partial
 from typing import Any, Callable, Dict
 
@@ -11,6 +12,14 @@ import factory.base
 
 import assemblyai as aai
 from assemblyai import types
+
+
+class TimestampFactory(factory.Factory):
+    class Meta:
+        model = aai.Timestamp
+
+    start = factory.Faker("pyint")
+    end = factory.Faker("pyint")
 
 
 class WordFactory(factory.Factory):
@@ -234,6 +243,8 @@ def generate_dict_factory(f: factory.Factory) -> Callable[[], Dict[str, Any]]:
                     if stub_is_list(value)
                     else convert_dict_from_stub(value)
                 )
+            elif isinstance(value, Enum):
+                stub_dict[key] = value.value
         return stub_dict
 
     def dict_factory(f, **kwargs):

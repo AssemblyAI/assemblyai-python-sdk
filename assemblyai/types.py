@@ -339,8 +339,11 @@ class RawTranscriptionConfig(BaseModel):
     speakers_expected: Optional[int]
     "The number of speakers you expect to be in your audio file."
 
-    # content_safety: bool = False
-    # "Enable Content Safety Detection."
+    content_safety: Optional[bool]
+    "Enable Content Safety Detection."
+
+    content_safety_confidence: Optional[int]
+    "The minimum confidence level for a content safety label to be produced."
 
     # iab_categories: bool = False
     # "Enable Topic Detection."
@@ -410,7 +413,8 @@ class TranscriptionConfig:
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
-        # content_safety: bool = False,
+        content_safety: Optional[bool] = None,
+        content_safety_confidence: Optional[int] = None,
         # iab_categories: bool = False,
         custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
         disfluencies: Optional[bool] = None,
@@ -486,7 +490,7 @@ class TranscriptionConfig:
             redact_pii_sub,
         )
         self.set_speaker_diarization(speaker_labels, speakers_expected)
-        # self.content_safety = content_safety
+        self.set_content_safety(content_safety, content_safety_confidence)
         # self.iab_categories = iab_categories
         self.set_custom_spelling(custom_spelling, override=True)
         self.disfluencies = disfluencies
@@ -644,17 +648,51 @@ class TranscriptionConfig:
 
         return self._raw_transcription_config.speakers_expected
 
-    # @property
-    # def content_safety(self) -> bool:
-    #     "Returns the status of the Content Safety feature."
+    @property
+    def content_safety(self) -> Optional[bool]:
+        "Returns the status of the Content Safety feature."
 
-    #     return self._raw_transcription_config.content_safety
+        return self._raw_transcription_config.content_safety
 
-    # @content_safety.setter
-    # def content_safety(self, enable: bool) -> None:
-    #     "Enable Content Safety feature."
+    @property
+    def content_safety_confidence(self) -> Optional[int]:
+        "The minimum confidence level for a content safety label to be produced. Used in combination with the `content_safety` parameter."
 
-    #     self._raw_transcription_config.content_safety = enable
+        return self._raw_transcription_config.content_safety_confidence
+
+    def set_content_safety(
+        self,
+        enable: Optional[bool] = True,
+        content_safety_confidence: Optional[int] = None,
+    ) -> Self:
+        """Enable Content Safety feature.
+
+        Args:
+            `enable`: Whether or not to enable the Content Safety feature.
+            `content_safety_confidence`: The minimum confidence level for a content safety label to be produced.
+
+        Raises:
+            `ValueError`: Raised if `content_safety_confidence` is not between 25 and 100 (inclusive).
+        """
+
+        if not enable:
+            self._raw_transcription_config.content_safety = None
+            self._raw_transcription_config.content_safety_confidence = None
+            return self
+
+        if content_safety_confidence is not None and (
+            content_safety_confidence < 25 or content_safety_confidence > 100
+        ):
+            raise ValueError(
+                "content_safety_confidence must be between 25 and 100 (inclusive)."
+            )
+
+        self._raw_transcription_config.content_safety = enable
+        self._raw_transcription_config.content_safety_confidence = (
+            content_safety_confidence
+        )
+
+        return self
 
     # @property
     # def iab_categories(self) -> bool:
@@ -1162,7 +1200,7 @@ class AutohighlightResponse(BaseModel):
 class ContentSafetyLabelResult(BaseModel):
     label: ContentSafetyLabel
     confidence: float
-    severity: float
+    severity: Optional[float]
 
 
 class ContentSafetySeverityScore(BaseModel):
@@ -1180,8 +1218,10 @@ class ContentSafetyResult(BaseModel):
 class ContentSafetyResponse(BaseModel):
     status: StatusResult
     results: Optional[List[ContentSafetyResult]]
-    summary: Optional[Dict[str, float]]
-    severity_score_summary: Optional[Dict[str, ContentSafetySeverityScore]]
+    summary: Optional[Dict[ContentSafetyLabel, float]]
+    severity_score_summary: Optional[
+        Dict[ContentSafetyLabel, ContentSafetySeverityScore]
+    ]
 
 
 class IABLabelResult(BaseModel):
@@ -1308,8 +1348,11 @@ class BaseTranscript(BaseModel):
     speaker_labels: Optional[bool]
     "Enable Speaker Diarization."
 
-    # content_safety: bool = False
-    # "Enable Content Safety Detection."
+    content_safety: Optional[bool]
+    "Enable Content Safety Detection."
+
+    content_safety_confidence: Optional[int]
+    "The minimum confidence level for a content safety label to be produced."
 
     # iab_categories: bool = False
     # "Enable Topic Detection."
@@ -1401,8 +1444,8 @@ class TranscriptResponse(BaseTranscript):
     # auto_highlights_result: Optional[AutohighlightResponse] = None
     # "The list of results when enabling Automatic Transcript Highlights"
 
-    # content_safety_labels: Optional[ContentSafetyResponse] = None
-    # "The list of results when Content Safety is enabled"
+    content_safety_labels: Optional[ContentSafetyResponse]
+    "The list of results when Content Safety is enabled"
 
     # iab_categories_result: Optional[IABResponse] = None
     # "The list of results when Topic Detection is enabled"
@@ -1416,15 +1459,18 @@ class TranscriptResponse(BaseTranscript):
     # entities: Optional[List[Entity]] = None
     # "When Entity Detection is enabled, the list of detected Entities"
 
-    # def __init__(self, **data: Any):
-    #     # cleanup the response before creating the object
-    #     if data.get("iab_categories_result") == {}:
-    #         data["iab_categories_result"] = None
+    def __init__(self, **data: Any):
+        # cleanup the response before creating the object
+        # if data.get("iab_categories_result") == {}:
+        #     data["iab_categories_result"] = None
 
-    #     if data.get("content_safety_labels") == {}:
-    #         data["content_safety_labels"] = None
+        if data.get("content_safety_labels") == {} or (
+            not data.get("content_safety")
+            and data.get("content_safety_labels", {}).get("status") == "unavailable"
+        ):
+            data["content_safety_labels"] = None
 
-    #     super().__init__(**data)
+        super().__init__(**data)
 
 
 class LemurModel(str, Enum):
