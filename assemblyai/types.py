@@ -360,8 +360,8 @@ class RawTranscriptionConfig(BaseModel):
     auto_chapters: Optional[bool]
     "Enable Auto Chapters."
 
-    # entity_detection: bool = False
-    # "Enable Entity Detection."
+    entity_detection: Optional[bool]
+    "Enable Entity Detection."
 
     summarization: Optional[bool]
     "Enable Summarization"
@@ -420,7 +420,7 @@ class TranscriptionConfig:
         disfluencies: Optional[bool] = None,
         sentiment_analysis: Optional[bool] = None,
         auto_chapters: Optional[bool] = None,
-        # entity_detection: bool = False,
+        entity_detection: Optional[bool] = None,
         summarization: Optional[bool] = None,
         summary_model: Optional[SummarizationModel] = None,
         summary_type: Optional[SummarizationType] = None,
@@ -496,7 +496,7 @@ class TranscriptionConfig:
         self.disfluencies = disfluencies
         self.sentiment_analysis = sentiment_analysis
         self.auto_chapters = auto_chapters
-        # self.entity_detection = entity_detection
+        self.entity_detection = entity_detection
         self.set_summarize(
             summarization,
             summary_model,
@@ -763,17 +763,17 @@ class TranscriptionConfig:
 
         self._raw_transcription_config.auto_chapters = enable
 
-    # @property
-    # def entity_detection(self) -> bool:
-    #     "Returns whether Entity Detection feature is enabled or not."
+    @property
+    def entity_detection(self) -> bool:
+        "Returns whether Entity Detection feature is enabled or not."
 
-    #     return self._raw_transcription_config.entity_detection
+        return self._raw_transcription_config.entity_detection
 
-    # @entity_detection.setter
-    # def entity_detection(self, enable: bool) -> None:
-    #     "Enable Entity Detection."
+    @entity_detection.setter
+    def entity_detection(self, enable: Optional[bool]) -> None:
+        "Enable Entity Detection."
 
-    #     self._raw_transcription_config.entity_detection = enable
+        self._raw_transcription_config.entity_detection = enable
 
     @property
     def summarization(self) -> Optional[bool]:
@@ -1370,8 +1370,8 @@ class BaseTranscript(BaseModel):
     auto_chapters: Optional[bool]
     "Enable Auto Chapters."
 
-    # entity_detection: bool = False
-    # "Enable Entity Detection."
+    entity_detection: Optional[bool]
+    "Enable Entity Detection."
 
     summarization: Optional[bool]
     "Enable Summarization"
@@ -1457,8 +1457,8 @@ class TranscriptResponse(BaseTranscript):
     sentiment_analysis_results: Optional[List[Sentiment]]
     "When Sentiment Analysis is enabled, the list of Sentiment Analysis results"
 
-    # entities: Optional[List[Entity]] = None
-    # "When Entity Detection is enabled, the list of detected Entities"
+    entities: Optional[List[Entity]]
+    "When Entity Detection is enabled, the list of detected Entities"
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object

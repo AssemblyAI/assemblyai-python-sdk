@@ -223,6 +223,10 @@ class Transcript:
         return self._impl.transcript.sentiment_analysis_results
 
     @property
+    def entities(self) -> Optional[List[types.Entity]]:
+        return self._impl.transcript.entities
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 
