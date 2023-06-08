@@ -392,6 +392,27 @@ for sentiment_result in transcript.sentiment_analysis_results:
 [Read more about sentiment analysis here.](https://www.assemblyai.com/docs/Models/sentiment_analysis)
 
 </details>
+<details>
+  <summary>Identify Entities in a Transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(entity_detection=True)
+)
+
+for entity in transcript.entities:
+  print(entity.text) # i.e. "Dan Gilbert"
+  print(entity.type) # i.e. EntityType.person
+  print(f"Timestamp: {entity.start} - {entity.end}")
+```
+
+[Read more about entity detection here.](https://www.assemblyai.com/docs/Models/entity_detection)
+
+</details>
 
 ---
 
