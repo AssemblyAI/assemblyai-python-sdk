@@ -23,7 +23,7 @@ class Client:
             settings: The settings to use for the client.
         """
 
-        self._settings = settings
+        self._settings = settings.copy()
 
         if not self._settings.api_key:
             raise ValueError(
@@ -70,7 +70,7 @@ class Client:
         """
         from . import settings as default_settings
 
-        if cls._default is None:
+        if cls._default is None or cls._default.settings != default_settings:
             with cls._lock:
                 if cls._default is None or cls._default.settings != default_settings:
                     cls._default = cls(settings=default_settings)
