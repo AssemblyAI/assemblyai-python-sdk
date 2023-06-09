@@ -345,8 +345,8 @@ class RawTranscriptionConfig(BaseModel):
     content_safety_confidence: Optional[int]
     "The minimum confidence level for a content safety label to be produced."
 
-    # iab_categories: bool = False
-    # "Enable Topic Detection."
+    iab_categories: Optional[bool]
+    "Enable Topic Detection."
 
     custom_spelling: Optional[List[Dict[str, List[str]]]]
     "Customize how words are spelled and formatted using to and from values"
@@ -415,7 +415,7 @@ class TranscriptionConfig:
         speakers_expected: Optional[int] = None,
         content_safety: Optional[bool] = None,
         content_safety_confidence: Optional[int] = None,
-        # iab_categories: bool = False,
+        iab_categories: Optional[bool] = None,
         custom_spelling: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
         disfluencies: Optional[bool] = None,
         sentiment_analysis: Optional[bool] = None,
@@ -491,7 +491,7 @@ class TranscriptionConfig:
         )
         self.set_speaker_diarization(speaker_labels, speakers_expected)
         self.set_content_safety(content_safety, content_safety_confidence)
-        # self.iab_categories = iab_categories
+        self.iab_categories = iab_categories
         self.set_custom_spelling(custom_spelling, override=True)
         self.disfluencies = disfluencies
         self.sentiment_analysis = sentiment_analysis
@@ -694,17 +694,17 @@ class TranscriptionConfig:
 
         return self
 
-    # @property
-    # def iab_categories(self) -> bool:
-    #     "Returns the status of the Topic Detection feature."
+    @property
+    def iab_categories(self) -> Optional[bool]:
+        "Returns the status of the Topic Detection feature."
 
-    #     return self._raw_transcription_config.iab_categories
+        return self._raw_transcription_config.iab_categories
 
-    # @iab_categories.setter
-    # def iab_categories(self, enable: bool) -> None:
-    #     "Enable Topic Detection feature."
+    @iab_categories.setter
+    def iab_categories(self, enable: Optional[bool]) -> None:
+        "Enable Topic Detection feature."
 
-    #     self._raw_transcription_config.iab_categories = enable
+        self._raw_transcription_config.iab_categories = enable
 
     @property
     def custom_spelling(self) -> Optional[Dict[str, List[str]]]:
@@ -1355,8 +1355,8 @@ class BaseTranscript(BaseModel):
     content_safety_confidence: Optional[int]
     "The minimum confidence level for a content safety label to be produced."
 
-    # iab_categories: bool = False
-    # "Enable Topic Detection."
+    iab_categories: Optional[bool]
+    "Enable Topic Detection."
 
     custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]]
     "Customize how words are spelled and formatted using to and from values"
@@ -1448,8 +1448,8 @@ class TranscriptResponse(BaseTranscript):
     content_safety_labels: Optional[ContentSafetyResponse]
     "The list of results when Content Safety is enabled"
 
-    # iab_categories_result: Optional[IABResponse] = None
-    # "The list of results when Topic Detection is enabled"
+    iab_categories_result: Optional[IABResponse]
+    "The list of results when Topic Detection is enabled"
 
     chapters: Optional[List[Chapter]]
     "When Auto Chapters is enabled, the list of Auto Chapters results"
@@ -1462,8 +1462,11 @@ class TranscriptResponse(BaseTranscript):
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
-        # if data.get("iab_categories_result") == {}:
-        #     data["iab_categories_result"] = None
+        if data.get("iab_categories_result") == {} or (
+            not data.get("iab_categories")
+            and data.get("iab_categories_result", {}).get("status") == "unavailable"
+        ):
+            data["iab_categories_result"] = None
 
         if data.get("content_safety_labels") == {} or (
             not data.get("content_safety")

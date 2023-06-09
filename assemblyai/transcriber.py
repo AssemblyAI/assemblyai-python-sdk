@@ -227,6 +227,10 @@ class Transcript:
         return self._impl.transcript.entities
 
     @property
+    def iab_categories(self) -> Optional[types.IABResponse]:
+        return self._impl.transcript.iab_categories_result
+
+    @property
     def auto_highlights_result(self) -> Optional[types.AutohighlightResponse]:
         return self._impl.transcript.auto_highlights_result
 

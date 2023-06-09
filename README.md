@@ -414,6 +414,34 @@ for entity in transcript.entities:
 
 </details>
 <details>
+  <summary>Detect Topics in a Transcript (IAB Classification)</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(iab_categories=True)
+)
+
+# Get the parts of the transcript that were tagged with topics
+for result in transcript.iab_categories.results:
+  print(result.text)
+  print(f"Timestamp: {result.timestamp.start} - {result.timestamp.end}")
+  for label in result.labels:
+    print(label.label)  # topic
+    print(label.relevance)  # how relevant the label is for the portion of text
+
+# Get a summary of all topics in the transcript
+for label, relevance in transcript.iab_categories.summary.items():
+  print(f"Audio is {relevance * 100}% relevant to {label}")
+```
+
+[Read more about IAB classification here.](https://www.assemblyai.com/docs/Models/iab_classification)
+
+</details>
+<details>
   <summary>Identify Important Words and Phrases in a Transcript</summary>
 
 ```python
@@ -426,11 +454,12 @@ transcript = transcriber.transcribe(
 )
 
 for result in transcript.auto_highlights_result.results:
-  print(result.text)  # the important phrase
-  print(result.rank)  # relevancy of the phrase
-  print(result.count)  # number of instances of the phrase
+  print(result.text) # the important phrase
+  print(result.rank) # relevancy of the phrase
+  print(result.count) # number of instances of the phrase
   for timestamp in result.timestamps:
     print(f"Timestamp: {timestamp.start} - {timestamp.end}")
+
 ```
 
 [Read more about auto highlights here.](https://www.assemblyai.com/docs/Models/key_phrases)
