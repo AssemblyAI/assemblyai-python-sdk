@@ -132,7 +132,7 @@ def test_content_safety_disabled_by_default(httpx_mock: HTTPXMock):
         config=aai.TranscriptionConfig(),
     )
     assert request_body.get("content_safety") is None
-    assert transcript.content_safety_labels is None
+    assert transcript.content_safety is None
 
 
 def test_content_safety_enabled(httpx_mock: HTTPXMock):
@@ -155,20 +155,20 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
-    assert transcript.content_safety_labels is not None
+    assert transcript.content_safety is not None
 
     # Verify status
-    assert transcript.content_safety_labels.status == aai.types.StatusResult.success
+    assert transcript.content_safety.status == aai.types.StatusResult.success
 
     # Verify results
-    assert transcript.content_safety_labels.results is not None
-    assert len(transcript.content_safety_labels.results) > 0
-    assert len(transcript.content_safety_labels.results) == len(
+    assert transcript.content_safety.results is not None
+    assert len(transcript.content_safety.results) > 0
+    assert len(transcript.content_safety.results) == len(
         mock_response["content_safety_labels"]["results"]
     )
     for response_result, transcript_result in zip(
         mock_response["content_safety_labels"]["results"],
-        transcript.content_safety_labels.results,
+        transcript.content_safety.results,
     ):
         assert transcript_result.text == response_result["text"]
 
@@ -187,14 +187,14 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
             assert transcript_label.severity == response_label["severity"]
 
     # Verify summary
-    assert transcript.content_safety_labels.summary is not None
-    assert len(transcript.content_safety_labels.summary) > 0
-    assert len(transcript.content_safety_labels.summary) == len(
+    assert transcript.content_safety.summary is not None
+    assert len(transcript.content_safety.summary) > 0
+    assert len(transcript.content_safety.summary) == len(
         mock_response["content_safety_labels"]["summary"]
     )
     for response_summary_items, transcript_summary_items in zip(
         mock_response["content_safety_labels"]["summary"].items(),
-        transcript.content_safety_labels.summary.items(),
+        transcript.content_safety.summary.items(),
     ):
         response_summary_key, response_summary_value = response_summary_items
         transcript_summary_key, transcript_summary_value = transcript_summary_items
@@ -203,9 +203,9 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
         assert transcript_summary_value == response_summary_value
 
     # Verify severity score summary
-    assert transcript.content_safety_labels.severity_score_summary is not None
-    assert len(transcript.content_safety_labels.severity_score_summary) > 0
-    assert len(transcript.content_safety_labels.severity_score_summary) == len(
+    assert transcript.content_safety.severity_score_summary is not None
+    assert len(transcript.content_safety.severity_score_summary) > 0
+    assert len(transcript.content_safety.severity_score_summary) == len(
         mock_response["content_safety_labels"]["severity_score_summary"]
     )
     for (
@@ -213,7 +213,7 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
         transcript_severity_score_summary_items,
     ) in zip(
         mock_response["content_safety_labels"]["severity_score_summary"].items(),
-        transcript.content_safety_labels.severity_score_summary.items(),
+        transcript.content_safety.severity_score_summary.items(),
     ):
         (
             response_severity_score_summary_key,

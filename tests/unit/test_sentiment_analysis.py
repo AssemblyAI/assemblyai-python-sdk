@@ -84,7 +84,7 @@ def test_sentiment_analysis_disabled_by_default(httpx_mock: HTTPXMock):
         config=aai.TranscriptionConfig(),
     )
     assert request_body.get("sentiment_analysis") is None
-    assert transcript.sentiment_analysis_results is None
+    assert transcript.sentiment_analysis is None
 
 
 def test_sentiment_analysis_enabled(httpx_mock: HTTPXMock):
@@ -106,15 +106,15 @@ def test_sentiment_analysis_enabled(httpx_mock: HTTPXMock):
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
 
-    assert transcript.sentiment_analysis_results is not None
-    assert len(transcript.sentiment_analysis_results) > 0
-    assert len(transcript.sentiment_analysis_results) == len(
+    assert transcript.sentiment_analysis is not None
+    assert len(transcript.sentiment_analysis) > 0
+    assert len(transcript.sentiment_analysis) == len(
         mock_response["sentiment_analysis_results"]
     )
 
     for response_sentiment_result, transcript_sentiment_result in zip(
         mock_response["sentiment_analysis_results"],
-        transcript.sentiment_analysis_results,
+        transcript.sentiment_analysis,
     ):
         assert transcript_sentiment_result.text == response_sentiment_result["text"]
         assert transcript_sentiment_result.start == response_sentiment_result["start"]

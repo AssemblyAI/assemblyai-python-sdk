@@ -99,7 +99,7 @@ def test_auto_highlights_disabled_by_default(httpx_mock: HTTPXMock):
         config=aai.TranscriptionConfig(),
     )
     assert request_body.get("auto_highlights") is None
-    assert transcript.auto_highlights_result is None
+    assert transcript.auto_highlights is None
 
 
 def test_auto_highlights_enabled(httpx_mock: HTTPXMock):
@@ -122,21 +122,21 @@ def test_auto_highlights_enabled(httpx_mock: HTTPXMock):
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
-    assert transcript.auto_highlights_result is not None
+    assert transcript.auto_highlights is not None
     assert (
-        transcript.auto_highlights_result.status
+        transcript.auto_highlights.status
         == mock_response["auto_highlights_result"]["status"]
     )
 
-    assert transcript.auto_highlights_result.results is not None
-    assert len(transcript.auto_highlights_result.results) > 0
-    assert len(transcript.auto_highlights_result.results) == len(
+    assert transcript.auto_highlights.results is not None
+    assert len(transcript.auto_highlights.results) > 0
+    assert len(transcript.auto_highlights.results) == len(
         mock_response["auto_highlights_result"]["results"]
     )
 
     for response_result, transcript_result in zip(
         mock_response["auto_highlights_result"]["results"],
-        transcript.auto_highlights_result.results,
+        transcript.auto_highlights.results,
     ):
         assert transcript_result.count == response_result["count"]
         assert transcript_result.rank == response_result["rank"]

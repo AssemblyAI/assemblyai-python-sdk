@@ -323,7 +323,7 @@ transcript = transcriber.transcribe(
 
 
 # Get the parts of the transcript which were flagged as sensitive
-for result in transcript.content_safety_labels.results:
+for result in transcript.content_safety.results:
   print(result.text)  # sensitive text snippet
   print(result.timestamp.start)
   print(result.timestamp.end)
@@ -334,11 +334,11 @@ for result in transcript.content_safety_labels.results:
     print(label.severity) # severity of the text in relation to the category
 
 # Get the confidence of the most common labels in relation to the entire audio file
-for label, confidence in transcript.content_safety_labels.summary.items():
+for label, confidence in transcript.content_safety.summary.items():
   print(f"{confidence * 100}% confident that the audio contains {label}")
 
 # Get the overall severity of the most common labels in relation to the entire audio file
-for label, severity_confidence in transcript.content_safety_labels.severity_score_summary.items():
+for label, severity_confidence in transcript.content_safety.severity_score_summary.items():
   print(f"{severity_confidence.low * 100}% confident that the audio contains low-severity {label}")
   print(f"{severity_confidence.medium * 100}% confident that the audio contains mid-severity {label}")
   print(f"{severity_confidence.high * 100}% confident that the audio contains high-severity {label}")
@@ -369,7 +369,7 @@ transcript = transcriber.transcribe(
   config=aai.TranscriptionConfig(sentiment_analysis=True)
 )
 
-for sentiment_result in transcript.sentiment_analysis_results:
+for sentiment_result in transcript.sentiment_analysis:
   print(sentiment_result.text)
   print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
   print(sentiment_result.confidence)
@@ -385,7 +385,7 @@ config = aai.TranscriptionConfig(sentiment_analysis=True, speaker_labels=True)
 
 # ...
 
-for sentiment_result in transcript.sentiment_analysis_results:
+for sentiment_result in transcript.sentiment_analysis:
   print(sentiment_result.speaker)
 ```
 
@@ -453,7 +453,7 @@ transcript = transcriber.transcribe(
   config=aai.TranscriptionConfig(auto_highlights=True)
 )
 
-for result in transcript.auto_highlights_result.results:
+for result in transcript.auto_highlights.results:
   print(result.text) # the important phrase
   print(result.rank) # relevancy of the phrase
   print(result.count) # number of instances of the phrase
