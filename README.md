@@ -240,7 +240,7 @@ for result in result:
 import assemblyai as aai
 
 config = aai.TranscriptionConfig()
-config.set_pii_redact(
+config.set_redact_pii(
   # What should be redacted
   policies=[
       aai.PIIRedactionPolicy.credit_card_number,
@@ -256,6 +256,8 @@ config.set_pii_redact(
 transcriber = aai.Transcriber()
 transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
 ```
+
+[Read more about PII redaction here.](https://www.assemblyai.com/docs/Models/pii_redaction)
 
 </details>
 <details>

@@ -409,7 +409,7 @@ class TranscriptionConfig:
         filter_profanity: Optional[bool] = None,
         redact_pii: Optional[bool] = None,
         redact_pii_audio: Optional[bool] = None,
-        redact_pii_policies: Optional[PIIRedactionPolicy] = None,
+        redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
@@ -443,7 +443,7 @@ class TranscriptionConfig:
             boost_param: The weight to apply to words/phrases in the word_boost array.
             filter_profanity: Filter profanity from the transcribed text.
             redact_pii: Redact PII from the transcribed text.
-            redact_pii_audio: Generate a copy of the original media file with spoken PII 'beeped' out.
+            redact_pii_audio: Generate a copy of the original media file with spoken PII 'beeped' out (new audio only available for 24 hours).
             redact_pii_policies: The list of PII Redaction policies to enable.
             redact_pii_sub: The replacement logic for detected PII.
             speaker_labels: Enable Speaker Diarization.
@@ -956,17 +956,17 @@ class TranscriptionConfig:
 
     def set_redact_pii(
         self,
-        enable: bool = True,
-        redact_audio: bool = False,
-        policies: List[PIIRedactionPolicy] = [],
-        substitution: PIISubstitutionPolicy = PIISubstitutionPolicy.hash,
+        enable: Optional[bool] = True,
+        redact_audio: Optional[bool] = None,
+        policies: Optional[List[PIIRedactionPolicy]] = None,
+        substitution: Optional[PIISubstitutionPolicy] = None,
     ) -> Self:
         """
         Enables Personal Identifiable Information (PII) Redaction feature.
 
         Args:
             enable: whether to enable or disable the PII Redaction feature.
-            redact_audio: Generate a copy of the original media file with spoken PII 'beeped' out.
+            redact_audio: Generate a copy of the original media file with spoken PII 'beeped' out. NOTE: The copy is available for 24h
             policies: A list of PII redaction policies to enable.
             substitution: The replacement logic for detected PII (`PIISubstutionPolicy.hash` by default).
         """
@@ -978,6 +978,9 @@ class TranscriptionConfig:
             self._raw_transcription_config.redact_pii_sub = None
 
             return self
+
+        if not policies:
+            raise ValueError("You must provide at least one PII redaction policy.")
 
         self._raw_transcription_config.redact_pii = True
         self._raw_transcription_config.redact_pii_audio = redact_audio

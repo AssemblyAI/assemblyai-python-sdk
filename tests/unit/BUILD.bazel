@@ -31,6 +31,7 @@ py_test(
         "test_entity_detection.py",
         "test_iab_categories.py",
         "test_lemur.py",
+        "test_redact_pii.py",
         "test_sentiment_analysis.py",
         "test_summarization.py",
         "test_transcriber.py",
