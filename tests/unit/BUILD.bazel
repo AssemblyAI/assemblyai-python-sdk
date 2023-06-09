@@ -23,6 +23,7 @@ py_test(
     name = "unit_test",
     srcs = [
         "test_auto_chapters.py",
+        "test_auto_highlights.py",
         "test_client.py",
         "test_config.py",
         "test_content_safety.py",

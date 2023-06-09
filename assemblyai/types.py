@@ -370,8 +370,8 @@ class RawTranscriptionConfig(BaseModel):
     summary_type: Optional[SummarizationType]
     "The summarization type to use in case `summarization` is enabled"
 
-    # auto_highlights: bool = False
-    # "Detect important phrases and words in your transcription text."
+    auto_highlights: Optional[bool]
+    "Detect important phrases and words in your transcription text."
 
     language_detection: Optional[bool]
     """
@@ -424,7 +424,7 @@ class TranscriptionConfig:
         summarization: Optional[bool] = None,
         summary_model: Optional[SummarizationModel] = None,
         summary_type: Optional[SummarizationType] = None,
-        # auto_highlights: bool = False,
+        auto_highlights: Optional[bool] = None,
         language_detection: Optional[bool] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
     ) -> None:
@@ -502,7 +502,7 @@ class TranscriptionConfig:
             summary_model,
             summary_type,
         )
-        # self.auto_highlights = auto_highlights
+        self.auto_highlights = auto_highlights
         self.language_detection = language_detection
 
     @property
@@ -793,17 +793,17 @@ class TranscriptionConfig:
 
         return self._raw_transcription_config.summary_type
 
-    # @property
-    # def auto_highlights(self) -> bool:
-    #     "Returns whether the Auto Highlights feature is enabled or not."
+    @property
+    def auto_highlights(self) -> Optional[bool]:
+        "Returns whether the Auto Highlights feature is enabled or not."
 
-    #     return self._raw_transcription_config.auto_highlights
+        return self._raw_transcription_config.auto_highlights
 
-    # @auto_highlights.setter
-    # def auto_highlights(self, enable: bool) -> None:
-    #     "Detect important phrases and words in your transcription text."
+    @auto_highlights.setter
+    def auto_highlights(self, enable: Optional[bool]) -> None:
+        "Detect important phrases and words in your transcription text."
 
-    #     self._raw_transcription_config.auto_highlights = enable
+        self._raw_transcription_config.auto_highlights = enable
 
     @property
     def language_detection(self) -> Optional[bool]:
@@ -1380,8 +1380,8 @@ class BaseTranscript(BaseModel):
     summary_type: Optional[SummarizationType]
     "The summarization type to use in case `summarization` is enabled"
 
-    # auto_highlights: bool = False
-    # "Detect important phrases and words in your transcription text."
+    auto_highlights: Optional[bool]
+    "Detect important phrases and words in your transcription text."
 
     language_detection: Optional[bool]
     """
@@ -1442,8 +1442,8 @@ class TranscriptResponse(BaseTranscript):
     summary: Optional[str]
     "The summarization of the transcript"
 
-    # auto_highlights_result: Optional[AutohighlightResponse] = None
-    # "The list of results when enabling Automatic Transcript Highlights"
+    auto_highlights_result: Optional[AutohighlightResponse]
+    "The list of results when enabling Automatic Transcript Highlights"
 
     content_safety_labels: Optional[ContentSafetyResponse]
     "The list of results when Content Safety is enabled"
