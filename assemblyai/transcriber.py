@@ -212,26 +212,38 @@ class Transcript:
 
     @property
     def chapters(self) -> Optional[List[types.Chapter]]:
+        "The list of auto-chapters results"
+
         return self._impl.transcript.chapters
 
     @property
-    def content_safety_labels(self) -> Optional[types.ContentSafetyResponse]:
+    def content_safety(self) -> Optional[types.ContentSafetyResponse]:
+        "The results from the content safety analysis"
+
         return self._impl.transcript.content_safety_labels
 
     @property
-    def sentiment_analysis_results(self) -> Optional[List[types.Sentiment]]:
+    def sentiment_analysis(self) -> Optional[List[types.Sentiment]]:
+        "The list of sentiment analysis results"
+
         return self._impl.transcript.sentiment_analysis_results
 
     @property
     def entities(self) -> Optional[List[types.Entity]]:
+        "The list of entity detection results"
+
         return self._impl.transcript.entities
 
     @property
     def iab_categories(self) -> Optional[types.IABResponse]:
+        "The results from the IAB category detection"
+
         return self._impl.transcript.iab_categories_result
 
     @property
-    def auto_highlights_result(self) -> Optional[types.AutohighlightResponse]:
+    def auto_highlights(self) -> Optional[types.AutohighlightResponse]:
+        "The results from the auto-highlights model"
+
         return self._impl.transcript.auto_highlights_result
 
     @property
