@@ -37,9 +37,6 @@ class Settings(BaseSettings):
     base_url: str = "https://api.assemblyai.com/v2"
     "The base URL for the AssemblyAI API"
 
-    polling_interval: float = 1.0
-    "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
-
     class Config:
         env_prefix = "assemblyai_"
 

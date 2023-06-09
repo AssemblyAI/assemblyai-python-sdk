@@ -1,0 +1,50 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@aspect_rules_py//py:defs.bzl", "py_pytest_main")
+
+py_pytest_main(name = "__test__")
+
+py_library(
+    name = "unit",
+    testonly = True,
+    srcs = [
+        "__init__.py",  # keep
+        "conftest.py",
+        "factories.py",  # keep
+    ],
+    imports = ["../../../../../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@assemblyai_deps_factory_boy//:pkg",  # keep
+        "@assemblyai_deps_pytest//:pkg",
+    ],
+)
+
+py_test(
+    name = "unit_test",
+    srcs = [
+        "test_auto_chapters.py",
+        "test_client.py",
+        "test_config.py",
+        "test_content_safety.py",
+        "test_domains.py",
+        "test_entity_detection.py",
+        "test_lemur.py",
+        "test_sentiment_analysis.py",
+        "test_summarization.py",
+        "test_transcriber.py",
+        "test_transcript.py",
+        ":__test__",
+    ],
+    imports = ["../../../../../.."],
+    main = ":__test__.py",
+    deps = [
+        ":__test__",
+        ":unit",
+        "//assemblyai/developer_tools/python/sdk:assemblyai_sdk",
+        "@assemblyai_deps_factory_boy//:pkg",
+        "@assemblyai_deps_faker//:pkg",
+        "@assemblyai_deps_httpx//:pkg",
+        "@assemblyai_deps_pytest//:pkg",
+        "@assemblyai_deps_pytest_httpx//:pkg",
+    ],
+)
