@@ -222,7 +222,7 @@ questions = [
 
 results = transcript.lemur.question(questions)
 
-for result in results:
+for result in result:
     print(f"Question: {result.question}")
     print(f"Answer: {result.answer}")
 ```
