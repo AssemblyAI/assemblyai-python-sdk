@@ -77,7 +77,7 @@ class _TranscriptImpl:
             ):
                 break
 
-            time.sleep(3)
+            time.sleep(self._client.settings.polling_interval)
 
         return self
 
