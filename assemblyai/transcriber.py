@@ -227,6 +227,10 @@ class Transcript:
         return self._impl.transcript.entities
 
     @property
+    def auto_highlights_result(self) -> Optional[types.AutohighlightResponse]:
+        return self._impl.transcript.auto_highlights_result
+
+    @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
 

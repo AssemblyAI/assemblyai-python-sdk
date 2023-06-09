@@ -413,6 +413,29 @@ for entity in transcript.entities:
 [Read more about entity detection here.](https://www.assemblyai.com/docs/Models/entity_detection)
 
 </details>
+<details>
+  <summary>Identify Important Words and Phrases in a Transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(auto_highlights=True)
+)
+
+for result in transcript.auto_highlights_result.results:
+  print(result.text)  # the important phrase
+  print(result.rank)  # relevancy of the phrase
+  print(result.count)  # number of instances of the phrase
+  for timestamp in result.timestamps:
+    print(f"Timestamp: {timestamp.start} - {timestamp.end}")
+```
+
+[Read more about auto highlights here.](https://www.assemblyai.com/docs/Models/key_phrases)
+
+</details>
 
 ---
 
