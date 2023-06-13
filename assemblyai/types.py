@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from pydantic import BaseModel, BaseSettings, Extra
+from pydantic import BaseModel, BaseSettings, Extra, Field
 from typing_extensions import Self
 
 
@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
     base_url: str = "https://api.assemblyai.com/v2"
     "The base URL for the AssemblyAI API"
+
+    polling_interval: float = Field(default=3.0, gte=0.1)
+    "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
 
     class Config:
         env_prefix = "assemblyai_"

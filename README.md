@@ -222,7 +222,7 @@ questions = [
 
 results = transcript.lemur.question(questions)
 
-for result in result:
+for result in results:
     print(f"Question: {result.question}")
     print(f"Answer: {result.answer}")
 ```
@@ -531,3 +531,13 @@ The synchronous approach halts the application's flow until the transcription ha
 The asynchronous approach allows the application to continue running while the transcription is being processed. The caller receives a [`concurrent.futures.Future`](https://docs.python.org/3/library/concurrent.futures.html) object which can be used to check the status of the transcription at a later time.
 
 You can identify those two approaches by the `_async` suffix in the `Transcriber`'s method name (e.g. `transcribe` vs `transcribe_async`).
+
+## Polling Intervals
+
+By default we poll the `Transcript`'s status each `3s`. In case you would like to adjust that interval:
+
+```python
+import assemblyai as aai
+
+aai.settings.polling_interval = 1.0
+```
