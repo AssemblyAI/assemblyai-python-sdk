@@ -7,7 +7,7 @@ long_description = (Path(__file__).parent / "README.md").read_text()
 
 setup(
     name="assemblyai",
-    version="0.9.0",
+    version="0.10.0",
     description="AssemblyAI Python SDK",
     author="AssemblyAI",
     author_email="engineering.sdk@assemblyai.com",
@@ -15,8 +15,12 @@ setup(
     install_requires=[
         "httpx>=0.19.0",
         "pydantic>=1.7.0",
-        "typing-extensions",
+        "typing-extensions>=3.7,<4.6",
+        "websockets>=11.0",
     ],
+    extras_require={
+        "extras": ["pyaudio>=0.2.13"],
+    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

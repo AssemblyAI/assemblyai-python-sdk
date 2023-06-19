@@ -38,6 +38,7 @@ jobs:
           python-version: ${{ matrix.py }}
       - name: Setup test suite
         run: |
+          sudo apt-get update && sudo apt-get install -y portaudio19-dev
           python_version="${{ matrix.py }}"
           python_version="${python_version/./}"
           tox -f "py$python_version" -vvvv --notest
