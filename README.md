@@ -64,7 +64,7 @@ aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 ### **Core Examples**
 
 <details>
-  <summary>Transcribe a local Audio File</summary>
+  <summary>Transcribe a Local Audio File</summary>
 
 ```python
 import assemblyai as aai
@@ -525,8 +525,6 @@ transcriber = aai.RealtimeTranscriber(
   on_close=on_close, # optional
 )
 
-# Start the connection
-transcriber.connect()
 
 # Open a microphone stream
 microphone_stream = aai.extras.MicrophoneStream()
@@ -568,10 +566,9 @@ transcriber = aai.RealtimeTranscriber(
   on_data=on_data,
   on_error=on_error,
   sample_rate=44_100,
+  on_open=on_open, # optional
+  on_close=on_close, # optional
 )
-
-# Start the connection
-transcriber.connect()
 
 
 # Only WAV/PCM16 single channel supported for now
