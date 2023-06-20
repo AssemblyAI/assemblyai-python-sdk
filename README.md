@@ -266,6 +266,25 @@ transcriber = aai.Transcriber()
 transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
 ```
 
+To request a copy of the original audio file with the redacted information "beeped" out, set `redact_pii_audio=True` in the config.
+Once the `Transcript` object is returned, you can access the URL of the redacted audio file with `get_redacted_audio_url`, or save the redacted audio directly to disk with `save_redacted_audio`.
+
+```python
+import assemblyai as aai
+
+transcript = aai.Transcriber().transcribe(
+  "https://example.org/audio.mp3",
+  config=aai.TranscriptionConfig(
+    redact_pii=True,
+    redact_pii_policies=[aai.PIIRedactionPolicy.person_name],
+    redact_pii_audio=True
+  )
+)
+
+redacted_audio_url = transcript.get_redacted_audio_url()
+transcript.save_redacted_audio("redacted_audio.mp3")
+```
+
 [Read more about PII redaction here.](https://www.assemblyai.com/docs/Models/pii_redaction)
 
 </details>

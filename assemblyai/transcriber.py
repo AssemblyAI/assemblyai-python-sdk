@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import concurrent.futures
+import functools
 import json
 import os
 import queue
@@ -20,9 +21,9 @@ from typing import (
 )
 from urllib.parse import urlencode, urlparse
 
+import httpx
 import websockets
 import websockets.exceptions
-from httpx import request
 from typing_extensions import Self
 from websockets.sync.client import connect as websocket_connect
 
@@ -149,6 +150,44 @@ class _TranscriptImpl:
         )
 
         return response.paragraphs
+
+    @functools.lru_cache
+    def get_redacted_audio_url(self) -> str:
+        """
+        Retrieve the URL for the PII-redacted audio file, if `redact_pii_audio` was enabled on the `TranscriptionConfig`.
+        Subsequent calls will return cached URL rather than requesting it from the API again.
+
+        Returns: The URL of the redacted audio file.
+        """
+        if not self.config.redact_pii or not self.config.redact_pii_audio:
+            raise ValueError(
+                "Redacted audio is only available when `redact_pii` and `redact_pii_audio` are set to `True`."
+            )
+
+        while True:
+            try:
+                return api.get_redacted_audio(
+                    client=self._client.http_client,
+                    transcript_id=self.transcript_id,
+                ).redacted_audio_url
+            except types.RedactedAudioIncompleteError:
+                time.sleep(self._client.settings.polling_interval)
+
+    def save_redacted_audio(self, filepath: str):
+        """
+        Retrieve the PII-redacted audio file, if `redact_pii_audio` was enabled on the `TranscriptionConfig`
+
+        Args:
+            filepath: The path to save the redacted audio file to.
+        """
+        with httpx.stream(method="GET", url=self.get_redacted_audio_url()) as response:
+            if response.status_code not in (httpx.codes.OK, httpx.codes.NOT_MODIFIED):
+                raise types.RedactedAudioUnavailableError(
+                    f"Fetching redacted audio failed with status code {response.status_code}"
+                )
+            with open(filepath, "wb") as f:
+                for chunk in response.iter_bytes():
+                    f.write(chunk)
 
 
 class Transcript:
@@ -401,6 +440,24 @@ class Transcript:
         """
 
         return self._impl.get_paragraphs()
+
+    def get_redacted_audio_url(self) -> str:
+        """
+        Retrieve the URL for the PII-redacted audio file, if `redact_pii_audio` was enabled on the `TranscriptionConfig`.
+        Subsequent calls will return cached URL rather than requesting it from the API again.
+
+        Returns: The URL of the redacted audio file.
+        """
+        return self._impl.get_redacted_audio_url()
+
+    def save_redacted_audio(self, filepath: str):
+        """
+        Retrieve the PII-redacted audio file, if `redact_pii_audio` was enabled on the `TranscriptionConfig`
+
+        Args:
+            filepath: The path to save the redacted audio file to.
+        """
+        return self._impl.save_redacted_audio(filepath=filepath)
 
 
 class _TranscriptGroupImpl:

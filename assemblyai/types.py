@@ -18,6 +18,27 @@ class TranscriptError(AssemblyAIError):
     """
 
 
+class RedactedAudioIncompleteError(AssemblyAIError):
+    """
+    Error class when a PII-redacted audio URL is requested
+    before the file has finished processing
+    """
+
+
+class RedactedAudioExpiredError(AssemblyAIError):
+    """
+    Error class when a PII-redacted audio URL is requested
+    but the file has expired and is no longer available
+    """
+
+
+class RedactedAudioUnavailableError(AssemblyAIError):
+    """
+    Error class when a PII-redacted audio file is requested
+    but it is not available at the given URL
+    """
+
+
 class LemurError(AssemblyAIError):
     """
     Error class when a Lemur request fails
@@ -1280,6 +1301,14 @@ class WordSearchMatchResponse(BaseModel):
 
     matches: List[WordSearchMatch]
     "Contains a list/array of all matched words and associated data"
+
+
+class RedactedAudioResponse(BaseModel):
+    redacted_audio_url: str
+    "The URL of the redacted audio file."
+
+    status: str
+    "Information about the status of the redaction process (will be `redacted_audio_ready` if successful)"
 
 
 class Sentence(Word):

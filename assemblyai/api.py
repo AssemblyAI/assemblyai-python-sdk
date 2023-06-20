@@ -157,6 +157,41 @@ def word_search(
     return types.WordSearchMatchResponse.parse_obj(response.json())
 
 
+def get_redacted_audio(
+    client: httpx.Client, transcript_id: str
+) -> types.RedactedAudioResponse:
+    """
+    Retrieves the object containing the redacted audio URL for the given transcript.
+
+    Raises:
+        RedactedAudioIncompleteError: If response indicates that the redacted audio is still processing
+        RedactedAudioUnavailableError: If response indicates that the redacted audio is not available
+        TranscriptError: If we fail to get a valid response from the API at all
+
+    Returns:
+        `RedactedAudioResponse`, which contains the URL of the redacted audio
+    """
+
+    response = client.get(f"/transcript/{transcript_id}/redacted-audio")
+
+    if response.status_code == httpx.codes.ACCEPTED:
+        raise types.RedactedAudioIncompleteError(
+            f"redacted audio for transcript {transcript_id} is not ready yet"
+        )
+
+    if response.status_code == httpx.codes.BAD_REQUEST:
+        raise types.RedactedAudioExpiredError(
+            f"redacted audio for transcript {transcript_id} is no longer available"
+        )
+
+    if response.status_code != httpx.codes.OK:
+        raise types.TranscriptError(
+            f"failed to retrieve redacted audio for transcript {transcript_id}: {_get_error_message(response)}"
+        )
+
+    return types.RedactedAudioResponse.parse_obj(response.json())
+
+
 def get_sentences(
     client: httpx.Client,
     transcript_id: str,
