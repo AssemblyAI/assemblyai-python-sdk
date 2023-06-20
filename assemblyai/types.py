@@ -1498,13 +1498,13 @@ class TranscriptResponse(BaseTranscript):
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
-        if data.get("iab_categories_result") == {} or (
+        if not data.get("iab_categories_result") or (
             not data.get("iab_categories")
             and data.get("iab_categories_result", {}).get("status") == "unavailable"
         ):
             data["iab_categories_result"] = None
 
-        if data.get("content_safety_labels") == {} or (
+        if not data.get("content_safety_labels") or (
             not data.get("content_safety")
             and data.get("content_safety_labels", {}).get("status") == "unavailable"
         ):
