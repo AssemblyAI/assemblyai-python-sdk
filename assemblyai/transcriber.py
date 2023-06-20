@@ -197,7 +197,6 @@ class Transcript:
 
     def __init__(
         self,
-        *,
         transcript_id: Optional[str],
         client: Optional[_client.Client] = None,
     ) -> None:
@@ -464,10 +463,14 @@ class _TranscriptGroupImpl:
     def __init__(
         self,
         *,
+        transcript_ids: List[str],
         client: _client.Client,
     ) -> None:
         self._client = client
         self.transcripts: List[Transcript] = []
+
+        for transcript_id in transcript_ids:
+            self.add_transcript(transcript_id)
 
     @property
     def transcript_ids(self) -> List[str]:
@@ -514,12 +517,13 @@ class TranscriptGroup:
 
     def __init__(
         self,
-        *,
+        transcript_ids: List[str] = [],
         client: Optional[_client.Client] = None,
     ) -> None:
         self._client = client or _client.Client.get_default()
 
         self._impl = _TranscriptGroupImpl(
+            transcript_ids=transcript_ids,
             client=self._client,
         )
 
@@ -548,12 +552,12 @@ class TranscriptGroup:
 
         all_status = {t.status for t in self.transcripts}
 
-        if any(s == types.TranscriptStatus.queued for s in all_status):
+        if any(s == types.TranscriptStatus.error for s in all_status):
+            return types.TranscriptStatus.error
+        elif any(s == types.TranscriptStatus.queued for s in all_status):
             return types.TranscriptStatus.queued
         elif any(s == types.TranscriptStatus.processing for s in all_status):
             return types.TranscriptStatus.processing
-        elif any(s == types.TranscriptStatus.error for s in all_status):
-            return types.TranscriptStatus.error
         elif all(s == types.TranscriptStatus.completed for s in all_status):
             return types.TranscriptStatus.completed
 
