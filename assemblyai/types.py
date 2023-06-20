@@ -1,7 +1,8 @@
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
-from pydantic import BaseModel, BaseSettings, Extra, Field
+from pydantic import UUID4, BaseModel, BaseSettings, Extra, Field
 from typing_extensions import Self
 
 
@@ -1532,3 +1533,136 @@ class LemurCoachRequest(BaseModel):
 class LemurCoachResponse(BaseModel):
     response: str
     model: LemurModel = LemurModel.default
+
+
+class RealtimeMessageTypes(str, Enum):
+    """
+    The type of message received from the real-time API
+    """
+
+    partial_transcript = "PartialTranscript"
+    final_transcript = "FinalTranscript"
+    session_begins = "SessionBegins"
+
+
+class RealtimeSessionOpened(BaseModel):
+    """
+    Once a real-time session is opened, the client will receive this message
+    """
+
+    message_type: Literal[
+        RealtimeMessageTypes.session_begins
+    ] = RealtimeMessageTypes.session_begins
+
+    session_id: UUID4
+    "Unique identifier for the established session."
+
+    expires_at: datetime
+    "Timestamp when this session will expire."
+
+
+class RealtimeWord(BaseModel):
+    """
+    A word in a real-time transcript
+    """
+
+    start: int
+    "Start time of word relative to session start, in milliseconds"
+
+    end: int
+    "End time of word relative to session start, in milliseconds"
+
+    confidence: float
+    "The confidence score of the word, between 0 and 1"
+
+    text: str
+    "The word itself"
+
+
+class RealtimeTranscript(BaseModel):
+    """
+    Base class for real-time transcript messages.
+    """
+
+    message_type: Literal[
+        RealtimeMessageTypes.partial_transcript, RealtimeMessageTypes.final_transcript
+    ]
+    "Describes the type of message"
+
+    audio_start: int
+    "Start time of audio sample relative to session start, in milliseconds"
+
+    audio_end: int
+    "End time of audio sample relative to session start, in milliseconds"
+
+    confidence: float
+    "The confidence score of the entire transcription, between 0 and 1"
+
+    text: str
+    "The transcript for your audio"
+
+    words: List[Word]
+    """
+    An array of objects, with the information for each word in the transcription text.
+    Will include the `start`/`end` time (in milliseconds) of the word, the `confidence` score of the word,
+    and the `text` (i.e. the word itself)
+    """
+
+    created: datetime
+    "Timestamp when this message was created"
+
+
+class RealtimePartialTranscript(RealtimeTranscript):
+    """
+    As you send audio data to the service, the service will immediately start responding with partial transcripts.
+    """
+
+    message_type: Literal[
+        RealtimeMessageTypes.partial_transcript
+    ] = RealtimeMessageTypes.partial_transcript
+
+
+class RealtimeFinalTranscript(RealtimeTranscript):
+    """
+    After you've received your partial results, our model will continue to analyze incoming audio and,
+    when it detects the end of an "utterance" (usually a pause in speech), it will finalize the results
+    sent to you so far with higher accuracy, as well as add punctuation and casing to the transcription text.
+    """
+
+    message_type: Literal[
+        RealtimeMessageTypes.final_transcript
+    ] = RealtimeMessageTypes.final_transcript
+
+    punctuated: bool
+    "Whether the transcript has been punctuated and cased"
+
+    text_formatted: bool
+    "Whether the transcript has been formatted (e.g. Dollar -> $)"
+
+
+class RealtimeError(AssemblyAIError):
+    """
+    Real-time error message
+    """
+
+
+RealtimeErrorMapping = {
+    4000: "Sample rate must be a positive integer",
+    4001: "Not Authorized",
+    4002: "Insufficient Funds",
+    4003: """This feature is paid-only and requires you to add a credit card.
+    Please visit https://app.assemblyai.com/ to add a credit card to your account""",
+    4004: "Session Not Found",
+    4008: "Session Expired",
+    4010: "Session Previously Closed",
+    4029: "Client sent audio too fast",
+    4030: "Session is handled by another websocket",
+    4031: "Session idle for too long",
+    4032: "Audio duration is too short",
+    4033: "Audio duration is too long",
+    4100: "Endpoint received invalid JSON",
+    4101: "Endpoint received a message with an invalid schema",
+    4102: "This account has exceeded the number of allowed streams",
+    4103: "The session has been reconnected. This websocket is no longer valid.",
+    1013: "Temporary server condition forced blocking client's request",
+}

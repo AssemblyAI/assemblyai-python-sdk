@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+import base64
 import concurrent.futures
+import json
 import os
+import queue
+import threading
 import time
-from typing import Dict, Iterator, List, Optional, Union
-from urllib.parse import urlparse
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Union,
+)
+from urllib.parse import urlencode, urlparse
 
+import websockets
+import websockets.exceptions
+from httpx import request
 from typing_extensions import Self
+from websockets.sync.client import connect as websocket_connect
 
 from . import api
 from . import client as _client
@@ -824,3 +842,270 @@ class Transcriber:
             config=config,
             poll=True,
         )
+
+
+class _RealtimeTranscriberImpl:
+    def __init__(
+        self,
+        *,
+        on_data: Callable[[types.RealtimeTranscript], None],
+        on_error: Callable[[types.RealtimeError], None],
+        on_open: Optional[Callable[[types.RealtimeSessionOpened], None]],
+        on_close: Optional[Callable[[], None]],
+        sample_rate: int,
+        word_boost: List[str],
+        client: _client.Client,
+    ) -> None:
+        self._client = client
+        self._websocket: Optional[websockets_client.ClientConnection] = None
+
+        self._on_open = on_open
+        self._on_data = on_data
+        self._on_error = on_error
+        self._on_close = on_close
+        self._sample_rate = sample_rate
+        self._word_boost = word_boost
+
+        self._write_queue: queue.Queue[bytes] = queue.Queue()
+        self._write_thread = threading.Thread(target=self._write)
+        self._read_thread = threading.Thread(target=self._read)
+        self._stop_event = threading.Event()
+
+    def connect(
+        self,
+        timeout: Optional[float],
+    ) -> None:
+        """
+        Connects to the real-time service.
+
+        Args:
+            `timeout`: The maximum time to wait for the connection to be established.
+        """
+
+        params: Dict[str, Any] = {
+            "sample_rate": self._sample_rate,
+        }
+        if self._word_boost:
+            params["word_boost"] = self._word_boost
+
+        websocket_base_url = self._client.settings.base_url.replace("https", "wss")
+
+        try:
+            self._websocket = websocket_connect(
+                f"{websocket_base_url}/realtime/ws?{urlencode(params)}",
+                additional_headers={
+                    "Authorization": f"{self._client.settings.api_key}"
+                },
+                open_timeout=timeout,
+            )
+        except Exception as exc:
+            return self._on_error(
+                types.RealtimeError(
+                    f"Could not connect to the real-time service: {exc}"
+                )
+            )
+
+        self._read_thread.start()
+        self._write_thread.start()
+
+    def stream(self, data: bytes) -> None:
+        """
+        Streams audio data to the real-time service by putting it into a queue.
+        """
+
+        self._write_queue.put(data)
+
+    def close(self, terminate: bool = False) -> None:
+        """
+        Closes the connection to the real-time service gracefully.
+        """
+
+        with self._write_queue.mutex:
+            self._write_queue.queue.clear()
+
+        if terminate and not self._stop_event.is_set():
+            self._websocket.send(json.dumps({"terminate_session": True}))
+            self._websocket.close()
+
+        self._stop_event.set()
+
+        try:
+            self._read_thread.join()
+            self._write_thread.join()
+        except Exception:
+            pass
+
+        if self._on_close:
+            self._on_close()
+
+    def _read(self) -> None:
+        """
+        Reads messages from the real-time service.
+
+        Must run in a separate thread to avoid blocking the main thread.
+        """
+
+        while not self._stop_event.is_set():
+            try:
+                message = self._websocket.recv(timeout=1)
+            except TimeoutError:
+                continue
+            except websockets.exceptions.ConnectionClosed as exc:
+                return self._handle_error(exc)
+
+            try:
+                message = json.loads(message)
+            except json.JSONDecodeError as exc:
+                self._on_error(
+                    types.RealtimeError(
+                        f"Could not decode message: {exc}",
+                    )
+                )
+                continue
+
+            self._handle_message(message)
+
+    def _write(self) -> None:
+        """
+        Writes messages to the real-time service.
+
+        Must run in a separate thread to avoid blocking the main thread.
+        """
+
+        while not self._stop_event.is_set():
+            try:
+                data = self._write_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            try:
+                self._websocket.send(self._encode_data(data))
+            except websockets.exceptions.ConnectionClosed as exc:
+                return self._handle_error(exc)
+
+    def _encode_data(self, data: bytes) -> str:
+        """
+        Encodes the given audio chunk as a base64 string.
+
+        This is a helper method for `_write`.
+        """
+
+        return json.dumps(
+            {
+                "audio_data": base64.b64encode(data).decode("utf-8"),
+            }
+        )
+
+    def _handle_message(
+        self,
+        message: Dict[str, Any],
+    ) -> None:
+        """
+        Handles a message received from the real-time service by calling the appropriate
+        callback.
+
+        Args:
+            `message`: The message to handle.
+        """
+        if "message_type" in message:
+            if message["message_type"] == types.RealtimeMessageTypes.partial_transcript:
+                self._on_data(types.RealtimePartialTranscript(**message))
+            elif message["message_type"] == types.RealtimeMessageTypes.final_transcript:
+                self._on_data(types.RealtimeFinalTranscript(**message))
+            elif (
+                message["message_type"] == types.RealtimeMessageTypes.session_begins
+                and self._on_open
+            ):
+                self._on_open(types.RealtimeSessionOpened(**message))
+        elif "error" in message:
+            self._on_error(types.RealtimeError(message["error"]))
+
+    def _handle_error(self, error: websockets.exceptions.ConnectionClosed) -> None:
+        """
+        Handles a WebSocket error by calling the appropriate callback.
+        """
+        if error.code >= 4000 and error.code <= 4999:
+            error_message = types.RealtimeErrorMapping[error.code]
+        else:
+            error_message = error.reason
+
+        self._on_error(types.RealtimeError(error_message))
+        self.close()
+
+
+class RealtimeTranscriber:
+    def __init__(
+        self,
+        *,
+        on_data: Callable[[types.RealtimeTranscript], None],
+        on_error: Callable[[types.RealtimeError], None],
+        on_open: Optional[Callable[[types.RealtimeSessionOpened], None]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+        sample_rate: int,
+        word_boost: List[str] = [],
+        client: Optional[_client.Client] = None,
+    ) -> None:
+        """
+        Creates a new real-time transcriber.
+
+        Args:
+            `on_data`: The callback to call when a new transcript is received.
+            `on_error`: The callback to call when an error occurs.
+            `on_open`: (Optional) The callback to call when the connection to the real-time service
+            `on_close`: (Optional) The callback to call when the connection to the real-time service
+            `sample_rate`: The sample rate of the audio data.
+            `word_boost`: (Optional) A list of words to boost the confidence of.
+            `client`: (Optional) The client to use for the real-time service.
+        """
+
+        self._client = client or _client.Client.get_default()
+
+        self._impl = _RealtimeTranscriberImpl(
+            on_open=on_open,
+            on_data=on_data,
+            on_error=on_error,
+            on_close=on_close,
+            sample_rate=sample_rate,
+            word_boost=word_boost,
+            client=self._client,
+        )
+
+    def connect(
+        self,
+        timeout: Optional[float] = 10.0,
+    ) -> None:
+        """
+        Connects to the real-time service.
+
+        Args:
+            `timeout`: The timeout in seconds to wait for the connection to be established.
+                A `timeout` of `None` means no timeout.
+        """
+
+        self._impl.connect(timeout=timeout)
+
+    def stream(
+        self,
+        data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]],
+    ) -> None:
+        """
+        Streams raw audio data to the real-time service.
+
+        Args:
+            `data`: Raw audio data in `bytes` or a generator/iterable of `bytes`.
+
+        Note: Make sure that `data` matches the `sample_rate` that was given in the constructor.
+        """
+        if isinstance(data, bytes):
+            self._impl.stream(data)
+            return
+
+        for chunk in data:
+            self._impl.stream(chunk)
+
+    def close(self) -> None:
+        """
+        Closes the connection to the real-time service.
+        """
+
+        self._impl.close(terminate=True)

@@ -1,6 +1,7 @@
+from . import extras
 from .client import Client
 from .lemur import Lemur
-from .transcriber import Transcriber, Transcript, TranscriptGroup
+from .transcriber import RealtimeTranscriber, Transcriber, Transcript, TranscriptGroup
 from .types import (
     AssemblyAIError,
     AutohighlightResponse,
@@ -24,6 +25,12 @@ from .types import (
     PIIRedactionPolicy,
     PIISubstitutionPolicy,
     RawTranscriptionConfig,
+    RealtimeError,
+    RealtimeFinalTranscript,
+    RealtimePartialTranscript,
+    RealtimeSessionOpened,
+    RealtimeTranscript,
+    RealtimeWord,
     Sentence,
     Sentiment,
     SentimentType,
@@ -93,6 +100,14 @@ __all__ = [
     "Word",
     "WordBoost",
     "WordSearchMatch",
+    "RealtimeError",
+    "RealtimeFinalTranscript",
+    "RealtimePartialTranscript",
+    "RealtimeSessionOpened",
+    "RealtimeTranscript",
+    "RealtimeWord",
     # package globals
     "settings",
+    # packages
+    "extras",
 ]
