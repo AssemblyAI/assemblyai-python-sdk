@@ -1,6 +1,7 @@
 import uuid
 
 import assemblyai as aai
+import assemblyai as aai
 from tests.unit import factories
 
 
