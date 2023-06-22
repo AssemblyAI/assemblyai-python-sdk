@@ -108,6 +108,19 @@ class TranscriptCompletedResponseFactory(BaseTranscriptFactory):
     webhook_status_code = None
 
 
+class TranscriptQueuedResponseFactory(BaseTranscriptFactory):
+    class Meta:
+        model = types.TranscriptResponse
+
+    id = factory.Faker("uuid4")
+    status = aai.TranscriptStatus.queued
+    text = None
+    words = None
+    utterances = None
+    confidence = None
+    audio_duration = None
+
+
 class TranscriptProcessingResponseFactory(BaseTranscriptFactory):
     class Meta:
         model = types.TranscriptResponse
