@@ -1084,13 +1084,20 @@ class _RealtimeTranscriberImpl:
     def _handle_error(self, error: websockets.exceptions.ConnectionClosed) -> None:
         """
         Handles a WebSocket error by calling the appropriate callback.
+
+        See a list of errors here:
+
+        - https://www.iana.org/assignments/websocket/websocket.xhtml#close-code-number
+        - https://www.assemblyai.com/docs/Guides/real-time_streaming_transcription#closing-and-status-codes
         """
         if error.code >= 4000 and error.code <= 4999:
             error_message = types.RealtimeErrorMapping[error.code]
         else:
             error_message = error.reason
 
-        self._on_error(types.RealtimeError(error_message))
+        if error.code != 1000:
+            self._on_error(types.RealtimeError(error_message))
+
         self.close()
 
 

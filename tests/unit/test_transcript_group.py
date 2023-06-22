@@ -1,6 +1,5 @@
 import uuid
 
-import assemblyai.developer_tools.python.sdk as aai
 import assemblyai as aai
 from tests.unit import factories
 
