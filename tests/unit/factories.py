@@ -90,6 +90,7 @@ class BaseTranscriptFactory(factory.Factory):
     summary_type = None
     auto_highlights = False
     language_detection = False
+    speech_threshold = None
 
 
 class TranscriptCompletedResponseFactory(BaseTranscriptFactory):
