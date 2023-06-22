@@ -382,7 +382,9 @@ def test_save_pii_redacted_audio(httpx_mock: HTTPXMock, mocker: MockerFixture):
     mock_file.assert_called_once_with(downloaded_filepath, "wb")
 
     # Ensure correct file content was written
-    mock_file().write.assert_called_once_with(mock_audio_file_bytes)
+    write_calls = mock_file().write.call_args_list
+    full_written_bytes = b"".join(call.args[0] for call in write_calls)
+    assert full_written_bytes == mock_audio_file_bytes
 
 
 def test_save_pii_redacted_audio_fails_if_redact_pii_not_enabled_for_transcript(
