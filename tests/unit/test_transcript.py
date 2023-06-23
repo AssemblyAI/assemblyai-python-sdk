@@ -304,3 +304,44 @@ def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 2
+
+
+def test_get_by_id(httpx_mock: HTTPXMock):
+    transcript_id = "123"
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_transcript_response,
+    )
+
+    transcript = aai.Transcript.get_by_id(transcript_id)
+
+    assert isinstance(transcript, aai.Transcript)
+    assert transcript.status == aai.TranscriptStatus.completed
+    assert transcript.id == transcript_id
+    assert transcript.error is None
+
+
+def test_get_by_id_async(httpx_mock: HTTPXMock):
+    transcript_id = "123"
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_transcript_response,
+    )
+
+    transcript_future = aai.Transcript.get_by_id_async(transcript_id)
+    transcript = transcript_future.result()
+
+    assert isinstance(transcript, aai.Transcript)
+    assert transcript.status == aai.TranscriptStatus.completed
+    assert transcript.id == transcript_id
+    assert transcript.error is None
