@@ -4,7 +4,6 @@ import httpx
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
-import assemblyai as aai
 from tests.unit import factories
 
 
