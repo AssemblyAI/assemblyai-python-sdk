@@ -678,3 +678,38 @@ import assemblyai as aai
 
 aai.settings.polling_interval = 1.0
 ```
+
+## Retrieving Existing Transcripts
+
+### Retrieving a Single Transcript
+
+If you previously created a transcript, you can use its ID to retrieve it later.
+
+```python
+import assemblyai as aai
+
+transcript = aai.Transcript.get_by_id("<TRANSCRIPT_ID>")
+
+print(transcript.id)
+print(transcript.text)
+```
+
+### Retrieving Multiple Transcripts as a Group
+
+You can also retrieve multiple existing transcripts and combine them into a single `TranscriptGroup` object. This allows you to perform operations on the transcript group as a single unit, such as querying the combined transcripts with LeMUR.
+
+```python
+import assemblyai as aai
+
+transcript_group = aai.TranscriptGroup.get_by_ids(["<TRANSCRIPT_ID_1>", "<TRANSCRIPT_ID_2>"])
+
+summary = transcript_group.lemur.summarize(context="Customers asking for cars", answer_format="TLDR")
+
+print(summary)
+```
+
+### Retrieving Transcripts Asynchronously
+
+Both `Transcript.get_by_id` and `TranscriptGroup.get_by_ids` have asynchronous counterparts, `Transcript.get_by_id_async` and `TranscriptGroup.get_by_ids_async`, respectively. These functions immediately return a `Future` object, rather than blocking until the transcript(s) are retrieved.
+
+See the above section on [Synchronous vs Asynchronous](#synchronous-vs-asynchronous) for more information.

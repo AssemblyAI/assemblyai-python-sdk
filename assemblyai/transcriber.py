@@ -236,6 +236,30 @@ class Transcript:
 
         return self
 
+    @classmethod
+    def get_by_id(cls, transcript_id: str) -> Self:
+        """Fetch an existing transcript. Blocks until the transcript is completed.
+
+        Args:
+            transcript_id: the id of the transcript to fetch
+
+        Returns:
+            The transcript object identified by the given id.
+        """
+        return cls(transcript_id=transcript_id).wait_for_completion()
+
+    @classmethod
+    def get_by_id_async(cls, transcript_id: str) -> concurrent.futures.Future[Self]:
+        """Fetch an existing transcript asynchronously.
+
+        Args:
+            transcript_id: the id of the transcript to fetch
+
+        Returns:
+            A future that will resolve to the transcript object identified by the given id.
+        """
+        return cls(transcript_id=transcript_id).wait_for_completion_async()
+
     @property
     def id(self) -> Optional[str]:
         "The unique identifier of your transcription"
@@ -526,6 +550,7 @@ class TranscriptGroup:
             transcript_ids=transcript_ids,
             client=self._client,
         )
+        self._executor = concurrent.futures.ThreadPoolExecutor()
 
     @property
     def transcripts(self) -> List[Transcript]:
@@ -541,6 +566,16 @@ class TranscriptGroup:
         """
 
         return iter(self.transcripts)
+
+    @classmethod
+    def get_by_ids(cls, transcript_ids: List[str]) -> Self:
+        return cls(transcript_ids=transcript_ids).wait_for_completion()
+
+    @classmethod
+    def get_by_ids_async(
+        cls, transcript_ids: List[str]
+    ) -> concurrent.futures.Future[Self]:
+        return cls(transcript_ids=transcript_ids).wait_for_completion_async()
 
     @property
     def status(self) -> types.TranscriptStatus:
@@ -594,6 +629,11 @@ class TranscriptGroup:
         self._impl.wait_for_completion()
 
         return self
+
+    def wait_for_completion_async(
+        self,
+    ) -> concurrent.futures.Future[Self]:
+        return self._executor.submit(self.wait_for_completion)
 
 
 class _TranscriberImpl:
