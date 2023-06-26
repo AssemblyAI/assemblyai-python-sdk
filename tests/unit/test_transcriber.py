@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 from unittest.mock import mock_open, patch
 
@@ -425,3 +426,24 @@ def test_transcribe_async_url_fails(httpx_mock: HTTPXMock):
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 3
+
+
+def test_language_detection(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}/transcript",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={},
+    )
+
+    aai.Transcriber().transcribe(
+        "https://example.org/audio.wav",
+        config=aai.TranscriptionConfig(
+            language_code=None,
+            language_detection=True,
+        ),
+    )
+
+    request = json.loads(httpx_mock.get_requests()[0].content.decode())
+    assert request["language_detection"] is True
+    assert request.get("language_code") is None
