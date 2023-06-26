@@ -313,7 +313,7 @@ class SummarizationType(str, Enum):
 
 
 class RawTranscriptionConfig(BaseModel):
-    language_code: LanguageCode = LanguageCode.en_us
+    language_code: Optional[LanguageCode]
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
@@ -423,7 +423,7 @@ class RawTranscriptionConfig(BaseModel):
 class TranscriptionConfig:
     def __init__(
         self,
-        language_code: LanguageCode = LanguageCode.en_us,
+        language_code: Optional[LanguageCode] = None,
         punctuate: Optional[bool] = None,
         format_text: Optional[bool] = None,
         dual_channel: Optional[bool] = None,
@@ -543,12 +543,12 @@ class TranscriptionConfig:
     # region: Getters/Setters
 
     @property
-    def language_code(self) -> LanguageCode:
+    def language_code(self) -> Optional[LanguageCode]:
         "The language code of the audio file."
         return self._raw_transcription_config.language_code
 
     @language_code.setter
-    def language_code(self, language_code: LanguageCode) -> None:
+    def language_code(self, language_code: Optional[LanguageCode]) -> None:
         "Sets the language code of the audio file."
 
         self._raw_transcription_config.language_code = language_code
@@ -1357,7 +1357,7 @@ class BaseTranscript(BaseModel):
     Available transcription features
     """
 
-    language_code: LanguageCode = LanguageCode.en_us
+    language_code: Optional[LanguageCode]
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
