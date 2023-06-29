@@ -1,15 +1,20 @@
 import time
 from typing import Generator
 
-try:
-    import pyaudio
-except ImportError:
-    raise ImportError(
-        "You must install the extras for this SDK to use this feature. "
-        "Run `pip install assemblyai[extras]` to install the extras. "
-        "Make sure to install `apt install portaudio19-dev` (Debian/Ubuntu) or "
-        "`brew install portaudio` (MacOS) before installing the extras."
-    )
+
+class AssemblyAIExtrasNotInstalledError(ImportError):
+    def __init__(
+        self,
+        msg="""
+        You must install the extras for this SDK to use this feature.
+        Run `pip install assemblyai[extras]` to install the extras.
+        Make sure to install `apt install portaudio19-dev` (Debian/Ubuntu) or
+        `brew install portaudio` (MacOS) before installing the extras
+        """,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(msg, *args, **kwargs)
 
 
 class MicrophoneStream:
@@ -25,6 +30,10 @@ class MicrophoneStream:
             channels: The number of channels to record audio from.
             sample_rate: The sample rate to record audio at.
         """
+        try:
+            import pyaudio
+        except ImportError:
+            raise AssemblyAIExtrasNotInstalledError
 
         self._pyaudio = pyaudio.PyAudio()
         self.sample_rate = sample_rate

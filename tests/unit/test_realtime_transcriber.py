@@ -13,7 +13,6 @@ from pytest_mock import MockFixture
 import assemblyai as aai
 
 aai.settings.api_key = "test"
-aai.settings.base_url = "https://api.assemblyai.com/v2"
 
 
 def _disable_rw_threads(mocker: MockFixture):
@@ -28,6 +27,8 @@ def test_realtime_connect_has_parameters(mocker: MockFixture):
     """
     Test that the connect method has the correct parameters set
     """
+    aai.settings.base_url = "https://api.assemblyai.com/v2"
+
     actual_url = None
     actual_additional_headers = None
     actual_open_timeout = None
