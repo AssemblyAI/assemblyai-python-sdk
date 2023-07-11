@@ -1,8 +1,12 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from pydantic import UUID4, BaseModel, BaseSettings, Extra, Field
+try:
+    from pydantic import UUID4, BaseModel, BaseSettings, Extra, Field
+except ImportError:
+    from pydantic.v1 import UUID4, BaseModel, BaseSettings, Extra, Field
+
 from typing_extensions import Self
 
 
@@ -1603,9 +1607,8 @@ class RealtimeSessionOpened(BaseModel):
     Once a real-time session is opened, the client will receive this message
     """
 
-    message_type: Literal[
-        RealtimeMessageTypes.session_begins
-    ] = RealtimeMessageTypes.session_begins
+    message_type: RealtimeMessageTypes = RealtimeMessageTypes.session_begins
+
 
     session_id: UUID4
     "Unique identifier for the established session."
@@ -1637,9 +1640,7 @@ class RealtimeTranscript(BaseModel):
     Base class for real-time transcript messages.
     """
 
-    message_type: Literal[
-        RealtimeMessageTypes.partial_transcript, RealtimeMessageTypes.final_transcript
-    ]
+    message_type: RealtimeMessageTypes
     "Describes the type of message"
 
     audio_start: int
@@ -1670,9 +1671,7 @@ class RealtimePartialTranscript(RealtimeTranscript):
     As you send audio data to the service, the service will immediately start responding with partial transcripts.
     """
 
-    message_type: Literal[
-        RealtimeMessageTypes.partial_transcript
-    ] = RealtimeMessageTypes.partial_transcript
+    message_type: RealtimeMessageTypes = RealtimeMessageTypes.partial_transcript
 
 
 class RealtimeFinalTranscript(RealtimeTranscript):
@@ -1682,9 +1681,7 @@ class RealtimeFinalTranscript(RealtimeTranscript):
     sent to you so far with higher accuracy, as well as add punctuation and casing to the transcription text.
     """
 
-    message_type: Literal[
-        RealtimeMessageTypes.final_transcript
-    ] = RealtimeMessageTypes.final_transcript
+    message_type: RealtimeMessageTypes = RealtimeMessageTypes.final_transcript
 
     punctuated: bool
     "Whether the transcript has been punctuated and cased"
