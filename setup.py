@@ -14,8 +14,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         "httpx>=0.19.0",
-        "pydantic>=1.7.0",
-        "typing-extensions>=3.7,<4.6",
+        "pydantic>=1.7.0,!=1.10.7",
+        "typing-extensions>=3.7",
         "websockets>=11.0",
     ],
     extras_require={
