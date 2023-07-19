@@ -4,6 +4,7 @@ import httpx
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
 
 
@@ -82,7 +83,7 @@ def test_get_by_ids(httpx_mock: HTTPXMock):
     )()
     for transcript_id in transcript_ids:
         httpx_mock.add_response(
-            url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+            url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
             status_code=httpx.codes.OK,
             method="GET",
             json=mock_transcript_response,
@@ -107,7 +108,7 @@ def test_get_by_id_async(httpx_mock: HTTPXMock):
     )()
     for transcript_id in transcript_ids:
         httpx_mock.add_response(
-            url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+            url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
             status_code=httpx.codes.OK,
             method="GET",
             json=mock_transcript_response,

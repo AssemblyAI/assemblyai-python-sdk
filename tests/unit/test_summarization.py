@@ -6,6 +6,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
 
 aai.settings.api_key = "test"
@@ -26,7 +27,7 @@ def __submit_request(httpx_mock: HTTPXMock, **params) -> Dict[str, Any]:
 
     # Mock initial submission response
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_transcript_response,
@@ -34,7 +35,7 @@ def __submit_request(httpx_mock: HTTPXMock, **params) -> Dict[str, Any]:
 
     # Mock polling-for-completeness response, with mock summary result
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_transcript_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json={**mock_transcript_response, "summary": summary},

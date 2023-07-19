@@ -190,7 +190,7 @@ class _TranscriptImpl:
                     f.write(chunk)
 
 
-class Transcript:
+class Transcript(types.Sourcable):
     """
     Transcript object to perform operations on the actual transcript.
     """
@@ -385,7 +385,7 @@ class Transcript:
 
         return lemur.Lemur(
             client=self._client,
-            transcript_ids=[self._impl.transcript_id],
+            sources=[types.LemurSource(self)],
         )
 
     def export_subtitles_srt(
@@ -604,7 +604,7 @@ class TranscriptGroup:
 
         return lemur.Lemur(
             client=self._impl._client,
-            transcript_ids=self._impl.transcript_ids,
+            sources=[types.LemurSource(t) for t in self.transcripts],
         )
 
     def add_transcript(
@@ -993,7 +993,7 @@ class _RealtimeTranscriberImpl:
 
         try:
             self._websocket = websocket_connect(
-                f"{websocket_base_url}/realtime/ws?{urlencode(params)}",
+                f"{websocket_base_url}/v2/realtime/ws?{urlencode(params)}",
                 additional_headers={
                     "Authorization": f"{self._client.settings.api_key}"
                 },

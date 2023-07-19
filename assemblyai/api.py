@@ -5,6 +5,10 @@ import httpx
 
 from . import types
 
+ENDPOINT_TRANSCRIPT = "/v2/transcript"
+ENDPOINT_UPLOAD = "/v2/upload"
+ENDPOINT_LEMUR = "/lemur/v3/generate"
+
 
 def _get_error_message(response: httpx.Response) -> str:
     """
@@ -28,7 +32,7 @@ def create_transcript(
     request: types.TranscriptRequest,
 ) -> types.TranscriptResponse:
     response = client.post(
-        "/transcript",
+        ENDPOINT_TRANSCRIPT,
         json=request.dict(
             exclude_none=True,
             by_alias=True,
@@ -47,7 +51,7 @@ def get_transcript(
     transcript_id: str,
 ) -> types.TranscriptResponse:
     response = client.get(
-        f"/transcript/{transcript_id}",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
     )
 
     if response.status_code != httpx.codes.ok:
@@ -73,7 +77,7 @@ def upload_file(
     """
 
     response = client.post(
-        "/upload",
+        ENDPOINT_UPLOAD,
         content=audio_file,
     )
 
@@ -98,7 +102,7 @@ def export_subtitles_srt(
         }
 
     response = client.get(
-        f"/transcript/{transcript_id}/srt",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/srt",
         params=params,
     )
 
@@ -123,7 +127,7 @@ def export_subtitles_vtt(
         }
 
     response = client.get(
-        f"/transcript/{transcript_id}/vtt",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/vtt",
         params=params,
     )
 
@@ -141,7 +145,7 @@ def word_search(
     words: List[str],
 ) -> types.WordSearchMatchResponse:
     response = client.get(
-        f"/transcript/{transcript_id}/word-search",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/word-search",
         params=urlencode(
             {
                 "words": ",".join(words),
@@ -172,7 +176,7 @@ def get_redacted_audio(
         `RedactedAudioResponse`, which contains the URL of the redacted audio
     """
 
-    response = client.get(f"/transcript/{transcript_id}/redacted-audio")
+    response = client.get(f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/redacted-audio")
 
     if response.status_code == httpx.codes.ACCEPTED:
         raise types.RedactedAudioIncompleteError(
@@ -197,7 +201,7 @@ def get_sentences(
     transcript_id: str,
 ) -> types.SentencesResponse:
     response = client.get(
-        f"/transcript/{transcript_id}/sentences",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/sentences",
     )
 
     if response.status_code != httpx.codes.ok:
@@ -213,7 +217,7 @@ def get_paragraphs(
     transcript_id: str,
 ) -> types.ParagraphsResponse:
     response = client.get(
-        f"/transcript/{transcript_id}/paragraphs",
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/paragraphs",
     )
 
     if response.status_code != httpx.codes.ok:
@@ -230,7 +234,7 @@ def lemur_question(
     http_timeout: Optional[float],
 ) -> types.LemurQuestionResponse:
     response = client.post(
-        "/generate/question-answer",
+        f"{ENDPOINT_LEMUR}/question-answer",
         json=request.dict(
             exclude_none=True,
         ),
@@ -251,7 +255,7 @@ def lemur_summarize(
     http_timeout: Optional[float],
 ) -> types.LemurSummaryResponse:
     response = client.post(
-        "/generate/summary",
+        f"{ENDPOINT_LEMUR}/summary",
         json=request.dict(
             exclude_none=True,
         ),
@@ -266,13 +270,13 @@ def lemur_summarize(
     return types.LemurSummaryResponse.parse_obj(response.json())
 
 
-def lemur_coach(
+def lemur_task(
     client: httpx.Client,
-    request: types.LemurCoachRequest,
+    request: types.LemurTaskRequest,
     http_timeout: Optional[float],
-) -> types.LemurCoachResponse:
+) -> types.LemurTaskResponse:
     response = client.post(
-        "/generate/ai-coach",
+        f"{ENDPOINT_LEMUR}/task",
         json=request.dict(
             exclude_none=True,
         ),
@@ -281,7 +285,7 @@ def lemur_coach(
 
     if response.status_code != httpx.codes.ok:
         raise types.LemurError(
-            f"failed to call Lemur AI coach: {_get_error_message(response)}"
+            f"failed to call Lemur task: {_get_error_message(response)}"
         )
 
-    return types.LemurCoachResponse.parse_obj(response.json())
+    return types.LemurTaskResponse.parse_obj(response.json())

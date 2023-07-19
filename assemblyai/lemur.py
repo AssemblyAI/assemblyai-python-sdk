@@ -10,89 +10,123 @@ class _LemurImpl:
         self,
         *,
         client: _client.Client,
-        transcript_ids: List[str],
+        sources: List[types.LemurSource],
     ) -> None:
         self._client = client
-        self._transcript_ids = transcript_ids
+
+        self._sources = [types.LemurSourceRequest.from_lemur_source(s) for s in sources]
 
     def question(
         self,
         questions: List[types.LemurQuestion],
-        model: types.LemurModel,
         timeout: Optional[float],
-    ) -> List[types.LemurQuestionResult]:
+        final_model: Optional[types.LemurModel],
+        max_output_size: Optional[int],
+    ) -> types.LemurQuestionResponse:
         response = api.lemur_question(
             client=self._client.http_client,
             request=types.LemurQuestionRequest(
-                transcript_ids=self._transcript_ids,
+                sources=self._sources,
                 questions=questions,
-                model=model,
+                final_model=final_model,
+                max_output_size=max_output_size,
             ),
             http_timeout=timeout,
         )
 
-        return response.response
+        return response
 
     def summarize(
         self,
         context: Optional[Union[str, Dict[str, Any]]],
         answer_format: Optional[str],
+        final_model: Optional[types.LemurModel],
+        max_output_size: Optional[int],
         timeout: Optional[float],
-    ) -> str:
+    ) -> types.LemurSummaryResponse:
         response = api.lemur_summarize(
             client=self._client.http_client,
             request=types.LemurSummaryRequest(
-                transcript_ids=self._transcript_ids,
+                sources=self._sources,
                 context=context,
                 answer_format=answer_format,
+                final_model=final_model,
+                max_output_size=max_output_size,
             ),
             http_timeout=timeout,
         )
 
-        return response.response
+        return response
 
-    def ask_coach(
+    def task(
         self,
-        context: Union[str, Dict[str, Any]],
+        prompt: str,
+        final_model: Optional[types.LemurModel],
+        max_output_size: Optional[int],
         timeout: Optional[float],
-    ) -> str:
-        response = api.lemur_coach(
+    ):
+        response = api.lemur_task(
             client=self._client.http_client,
-            request=types.LemurCoachRequest(
-                transcript_ids=self._transcript_ids,
-                context=context,
+            request=types.LemurTaskRequest(
+                sources=self._sources,
+                prompt=prompt,
+                final_model=final_model,
+                max_output_size=max_output_size,
             ),
             http_timeout=timeout,
         )
 
-        return response.response
+        return response
 
 
 class Lemur:
+    """
+    AssemblyAI's LeMUR (Leveraging Large Language Models to Understand Recognized Speech) framework
+    to process audio files with an LLM.
+
+    See https://www.assemblyai.com/docs/Models/lemur for more information.
+    """
+
     def __init__(
         self,
-        transcript_ids: List[str],
+        sources: List[types.LemurSource],
         client: Optional[_client.Client] = None,
     ) -> None:
+        """
+        Creates a new LeMUR instance to process audio files with an LLM.
+
+        Args:
+
+            sources: One or a list of sources to process (e.g. a `Transcript` or a `TranscriptGroup`)
+            client: The client to use for the LeMUR instance. If not provided, the default client will be used
+        """
         self._client = client or _client.Client.get_default()
 
         self._impl = _LemurImpl(
             client=self._client,
-            transcript_ids=transcript_ids,
+            sources=sources,
         )
 
     def question(
         self,
         questions: Union[types.LemurQuestion, List[types.LemurQuestion]],
-        model: types.LemurModel = types.LemurModel.default,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
-    ) -> Union[types.LemurQuestionResult, List[types.LemurQuestionResult]]:
+    ) -> types.LemurQuestionResponse:
         """
-        Ask questions about transcripts powered by AssemblyAI's LeMUR model.
+        Question & Answer allows you to ask free form questions about one or many transcripts.
+
+        This can be any question you find useful, such as judging the outcome or determining facts
+        about the audio. For instance, you can ask for action items from a meeting, did the customer
+        respond positively, or count how many times a word or phrase was said.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
 
         Args:
             questions: One or a list of questions to ask.
-            model: The LeMUR model to use for the question(s).
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
 
         Returns: One or a list of answer objects.
@@ -101,26 +135,33 @@ class Lemur:
         if not isinstance(questions, list):
             questions = [questions]
 
-        answer = self._impl.question(
+        return self._impl.question(
             questions=questions,
-            model=model,
+            final_model=final_model,
+            max_output_size=max_output_size,
             timeout=timeout,
         )
-
-        return answer[0] if len(answer) == 1 else answer
 
     def summarize(
         self,
         context: Optional[Union[str, Dict[str, Any]]] = None,
         answer_format: Optional[str] = None,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
-    ) -> str:
+    ) -> types.LemurSummaryResponse:
         """
-        Summarize the given transcript with the power of AssemblyAI's Lemur model.
+        Summary allows you to distill a piece of audio into a few impactful sentences.
+        You can give the model context to get more pinpoint results while outputting the
+        results in a variety of formats described in human language.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
 
         Args:
             context: An optional context on the transcript.
             answer_format: The format on how the summary shall be summarized.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the summary.
 
         Returns: The summary as a string.
@@ -129,25 +170,35 @@ class Lemur:
         return self._impl.summarize(
             context=context,
             answer_format=answer_format,
+            final_model=final_model,
+            max_output_size=max_output_size,
             timeout=timeout,
         )
 
-    def ask_coach(
+    def task(
         self,
-        context: Union[str, Dict[str, Any]],
+        prompt: str,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
-    ) -> str:
+    ) -> types.LemurTaskResponse:
         """
-        Ask the AI coach a question on the transcript powered by AssemblyAI's Lemur model.
+        Task feature allows you to submit a custom prompt to the model.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
 
         Args:
-            context: The context and/or question to ask the coach.
-            timeout: The timeout in seconds to wait for the coach.
+            prompt: The prompt to use for this task.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the task.
 
-        Returns: The feedback of the AI's coach as a string.
+        Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
 
-        return self._impl.ask_coach(
-            context=context,
+        return self._impl.task(
+            prompt=prompt,
+            final_model=final_model,
+            max_output_size=max_output_size,
             timeout=timeout,
         )

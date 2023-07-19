@@ -7,6 +7,7 @@ from faker import Faker
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
 
 aai.settings.api_key = "test"
@@ -32,14 +33,14 @@ def test_export_subtitles_succeeds(httpx_mock: HTTPXMock, faker: Faker):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/srt",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/srt",
         status_code=httpx.codes.OK,
         method="GET",
         text=expected_subtitles_srt,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/vtt",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/vtt",
         status_code=httpx.codes.OK,
         method="GET",
         text=expected_subtitles_vtt,
@@ -72,14 +73,14 @@ def test_export_subtitles_fails(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/srt",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/srt",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="GET",
         json={"error": "something went wrong"},
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/vtt",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/vtt",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="GET",
         json={"error": "something went wrong"},
@@ -120,7 +121,7 @@ def test_word_search_succeeds(httpx_mock: HTTPXMock):
     }
     # mock the specific endpoints
     url = httpx.URL(
-        f"{aai.settings.base_url}/transcript/{transcript.id}/word-search?{urlencode(search_words)}",
+        f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/word-search?{urlencode(search_words)}",
     )
 
     httpx_mock.add_response(
@@ -168,7 +169,7 @@ def test_word_search_fails(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     url = httpx.URL(
-        f"{aai.settings.base_url}/transcript/{transcript.id}/word-search?words=test",
+        f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/word-search?words=test",
     )
 
     httpx_mock.add_response(
@@ -212,14 +213,14 @@ def test_get_sentences_and_paragraphs_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/sentences",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/sentences",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_sentences_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/paragraphs",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/paragraphs",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_paragraphs_response,
@@ -283,14 +284,14 @@ def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/sentences",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/sentences",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="GET",
         json={"error": "something went wrong"},
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript.id}/paragraphs",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/paragraphs",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="GET",
         json={"error": "something went wrong"},
@@ -312,7 +313,7 @@ def test_get_by_id(httpx_mock: HTTPXMock):
         factories.TranscriptCompletedResponseFactory
     )()
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_transcript_response,
@@ -332,7 +333,7 @@ def test_get_by_id_async(httpx_mock: HTTPXMock):
         factories.TranscriptCompletedResponseFactory
     )()
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{transcript_id}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_transcript_response,

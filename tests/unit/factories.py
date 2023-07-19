@@ -148,9 +148,9 @@ class TranscriptRequestFactory(BaseTranscriptFactory):
         model = types.TranscriptRequest
 
 
-class LemurQuestionResult(factory.Factory):
+class LemurQuestionAnswer(factory.Factory):
     class Meta:
-        model = types.LemurQuestionResult
+        model = types.LemurQuestionAnswer
 
     question = factory.Faker("text")
     answer = factory.Faker("text")
@@ -160,29 +160,29 @@ class LemurQuestionResponse(factory.Factory):
     class Meta:
         model = types.LemurQuestionResponse
 
+    request_id = factory.Faker("uuid4")
     response = factory.List(
         [
-            factory.SubFactory(LemurQuestionResult),
-            factory.SubFactory(LemurQuestionResult),
+            factory.SubFactory(LemurQuestionAnswer),
+            factory.SubFactory(LemurQuestionAnswer),
         ]
     )
-    model = types.LemurModel.default
 
 
 class LemurSummaryResponse(factory.Factory):
     class Meta:
         model = types.LemurSummaryResponse
 
+    request_id = factory.Faker("uuid4")
     response = factory.Faker("text")
-    model = types.LemurModel.default
 
 
-class LemurAskCoachResponse(factory.Factory):
+class LemurTaskResponse(factory.Factory):
     class Meta:
-        model = types.LemurSummaryResponse
+        model = types.LemurTaskResponse
 
+    request_id = factory.Faker("uuid4")
     response = factory.Faker("text")
-    model = types.LemurModel.default
 
 
 class WordSearchMatchFactory(factory.Factory):

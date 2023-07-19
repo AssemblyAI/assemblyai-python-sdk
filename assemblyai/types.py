@@ -1,6 +1,9 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+
+if TYPE_CHECKING:
+    from .transcriber import Transcript
 
 try:
     from pydantic import UUID4, BaseModel, BaseSettings, Extra, Field
@@ -49,6 +52,14 @@ class LemurError(AssemblyAIError):
     """
 
 
+class Sourcable:
+    """
+    A base class for all sourcable objects
+
+    Currently, only `Transcript` is sourcable
+    """
+
+
 class Settings(BaseSettings):
     """
     Settings for the AssemblyAI client
@@ -60,7 +71,7 @@ class Settings(BaseSettings):
     http_timeout: float = 15.0
     "The default HTTP timeout for general requests"
 
-    base_url: str = "https://api.assemblyai.com/v2"
+    base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
 
     polling_interval: float = Field(default=3.0, gte=0.1)
@@ -1541,55 +1552,233 @@ class TranscriptResponse(BaseTranscript):
         super().__init__(**data)
 
 
+class LemurSourceType(str, Enum):
+    """
+    The source type of the LeMUR request
+    """
+
+    transcript = "transcript"
+    "The source is a transcript"
+
+
+class LemurSource:
+    """
+    A LeMUR source is a source that can be used to process it with an LLM.
+    """
+
+    def __init__(
+        self,
+        source: Sourcable,
+    ) -> None:
+        """
+        Creates a new LeMUR source to process audio files with an LLM.
+
+        Args:
+
+            source: The source to process (e.g. a `Transcript`)
+        """
+        self._source = source
+        self._type = None
+
+        from . import Transcript
+
+        if isinstance(source, Transcript):
+            self._type = LemurSourceType.transcript
+        else:
+            raise ValueError(f"Invalid source: {source}")
+
+    @property
+    def source(self) -> Sourcable:
+        """
+        The source to process (e.g. a `Transcript`)
+        """
+        return self._source
+
+    @property
+    def context(self) -> Optional[Union[str, Dict[str, Any]]]:
+        """
+        An optional context on the source (can be a string or an arbitrary dictionary)
+        """
+        return self._context
+
+    @property
+    def type(self) -> LemurSourceType:
+        """
+        The type of the source.
+        """
+        return self._type  # type: ignore
+
+
+class LemurTranscriptSource(LemurSource):
+    """
+    A LeMUR source that can be used to process a transcript with an LLM.
+    """
+
+    def __init__(
+        self,
+        transcript: Union["Transcript", str],
+    ) -> None:
+        """
+        Creates a new LeMUR transcript source to process audio files with an LLM.
+
+        Args:
+
+            transcript: The transcript to process
+            context: An optional context on the source (can be a string or an arbitrary dictionary)
+        """
+        from . import Transcript
+
+        if type(transcript) == str:
+            transcript = Transcript(transcript_id=transcript)
+
+        super().__init__(transcript)
+
+
+class LemurSourceRequest(BaseModel):
+    id: Optional[str]
+    "The unique identifier of your source - only relevant for transcript sources"
+
+    type: LemurSourceType
+    "The type of source"
+
+    @classmethod
+    def from_lemur_source(cls, source: LemurSource) -> Self:
+        """
+        Creates a LemurSourceRequest from a LemurSource
+        """
+        if source.type == LemurSourceType.transcript:
+            return cls(
+                id=source.source.id,  # type:ignore
+                type=source.type,
+            )
+
+        raise ValueError("Unsupported source type")
+
+
 class LemurModel(str, Enum):
-    lightning = "lightning"
+    """
+    LeMUR features two model modes, Basic and Default, that allow you to configure your request
+    to suit your needs. These options tell LeMUR whether to use the more advanced Default model or
+    the cheaper, faster, but simplified Basic model. The implicit setting is Default when no option
+    is explicitly passed in.
+    """
+
     default = "default"
+    """
+    LeMUR Default is the standard model to use. It is capable of handling any task as well, or better
+    than LeMUR Basic. Default is capable of more nuanced and complex questions, where Basic would provide poor results.
+
+    Additionally, responses provide more insightful responses with Default.
+    The drawback of this expanded functionality and quality is execution speed and cost. Default is up to 20% slower than
+    Basic and has an increased cost.
+    """
+
+    basic = "basic"
+    """
+    LeMUR Basic is a simplified model optimized for speed and cost allowing you to complete simple requests quickly, and cheaply.
+    LeMUR Basic can complete requests up to 20% faster than Default.
+
+    The best use cases for Basic include summary and simple questions with factual answers. It is not recommended to use Basic
+    for complex/subjective tasks where answers require more nuance to be effective.
+    """
 
 
-class LemurQuestionResult(BaseModel):
+class LemurQuestionAnswer(BaseModel):
+    """
+    The result of your Question and Answer LeMUR request.
+    """
+
     question: str
+    "The question that was asked"
+
     answer: str
+    "The answer to the question"
 
 
 class LemurQuestion(BaseModel):
+    """
+    The question you wish to ask LeMUR
+    """
+
     question: str
+    "The question you wish to ask"
+
     context: Optional[Union[str, Dict[str, Any]]]
+    "Context to provide the model - this can be a string or an arbitrary dictionary"
+
     answer_format: Optional[str]
+    """
+    How you want the answer to be returned. This can be any text.
+    Cannot be used with answer_options.
+
+    Examples:
+
+        - "short sentence"
+        - "bullet points"
+    """
+
     answer_options: Optional[List[str]]
+    """
+    What discrete options to return. Useful for precise responses.
+
+    Cannot be used with answer_format.
+
+    Examples:
+
+        - ["Yes", "No"]
+        - ["High", "Medium", "Low"]
+    """
 
 
-class LemurQuestionRequest(BaseModel):
-    transcript_ids: List[str]
+class BaseLemurRequest(BaseModel):
+    sources: List[LemurSourceRequest]
+    final_model: Optional[LemurModel]
+    max_output_size: Optional[int]
+
+
+class LemurTaskRequest(BaseLemurRequest):
+    prompt: str
+
+
+class LemurTaskResponse(BaseModel):
+    request_id: str
+    "The unique identifier of your LeMUR request"
+
+    response: str
+    "The response to your task request"
+
+
+class LemurQuestionRequest(BaseLemurRequest):
     questions: List[LemurQuestion]
-    model: LemurModel = LemurModel.default
 
 
 class LemurQuestionResponse(BaseModel):
-    response: List[LemurQuestionResult]
-    model: LemurModel = LemurModel.default
+    """
+    The result of your Question and Answer LeMUR request.
+    """
+
+    request_id: str
+    "The unique identifier of your LeMUR request"
+
+    response: List[LemurQuestionAnswer]
+    "The list of answers to your questions"
 
 
-class LemurSummaryRequest(BaseModel):
-    transcript_ids: List[str]
+class LemurSummaryRequest(BaseLemurRequest):
     context: Optional[Union[str, Dict[str, Any]]]
     answer_format: Optional[str]
-    model: LemurModel = LemurModel.default
 
 
 class LemurSummaryResponse(BaseModel):
+    """
+    The result of your Summary LeMUR request.
+    """
+
+    request_id: str
+    "The unique identifier of your LeMUR request"
+
     response: str
-    model: LemurModel = LemurModel.default
-
-
-class LemurCoachRequest(BaseModel):
-    transcript_ids: List[str]
-    context: Union[str, Dict[str, Any]]
-    model: LemurModel = LemurModel.default
-
-
-class LemurCoachResponse(BaseModel):
-    response: str
-    model: LemurModel = LemurModel.default
+    "The summary of your LeMUR request"
 
 
 class RealtimeMessageTypes(str, Enum):
@@ -1608,7 +1797,6 @@ class RealtimeSessionOpened(BaseModel):
     """
 
     message_type: RealtimeMessageTypes = RealtimeMessageTypes.session_begins
-
 
     session_id: UUID4
     "Unique identifier for the established session."
