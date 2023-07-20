@@ -8,6 +8,10 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.api import (
+    ENDPOINT_TRANSCRIPT,
+    ENDPOINT_UPLOAD,
+)
 from tests.unit import factories
 
 aai.settings.api_key = "test"
@@ -25,7 +29,7 @@ def test_submit_url_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_transcript_response,
@@ -49,7 +53,7 @@ def test_submit_url_fails(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="POST",
         json={"error": "something went wrong"},
@@ -75,7 +79,7 @@ def test_submit_file_fails_due_api_error(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/upload",
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="POST",
         json={"error": "something went wrong"},
@@ -122,14 +126,14 @@ def test_transcribe_url_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_transcript_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_transcript_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_transcript_response,
@@ -165,7 +169,7 @@ def test_transcribe_file_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/upload",
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
         status_code=httpx.codes.OK,
         method="POST",
         json={"upload_url": expected_upload_url},
@@ -173,14 +177,14 @@ def test_transcribe_file_succeeds(httpx_mock: HTTPXMock):
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_transcript_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_transcript_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_transcript_response,
@@ -221,27 +225,27 @@ def test_transcribe_group_urls_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=response_1,
     )
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=response_2,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{response_1['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{response_1['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=response_1,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{response_2['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{response_2['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=response_2,
@@ -284,7 +288,7 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
 
     # the first file fails (see `.transcripe_group(...)` below)
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="POST",
         json={"error": "Aww, Snap!"},
@@ -292,14 +296,14 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
 
     # the second one succeeds (see `.transcribe_group(...) below`)
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=succeeds_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{succeeds_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{succeeds_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=succeeds_response,
@@ -339,21 +343,21 @@ def test_transcribe_async_url_succeeds(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_processing_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_processing_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_processing_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_processing_response,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_processing_response['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_processing_response['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_completed_response,
@@ -391,21 +395,21 @@ def test_transcribe_async_url_fails(httpx_mock: HTTPXMock):
 
     # mock the specific endpoints
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json=mock_processing_transcript,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_processing_transcript['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_processing_transcript['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_processing_transcript,
     )
 
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript/{mock_error_transcript['id']}",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_error_transcript['id']}",
         status_code=httpx.codes.OK,
         method="GET",
         json=mock_error_transcript,
@@ -430,7 +434,7 @@ def test_transcribe_async_url_fails(httpx_mock: HTTPXMock):
 
 def test_language_detection(httpx_mock: HTTPXMock):
     httpx_mock.add_response(
-        url=f"{aai.settings.base_url}/transcript",
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
         json={},

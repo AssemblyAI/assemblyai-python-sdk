@@ -27,7 +27,7 @@ def test_realtime_connect_has_parameters(mocker: MockFixture):
     """
     Test that the connect method has the correct parameters set
     """
-    aai.settings.base_url = "https://api.assemblyai.com/v2"
+    aai.settings.base_url = "https://api.assemblyai.com"
 
     actual_url = None
     actual_additional_headers = None

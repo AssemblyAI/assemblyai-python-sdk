@@ -186,30 +186,12 @@ transcript_group = transcriber.transcribe_group(
     ],
 )
 
-summary = transcript_group.lemur.summarize(context="Customers asking for cars", answer_format="TLDR")
-
-print(summary)
-```
-
-</details>
-
-<details>
-  <summary>Use LeMUR to Get Feedback from the AI Coach on Multiple Transcripts</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript_group = transcriber.transcribe_group(
-    [
-        "https://example.org/interviewee1.mp3",
-        "https://example.org/interviewee2.mp3",
-    ],
+result = transcript_group.lemur.summarize(
+  context="Customers asking for cars",
+  answer_format="TLDR"
 )
 
-feedback = transcript_group.lemur.ask_coach(context="Who was the best interviewee?")
-
-print(feedback)
+print(result.response)
 ```
 
 </details>
@@ -229,11 +211,31 @@ questions = [
     aai.LemurQuestion(question="What price range is the customer looking for?"),
 ]
 
-results = transcript.lemur.question(questions)
+result = transcript.lemur.question(questions)
 
-for result in results:
-    print(f"Question: {result.question}")
-    print(f"Answer: {result.answer}")
+for q in result.response:
+    print(f"Question: {q.question}")
+    print(f"Answer: {q.answer}")
+```
+
+</details>
+
+<details>
+  <summary>Use LeMUR to Ask Anything with a Custom Prompt</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe("https://example.org/customer.mp3")
+
+result = transcript.lemur.task(
+  "You are a helpful coach. Provide an analysis of the transcript "
+  "and offer areas to improve with exact quotes. Include no preamble. "
+  "Start with an overall summary then get into the examples with feedback.",
+)
+
+print(result.response)
 ```
 
 </details>
