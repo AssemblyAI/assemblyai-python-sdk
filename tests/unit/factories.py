@@ -177,6 +177,14 @@ class LemurSummaryResponse(factory.Factory):
     response = factory.Faker("text")
 
 
+class LemurActionItemsResponse(factory.Factory):
+    class Meta:
+        model = types.LemurActionItemsResponse
+
+    request_id = factory.Faker("uuid4")
+    response = factory.Faker("text")
+
+
 class LemurTaskResponse(factory.Factory):
     class Meta:
         model = types.LemurTaskResponse

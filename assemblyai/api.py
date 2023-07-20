@@ -270,6 +270,27 @@ def lemur_summarize(
     return types.LemurSummaryResponse.parse_obj(response.json())
 
 
+def lemur_action_items(
+    client: httpx.Client,
+    request: types.LemurActionItemsRequest,
+    http_timeout: Optional[float],
+) -> types.LemurActionItemsResponse:
+    response = client.post(
+        f"{ENDPOINT_LEMUR}/action-items",
+        json=request.dict(
+            exclude_none=True,
+        ),
+        timeout=http_timeout,
+    )
+
+    if response.status_code != httpx.codes.ok:
+        raise types.LemurError(
+            f"failed to call Lemur action items: {_get_error_message(response)}"
+        )
+
+    return types.LemurActionItemsResponse.parse_obj(response.json())
+
+
 def lemur_task(
     client: httpx.Client,
     request: types.LemurTaskRequest,

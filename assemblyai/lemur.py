@@ -58,6 +58,28 @@ class _LemurImpl:
 
         return response
 
+    def action_items(
+        self,
+        context: Optional[Union[str, Dict[str, Any]]],
+        answer_format: Optional[str],
+        final_model: Optional[types.LemurModel],
+        max_output_size: Optional[int],
+        timeout: Optional[float],
+    ) -> types.LemurActionItemsResponse:
+        response = api.lemur_action_items(
+            client=self._client.http_client,
+            request=types.LemurActionItemsRequest(
+                sources=self._sources,
+                context=context,
+                answer_format=answer_format,
+                final_model=final_model,
+                max_output_size=max_output_size,
+            ),
+            http_timeout=timeout,
+        )
+
+        return response
+
     def task(
         self,
         prompt: str,
@@ -168,6 +190,40 @@ class Lemur:
         """
 
         return self._impl.summarize(
+            context=context,
+            answer_format=answer_format,
+            final_model=final_model,
+            max_output_size=max_output_size,
+            timeout=timeout,
+        )
+
+    def action_items(
+        self,
+        context: Optional[Union[str, Dict[str, Any]]] = None,
+        answer_format: Optional[str] = None,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> types.LemurActionItemsResponse:
+        """
+        Action Items allows you to generate action items from one or many transcripts.
+
+        You can provide the model with a context to get more pinpoint results while outputting the
+        results in a variety of formats described in human language.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
+
+        Args:
+            context: An optional context on the transcript.
+            answer_format: The preferred format for the result action items.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the action items response.
+
+        Returns: The action items as a string.
+        """
+
+        return self._impl.action_items(
             context=context,
             answer_format=answer_format,
             final_model=final_model,

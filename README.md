@@ -221,6 +221,26 @@ for q in result.response:
 </details>
 
 <details>
+  <summary>Use LeMUR to Ask for Action Items from a Single Transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe("https://example.org/customer.mp3")
+
+result = transcript.lemur.action_items(
+    context="Customers asking for help with resolving their problem",
+    answer_format="Three bullet points",
+)
+
+print(result.response)
+```
+
+
+</details>
+
+<details>
   <summary>Use LeMUR to Ask Anything with a Custom Prompt</summary>
 
 ```python
