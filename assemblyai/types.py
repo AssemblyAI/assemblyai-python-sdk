@@ -1781,6 +1781,23 @@ class LemurSummaryResponse(BaseModel):
     "The summary of your LeMUR request"
 
 
+class LemurActionItemsRequest(BaseLemurRequest):
+    context: Optional[Union[str, Dict[str, Any]]]
+    answer_format: Optional[str]
+
+
+class LemurActionItemsResponse(BaseModel):
+    """
+    The result of your Action Items LeMUR request.
+    """
+
+    request_id: str
+    "The unique identifier of your LeMUR request"
+
+    response: str
+    "The action items for your LeMUR request"
+
+
 class RealtimeMessageTypes(str, Enum):
     """
     The type of message received from the real-time API

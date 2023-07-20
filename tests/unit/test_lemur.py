@@ -152,7 +152,9 @@ def test_lemur_summarize_succeeds(httpx_mock: HTTPXMock):
     """
 
     # create a mock response of a LemurSummaryResponse
-    mock_lemur_summary = factories.generate_dict_factory(factories.LemurTaskResponse)()
+    mock_lemur_summary = factories.generate_dict_factory(
+        factories.LemurSummaryResponse
+    )()
 
     # mock the specific endpoints
     httpx_mock.add_response(
@@ -199,6 +201,72 @@ def test_lemur_summarize_fails(httpx_mock: HTTPXMock):
 
     with pytest.raises(aai.LemurError):
         lemur.summarize(context="Callers asking for cars", answer_format="TLDR")
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_action_items_succeeds(httpx_mock: HTTPXMock):
+    """
+    Tests whether generating action items for a transcript via LeMUR succeeds.
+    """
+
+    # create a mock response of a LemurActionItemsResponse
+    mock_lemur_action_items = factories.generate_dict_factory(
+        factories.LemurActionItemsResponse
+    )()
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR}/action-items",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_lemur_action_items,
+    )
+
+    # mimic the usage of the SDK
+    transcript = aai.Transcript(str(uuid.uuid4()))
+
+    lemur = aai.Lemur(sources=[aai.LemurSource(transcript)])
+    result = lemur.action_items(
+        context="Customers asking for help with resolving their problem",
+        answer_format="Three bullet points",
+    )
+
+    assert isinstance(result, aai.LemurActionItemsResponse)
+
+    action_items = result.response
+
+    # check the response
+    assert action_items == mock_lemur_action_items["response"]
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_action_items_fails(httpx_mock: HTTPXMock):
+    """
+    Tests whether generating action items for a transcript via LeMUR fails.
+    """
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR}/action-items",
+        status_code=httpx.codes.INTERNAL_SERVER_ERROR,
+        method="POST",
+        json={"error": "something went wrong"},
+    )
+
+    # mimic the usage of the SDK
+    transcript = aai.Transcript(str(uuid.uuid4()))
+
+    lemur = aai.Lemur(sources=[aai.LemurSource(transcript)])
+
+    with pytest.raises(aai.LemurError):
+        lemur.action_items(
+            context="Customers asking for help with resolving their problem",
+            answer_format="Three bullet points",
+        )
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
