@@ -1421,6 +1421,9 @@ class BaseTranscript(BaseModel):
     speaker_labels: Optional[bool]
     "Enable Speaker Diarization."
 
+    speakers_expected: Optional[int]
+    "The number of speakers you expect to be in your audio file."
+
     content_safety: Optional[bool]
     "Enable Content Safety Detection."
 
