@@ -954,7 +954,7 @@ class TranscriptionConfig:
 
             return self
 
-        self._raw_transcription_config.url = url
+        self._raw_transcription_config.webhook_url = url
         if auth_header_name and auth_header_value:
             self._raw_transcription_config.webhook_auth_header_name = auth_header_name
             self._raw_transcription_config.webhook_auth_header_value = auth_header_value
