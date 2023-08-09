@@ -273,6 +273,12 @@ class Transcript(types.Sourcable):
         return self._impl.config
 
     @property
+    def json_response(self) -> Optional[dict]:
+        "The full JSON response associated with the transcript."
+
+        return self._impl.transcript.dict()
+
+    @property
     def audio_url(self) -> str:
         "The corresponding audio url"
 
@@ -856,6 +862,25 @@ class Transcriber:
                 default configuration will be used.
         """
         return self._impl.transcribe(
+            data=data,
+            config=config,
+            poll=False,
+        )
+
+    def submit_group(
+        self,
+        data: List[str],
+        config: Optional[types.TranscriptionConfig] = None,
+    ) -> TranscriptGroup:
+        """
+        Submits multiple transcription jobs without waiting for their completion.
+
+        Args:
+            data: A list of paths or URLs (can be mixed)
+            config: Transcription options and features. If `None` is given, the Transcriber's
+                default configuration will be used.
+        """
+        return self._impl.transcribe_group(
             data=data,
             config=config,
             poll=False,
