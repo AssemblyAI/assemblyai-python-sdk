@@ -802,7 +802,7 @@ class TranscriptionConfig:
         "Enable Auto Chapters."
 
         # Validate required params are also set
-        if self.punctuate == False:
+        if enable and self.punctuate == False:
             raise ValueError(
                 "If `auto_chapters` is enabled, then `punctuate` must not be disabled"
             )
@@ -1395,6 +1395,8 @@ class BaseTranscript(BaseModel):
     "The URL we should send webhooks to when your transcript is complete."
     webhook_auth_header_name: Optional[str]
     "The name of the header that is sent when the `webhook_url` is being called."
+    webhook_auth_header_value: Optional[str]
+    "The value of the `webhook_auth_header_name` that is sent when the `webhook_url` is being called."
 
     audio_start_from: Optional[int]
     "The point in time, in milliseconds, to begin transcription from in your media file."
