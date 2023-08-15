@@ -97,6 +97,9 @@ class LanguageCode(str, Enum):
     Supported languages for Transcribing Audio
     """
 
+    de = "de"
+    "German"
+
     en = "en"
     "Global English"
 
@@ -109,8 +112,11 @@ class LanguageCode(str, Enum):
     en_us = "en_us"
     "English (US)"
 
-    de = "de"
-    "German"
+    es = "es"
+    "Spanish"
+
+    fi = "fi"
+    "Finnish"
 
     fr = "fr"
     "French"
@@ -124,14 +130,32 @@ class LanguageCode(str, Enum):
     ja = "ja"
     "Japanese"
 
-    es = "es"
-    "Spanish"
+    ko = "ko"
+    "Korean"
 
     nl = "nl"
     "Dutch"
 
+    pl = "pl"
+    "Polish"
+
     pt = "pt"
     "Portuguese"
+
+    ru = "ru"
+    "Russian"
+
+    tr = "tr"
+    "Turkish"
+
+    uk = "uk"
+    "Ukrainian"
+
+    vi = "vi"
+    "Vietnamese"
+
+    zh = "zh"
+    "Chinese"
 
 
 class WordBoost(str, Enum):
