@@ -1778,6 +1778,7 @@ class LemurTaskResponse(BaseModel):
 
 
 class LemurQuestionRequest(BaseLemurRequest):
+    context: Optional[Union[str, Dict[str, Any]]]
     questions: List[LemurQuestion]
 
 

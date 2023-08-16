@@ -19,6 +19,7 @@ class _LemurImpl:
     def question(
         self,
         questions: List[types.LemurQuestion],
+        context: Optional[Union[str, Dict[str, Any]]],
         timeout: Optional[float],
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
@@ -28,6 +29,7 @@ class _LemurImpl:
             request=types.LemurQuestionRequest(
                 sources=self._sources,
                 questions=questions,
+                context=context,
                 final_model=final_model,
                 max_output_size=max_output_size,
             ),
@@ -132,6 +134,7 @@ class Lemur:
     def question(
         self,
         questions: Union[types.LemurQuestion, List[types.LemurQuestion]],
+        context: Optional[Union[str, Dict[str, Any]]] = None,
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
@@ -147,6 +150,7 @@ class Lemur:
 
         Args:
             questions: One or a list of questions to ask.
+            context: The context which is shared among all questions. This can be a string or a dictionary.
             final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
@@ -159,6 +163,7 @@ class Lemur:
 
         return self._impl.question(
             questions=questions,
+            context=context,
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
