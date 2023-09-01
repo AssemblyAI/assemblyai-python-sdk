@@ -1,5 +1,8 @@
 import time
-from typing import Generator
+from typing import BinaryIO, Generator
+
+from . import api
+from .client import Client
 
 
 class AssemblyAIExtrasNotInstalledError(ImportError):
@@ -7,7 +10,7 @@ class AssemblyAIExtrasNotInstalledError(ImportError):
         self,
         msg="""
         You must install the extras for this SDK to use this feature.
-        Run `pip install assemblyai[extras]` to install the extras.
+        Run `pip install "assemblyai[extras]"` to install the extras.
         Make sure to install `apt install portaudio19-dev` (Debian/Ubuntu) or
         `brew install portaudio` (MacOS) before installing the extras
         """,
@@ -109,3 +112,27 @@ def stream_file(
             yield data
 
             time.sleep(0.15)
+
+
+def file_from_stream(data: BinaryIO) -> str:
+    """
+    Uploads the given stream and returns the uploaded audio url.
+
+    This function can be used to transcribe data that's already
+    available in memory.
+
+    Example:
+    ```
+    upload_url = aai.extras.file_from_stream(data)
+
+    transcriber = aai.Transcriber()
+    transcript = transcriber.transcribe(upload_url)
+    ```
+
+    Args:
+        `data`: A file-like object (in binary mode)
+    """
+    return api.upload_file(
+        client=Client.get_default().http_client,
+        audio_file=data,
+    )
