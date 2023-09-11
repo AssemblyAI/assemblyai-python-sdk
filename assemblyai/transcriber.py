@@ -1012,7 +1012,7 @@ class _RealtimeTranscriberImpl:
             "sample_rate": self._sample_rate,
         }
         if self._word_boost:
-            params["word_boost"] = self._word_boost
+            params["word_boost"] = json.dumps(self._word_boost)
 
         websocket_base_url = self._client.settings.base_url.replace("https", "wss")
 

@@ -58,7 +58,7 @@ def test_realtime_connect_has_parameters(mocker: MockFixture):
 
     assert (
         actual_url
-        == f"wss://api.assemblyai.com/v2/realtime/ws?{urlencode(dict(sample_rate=44100, word_boost=['AssemblyAI']))}"
+        == f"wss://api.assemblyai.com/v2/realtime/ws?{urlencode(dict(sample_rate=44100, word_boost=json.dumps(['AssemblyAI'])))}"
     )
     assert actual_additional_headers == {"Authorization": aai.settings.api_key}
     assert actual_open_timeout == 15.0
