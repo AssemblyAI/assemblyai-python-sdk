@@ -260,6 +260,35 @@ print(result.response)
 
 </details>
 
+<details>
+  <summary>Delete data previously sent to LeMUR</summary>
+
+```python
+import assemblyai as aai
+
+# Create a transcript and a corresponding LeMUR request that may contain senstive information.
+transcriber = aai.Transcriber()
+transcript_group = transcriber.transcribe_group(
+  [
+    "https://example.org/customer1.mp3",
+  ],
+)
+
+result = transcript_group.lemur.summarize(
+  context="Customers providing sensitive, personally identifiable information",
+  answer_format="TLDR"
+)
+
+# Get the request ID from the LeMUR response
+request_id = result.request_id
+
+# Now we can delete the data about this request
+deletion_result = aai.Lemur.purge_request_data(request_id)
+print(deletion_result)
+```
+
+</details>
+
 ---
 
 ### **Audio Intelligence Examples**

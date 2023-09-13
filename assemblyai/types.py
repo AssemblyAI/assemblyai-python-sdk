@@ -1829,6 +1829,25 @@ class LemurActionItemsResponse(BaseModel):
     "The action items for your LeMUR request"
 
 
+class LemurPurgeRequest(BaseModel):
+    request_id: str
+
+
+class LemurPurgeResponse(BaseModel):
+    """
+    The result of your LeMUR purge request.
+    """
+
+    request_id: str
+    "The unique identifier of the LeMUR purge request"
+
+    request_id_to_purge: str
+    "The unique identifier of the LeMUR request nneds to be purged"
+
+    deleted: bool
+    "The result of the LeMUR purge request"
+
+
 class RealtimeMessageTypes(str, Enum):
     """
     The type of message received from the real-time API

@@ -193,6 +193,15 @@ class LemurTaskResponse(factory.Factory):
     response = factory.Faker("text")
 
 
+class LemurPurgeResponse(factory.Factory):
+    class Meta:
+        model = types.LemurPurgeResponse
+
+    request_id = factory.Faker("uuid4")
+    request_id_to_purge = factory.Faker("uuid4")
+    deleted = True
+
+
 class WordSearchMatchFactory(factory.Factory):
     class Meta:
         model = types.WordSearchMatch
