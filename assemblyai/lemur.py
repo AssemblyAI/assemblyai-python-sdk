@@ -23,6 +23,7 @@ class _LemurImpl:
         timeout: Optional[float],
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
+        temperature: Optional[float],
     ) -> types.LemurQuestionResponse:
         response = api.lemur_question(
             client=self._client.http_client,
@@ -32,6 +33,7 @@ class _LemurImpl:
                 context=context,
                 final_model=final_model,
                 max_output_size=max_output_size,
+                temperature=temperature,
             ),
             http_timeout=timeout,
         )
@@ -45,6 +47,7 @@ class _LemurImpl:
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
         timeout: Optional[float],
+        temperature: Optional[float],
     ) -> types.LemurSummaryResponse:
         response = api.lemur_summarize(
             client=self._client.http_client,
@@ -54,6 +57,7 @@ class _LemurImpl:
                 answer_format=answer_format,
                 final_model=final_model,
                 max_output_size=max_output_size,
+                temperature=temperature,
             ),
             http_timeout=timeout,
         )
@@ -67,6 +71,7 @@ class _LemurImpl:
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
         timeout: Optional[float],
+        temperature: Optional[float],
     ) -> types.LemurActionItemsResponse:
         response = api.lemur_action_items(
             client=self._client.http_client,
@@ -76,6 +81,7 @@ class _LemurImpl:
                 answer_format=answer_format,
                 final_model=final_model,
                 max_output_size=max_output_size,
+                temperature=temperature,
             ),
             http_timeout=timeout,
         )
@@ -88,6 +94,7 @@ class _LemurImpl:
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
         timeout: Optional[float],
+        temperature: Optional[float],
     ):
         response = api.lemur_task(
             client=self._client.http_client,
@@ -96,6 +103,7 @@ class _LemurImpl:
                 prompt=prompt,
                 final_model=final_model,
                 max_output_size=max_output_size,
+                temperature=temperature,
             ),
             http_timeout=timeout,
         )
@@ -138,6 +146,7 @@ class Lemur:
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
     ) -> types.LemurQuestionResponse:
         """
         Question & Answer allows you to ask free form questions about one or many transcripts.
@@ -154,6 +163,7 @@ class Lemur:
             final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
 
         Returns: One or a list of answer objects.
         """
@@ -167,6 +177,7 @@ class Lemur:
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
+            temperature=temperature,
         )
 
     def summarize(
@@ -176,6 +187,7 @@ class Lemur:
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
     ) -> types.LemurSummaryResponse:
         """
         Summary allows you to distill a piece of audio into a few impactful sentences.
@@ -190,6 +202,7 @@ class Lemur:
             final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the summary.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
 
         Returns: The summary as a string.
         """
@@ -200,6 +213,7 @@ class Lemur:
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
+            temperature=temperature,
         )
 
     def action_items(
@@ -209,6 +223,7 @@ class Lemur:
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
     ) -> types.LemurActionItemsResponse:
         """
         Action Items allows you to generate action items from one or many transcripts.
@@ -224,6 +239,7 @@ class Lemur:
             final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the action items response.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
 
         Returns: The action items as a string.
         """
@@ -234,6 +250,7 @@ class Lemur:
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
+            temperature=temperature,
         )
 
     def task(
@@ -242,6 +259,7 @@ class Lemur:
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
     ) -> types.LemurTaskResponse:
         """
         Task feature allows you to submit a custom prompt to the model.
@@ -253,6 +271,7 @@ class Lemur:
             final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
 
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
@@ -262,4 +281,5 @@ class Lemur:
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
+            temperature=temperature,
         )
