@@ -283,3 +283,26 @@ class Lemur:
             timeout=timeout,
             temperature=temperature,
         )
+
+    @classmethod
+    def purge_request_data(
+        cls,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> types.LemurPurgeResponse:
+        """
+        Purge sent LeMUR request data that was previously sent.
+
+        Args:
+            request_id: The request ID that was returned to you from the original LeMUR request that should be purged.
+
+        Returns: A response saying whether the LeMUR request data was successfully purged.
+        """
+
+        return api.lemur_purge_request_data(
+            client=_client.Client.get_default().http_client,
+            request=types.LemurPurgeRequest(
+                request_id=request_id,
+            ),
+            http_timeout=timeout,
+        )

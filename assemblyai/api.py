@@ -7,7 +7,8 @@ from . import types
 
 ENDPOINT_TRANSCRIPT = "/v2/transcript"
 ENDPOINT_UPLOAD = "/v2/upload"
-ENDPOINT_LEMUR = "/lemur/v3/generate"
+ENDPOINT_LEMUR_BASE = "/lemur/v3"
+ENDPOINT_LEMUR = f"{ENDPOINT_LEMUR_BASE}/generate"
 
 
 def _get_error_message(response: httpx.Response) -> str:
@@ -310,3 +311,21 @@ def lemur_task(
         )
 
     return types.LemurTaskResponse.parse_obj(response.json())
+
+
+def lemur_purge_request_data(
+    client: httpx.Client,
+    request: types.LemurPurgeRequest,
+    http_timeout: Optional[float],
+) -> types.LemurPurgeRequest:
+    response = client.delete(
+        f"{ENDPOINT_LEMUR_BASE}/{request.request_id}",
+        timeout=http_timeout,
+    )
+
+    if response.status_code != httpx.codes.ok:
+        raise types.LemurError(
+            f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error: {_get_error_message(response)}"
+        )
+
+    return types.LemurPurgeResponse.parse_obj(response.json())

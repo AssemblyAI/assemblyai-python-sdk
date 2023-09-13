@@ -5,7 +5,10 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
-from assemblyai.api import ENDPOINT_LEMUR
+from assemblyai.api import (
+    ENDPOINT_LEMUR,
+    ENDPOINT_LEMUR_BASE,
+)
 from tests.unit import factories
 
 aai.settings.api_key = "test"
@@ -329,4 +332,60 @@ def test_lemur_ask_coach_fails(httpx_mock: HTTPXMock):
         lemur.task(prompt="Create action items of the meeting")
 
     # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_purge_request_data_succeeds(httpx_mock: HTTPXMock):
+    """
+    Tests whether LeMUR request purging succeeds.
+    """
+
+    # create a mock response of a LemurPurgeResponse
+    mock_lemur_purge_response = factories.generate_dict_factory(
+        factories.LemurPurgeResponse
+    )()
+
+    mock_request_id: str = str(uuid.uuid4())
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{mock_request_id}",
+        status_code=httpx.codes.OK,
+        method="DELETE",
+        json=mock_lemur_purge_response,
+    )
+
+    # mimic the usage of the SDK
+    result = aai.Lemur.purge_request_data(request_id=mock_request_id)
+
+    # check the response
+    assert isinstance(result, aai.LemurPurgeResponse)
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_purge_request_data_fails(httpx_mock: HTTPXMock):
+    """
+    Tests whether LeMUR request purging fails.
+    """
+
+    # create a mock response of a LemurPurgeResponse
+    mock_lemur_purge_response = factories.generate_dict_factory(
+        factories.LemurPurgeResponse
+    )()
+
+    mock_request_id: str = str(uuid.uuid4())
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{mock_request_id}",
+        status_code=httpx.codes.INTERNAL_SERVER_ERROR,
+        method="DELETE",
+        json=mock_lemur_purge_response,
+    )
+
+    with pytest.raises(aai.LemurError) as error:
+        aai.Lemur.purge_request_data(mock_request_id)
+
     assert len(httpx_mock.get_requests()) == 1
