@@ -8,7 +8,7 @@ import pytest
 import pytest_mock
 from pytest_httpx import HTTPXMock
 
-import assemblyai.developer_tools.python.sdk as aai
+import assemblyai as aai
 from assemblyai.api import ENDPOINT_UPLOAD
 
 
