@@ -252,6 +252,15 @@ class EntityType(str, Enum):
     banking_information = "banking_information"
     "Banking information, including account and routing numbers"
 
+    time = "time"
+    "Expressions indicating clock times (e.g., 19:37:28, 10pm EST)"
+
+    url = "url"
+    "Internet addresses (e.g., www.assemblyai.com)"
+
+    password = "password"
+    "Account passwords, PINs, access keys, or verification answers (e.g., 27%alfalfa, temp1234, My mother's maiden name is Smith)"
+
 
 # EntityType and PIIRedactionPolicy share the same values
 PIIRedactionPolicy = EntityType
