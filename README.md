@@ -9,6 +9,8 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/assemblyai)
 [![AssemblyAI Twitter](https://img.shields.io/twitter/follow/AssemblyAI?label=%40AssemblyAI&style=social)](https://twitter.com/AssemblyAI)
 [![AssemblyAI YouTube](https://img.shields.io/youtube/channel/subscribers/UCtatfZMf-8EkIwASXM4ts0A)](https://www.youtube.com/@AssemblyAI)
+[![Discord](https://img.shields.io/discord/875120158014853141?logo=discord&label=Discord&link=https%3A%2F%2Fdiscord.com%2Fchannels%2F875120158014853141&style=social)
+](https://discord.gg/5aQNZyq3)
 
 # AssemblyAI's Python SDK
 
@@ -35,6 +37,10 @@ With a single API call, get access to AI models built on the latest AI breakthro
     - [Overriding Defaults](#overriding-defaults)
   - [Synchronous vs Asynchronous](#synchronous-vs-asynchronous)
   - [Polling Intervals](#polling-intervals)
+  - [Retrieving Existing Transcripts](#retrieving-existing-transcripts)
+    - [Retrieving a Single Transcript](#retrieving-a-single-transcript)
+    - [Retrieving Multiple Transcripts as a Group](#retrieving-multiple-transcripts-as-a-group)
+    - [Retrieving Transcripts Asynchronously](#retrieving-transcripts-asynchronously)
 
 # Documentation
 
