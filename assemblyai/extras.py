@@ -103,11 +103,17 @@ def stream_file(
 
     with open(filepath, "rb") as f:
         while True:
-            data = f.read(int(sample_rate * 0.30) * 2)
-            enough_data = ((len(data) / (16 / 8)) / sample_rate) * 1_000
+            # send in 300ms segments
+            data = f.read(int(sample_rate * 0.300) * 2)
 
-            if not data or enough_data < 300.0:
+            if not data:
+                yield b"\x00" * int(sample_rate * 1 * 2)
                 break
+
+            enough_data = (len(data) / 2) / sample_rate
+
+            if enough_data < 0.300:
+                data = data + b"\x00" * int(sample_rate * (1 - enough_data) * 2)
 
             yield data
 

@@ -1045,19 +1045,13 @@ class _RealtimeTranscriberImpl:
         """
         Closes the connection to the real-time service gracefully.
         """
-
-        with self._write_queue.mutex:
-            self._write_queue.queue.clear()
-
         if terminate and not self._stop_event.is_set():
-            self._websocket.send(json.dumps({"terminate_session": True}))
-            self._websocket.close()
-
-        self._stop_event.set()
+            self._write_queue.put({"terminate_session": True})
 
         try:
             self._read_thread.join()
             self._write_thread.join()
+            self._websocket.close()
         except Exception:
             pass
 
@@ -1105,7 +1099,12 @@ class _RealtimeTranscriberImpl:
                 continue
 
             try:
-                self._websocket.send(self._encode_data(data))
+                if isinstance(data, dict):
+                    self._websocket.send(json.dumps(data))
+                elif isinstance(data, bytes):
+                    self._websocket.send(self._encode_data(data))
+                else:
+                    raise ValueError("unsupported message type")
             except websockets.exceptions.ConnectionClosed as exc:
                 return self._handle_error(exc)
 
@@ -1143,6 +1142,10 @@ class _RealtimeTranscriberImpl:
                 and self._on_open
             ):
                 self._on_open(types.RealtimeSessionOpened(**message))
+            elif (
+                message["message_type"] == types.RealtimeMessageTypes.session_terminated
+            ):
+                self._stop_event.set()
         elif "error" in message:
             self._on_error(types.RealtimeError(message["error"]))
 
