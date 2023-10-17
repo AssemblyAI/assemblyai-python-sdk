@@ -1865,6 +1865,7 @@ class RealtimeMessageTypes(str, Enum):
     partial_transcript = "PartialTranscript"
     final_transcript = "FinalTranscript"
     session_begins = "SessionBegins"
+    session_terminated = "SessionTerminated"
 
 
 class RealtimeSessionOpened(BaseModel):
