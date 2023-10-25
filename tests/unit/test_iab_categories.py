@@ -1,7 +1,7 @@
 import factory
 from pytest_httpx import HTTPXMock
 
-import tests.unit.unit_test_utils as unit_test_utils
+import assemblyai.tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
 from tests.unit import factories
 
