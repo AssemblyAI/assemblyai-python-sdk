@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional, Union
 
-from . import api, types
+from . import api
 from . import client as _client
+from . import types
 
 
 class _LemurImpl:
@@ -13,11 +14,7 @@ class _LemurImpl:
     ) -> None:
         self._client = client
 
-        self._sources = (
-            [types.LemurSourceRequest.from_lemur_source(s) for s in sources]
-            if sources is not None
-            else []
-        )
+        self._sources = [types.LemurSourceRequest.from_lemur_source(s) for s in sources]
 
     def question(
         self,
@@ -27,7 +24,6 @@ class _LemurImpl:
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
         temperature: Optional[float],
-        input_text: Optional[str],
     ) -> types.LemurQuestionResponse:
         response = api.lemur_question(
             client=self._client.http_client,
@@ -38,7 +34,6 @@ class _LemurImpl:
                 final_model=final_model,
                 max_output_size=max_output_size,
                 temperature=temperature,
-                input_text=input_text,
             ),
             http_timeout=timeout,
         )
@@ -53,7 +48,6 @@ class _LemurImpl:
         max_output_size: Optional[int],
         timeout: Optional[float],
         temperature: Optional[float],
-        input_text: Optional[str],
     ) -> types.LemurSummaryResponse:
         response = api.lemur_summarize(
             client=self._client.http_client,
@@ -64,7 +58,6 @@ class _LemurImpl:
                 final_model=final_model,
                 max_output_size=max_output_size,
                 temperature=temperature,
-                input_text=input_text,
             ),
             http_timeout=timeout,
         )
@@ -79,7 +72,6 @@ class _LemurImpl:
         max_output_size: Optional[int],
         timeout: Optional[float],
         temperature: Optional[float],
-        input_text: Optional[str],
     ) -> types.LemurActionItemsResponse:
         response = api.lemur_action_items(
             client=self._client.http_client,
@@ -90,7 +82,6 @@ class _LemurImpl:
                 final_model=final_model,
                 max_output_size=max_output_size,
                 temperature=temperature,
-                input_text=input_text,
             ),
             http_timeout=timeout,
         )
@@ -104,7 +95,6 @@ class _LemurImpl:
         max_output_size: Optional[int],
         timeout: Optional[float],
         temperature: Optional[float],
-        input_text: Optional[str],
     ):
         response = api.lemur_task(
             client=self._client.http_client,
@@ -114,7 +104,6 @@ class _LemurImpl:
                 final_model=final_model,
                 max_output_size=max_output_size,
                 temperature=temperature,
-                input_text=input_text,
             ),
             http_timeout=timeout,
         )
@@ -132,7 +121,7 @@ class Lemur:
 
     def __init__(
         self,
-        sources: Optional[List[types.LemurSource]] = None,
+        sources: List[types.LemurSource],
         client: Optional[_client.Client] = None,
     ) -> None:
         """
@@ -158,7 +147,6 @@ class Lemur:
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
-        input_text: Optional[str] = None,
     ) -> types.LemurQuestionResponse:
         """
         Question & Answer allows you to ask free form questions about one or many transcripts.
@@ -172,11 +160,10 @@ class Lemur:
         Args:
             questions: One or a list of questions to ask.
             context: The context which is shared among all questions. This can be a string or a dictionary.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
-            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: One or a list of answer objects.
         """
@@ -191,7 +178,6 @@ class Lemur:
             max_output_size=max_output_size,
             timeout=timeout,
             temperature=temperature,
-            input_text=input_text,
         )
 
     def summarize(
@@ -202,7 +188,6 @@ class Lemur:
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
-        input_text: Optional[str] = None,
     ) -> types.LemurSummaryResponse:
         """
         Summary allows you to distill a piece of audio into a few impactful sentences.
@@ -214,11 +199,10 @@ class Lemur:
         Args:
             context: An optional context on the transcript.
             answer_format: The format on how the summary shall be summarized.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the summary.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
-            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The summary as a string.
         """
@@ -230,7 +214,6 @@ class Lemur:
             max_output_size=max_output_size,
             timeout=timeout,
             temperature=temperature,
-            input_text=input_text,
         )
 
     def action_items(
@@ -241,7 +224,6 @@ class Lemur:
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
-        input_text: Optional[str] = None,
     ) -> types.LemurActionItemsResponse:
         """
         Action Items allows you to generate action items from one or many transcripts.
@@ -254,11 +236,10 @@ class Lemur:
         Args:
             context: An optional context on the transcript.
             answer_format: The preferred format for the result action items.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the action items response.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
-            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The action items as a string.
         """
@@ -270,7 +251,6 @@ class Lemur:
             max_output_size=max_output_size,
             timeout=timeout,
             temperature=temperature,
-            input_text=input_text,
         )
 
     def task(
@@ -280,7 +260,6 @@ class Lemur:
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
-        input_text: Optional[str] = None,
     ) -> types.LemurTaskResponse:
         """
         Task feature allows you to submit a custom prompt to the model.
@@ -289,11 +268,10 @@ class Lemur:
 
         Args:
             prompt: The prompt to use for this task.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
-            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
@@ -304,7 +282,6 @@ class Lemur:
             max_output_size=max_output_size,
             timeout=timeout,
             temperature=temperature,
-            input_text=input_text,
         )
 
     @classmethod
