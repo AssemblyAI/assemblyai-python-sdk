@@ -835,7 +835,7 @@ class TranscriptionConfig:
         "Enable Auto Chapters."
 
         # Validate required params are also set
-        if enable and self.punctuate is False:
+        if enable and self.punctuate == False:
             raise ValueError(
                 "If `auto_chapters` is enabled, then `punctuate` must not be disabled"
             )
@@ -1146,11 +1146,11 @@ class TranscriptionConfig:
             return self
 
         # Validate that required parameters are also set
-        if self._raw_transcription_config.punctuate is False:
+        if self._raw_transcription_config.punctuate == False:
             raise ValueError(
                 "If `summarization` is enabled, then `punctuate` must not be disabled"
             )
-        if self._raw_transcription_config.format_text is False:
+        if self._raw_transcription_config.format_text == False:
             raise ValueError(
                 "If `summarization` is enabled, then `format_text` must not be disabled"
             )
@@ -1247,7 +1247,6 @@ class Word(BaseModel):
     start: int
     end: int
     confidence: float
-    speaker: Optional[str]
 
 
 class UtteranceWord(Word):
@@ -1383,10 +1382,6 @@ class RedactedAudioResponse(BaseModel):
 
 class Sentence(Word):
     words: List[Word]
-    start: int
-    end: int
-    confidence: int
-    speaker: Optional[str]
 
 
 class SentencesResponse(BaseModel):
@@ -1397,10 +1392,6 @@ class SentencesResponse(BaseModel):
 
 class Paragraph(Word):
     words: List[Word]
-    start: int
-    end: int
-    confidence: int
-    text: str
 
 
 class ParagraphsResponse(BaseModel):
@@ -1675,7 +1666,7 @@ class LemurTranscriptSource(LemurSource):
         """
         from . import Transcript
 
-        if isinstance(transcript, str):
+        if type(transcript) == str:
             transcript = Transcript(transcript_id=transcript)
 
         super().__init__(transcript)
@@ -1704,10 +1695,10 @@ class LemurSourceRequest(BaseModel):
 
 class LemurModel(str, Enum):
     """
-    LeMUR features four model modes, Basic, Default, Mistral 7B, and Claude v2.1, that allow you to
-    configure your request to suit your needs. These options tell LeMUR whether to use the more
-    advanced Default model or the cheaper, faster, but simplified Basic model. The implicit setting
-    is Default when no option is explicitly passed in.
+    LeMUR features two model modes, Basic and Default, that allow you to configure your request
+    to suit your needs. These options tell LeMUR whether to use the more advanced Default model or
+    the cheaper, faster, but simplified Basic model. The implicit setting is Default when no option
+    is explicitly passed in.
     """
 
     default = "default"
@@ -1728,13 +1719,6 @@ class LemurModel(str, Enum):
     The best use cases for Basic include summary and simple questions with factual answers. It is not recommended to use Basic
     for complex/subjective tasks where answers require more nuance to be effective.
     """
-
-    mistral7b = "assemblyai/mistral-7b"
-    """
-    Mistral 7B is an open source model that works well for summarization and answering questions.
-    """
-
-    claude2_1 = "anthropic/claude-2-1"
 
 
 class LemurQuestionAnswer(BaseModel):
@@ -1789,7 +1773,6 @@ class BaseLemurRequest(BaseModel):
     final_model: Optional[LemurModel]
     max_output_size: Optional[int]
     temperature: Optional[float]
-    input_text: Optional[str]
 
 
 class LemurTaskRequest(BaseLemurRequest):
@@ -1937,7 +1920,7 @@ class RealtimeTranscript(BaseModel):
     text: str
     "The transcript for your audio"
 
-    words: List[RealtimeWord]
+    words: List[Word]
     """
     An array of objects, with the information for each word in the transcription text.
     Will include the `start`/`end` time (in milliseconds) of the word, the `confidence` score of the word,

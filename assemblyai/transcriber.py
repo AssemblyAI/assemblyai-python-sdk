@@ -27,8 +27,9 @@ import websockets.exceptions
 from typing_extensions import Self
 from websockets.sync.client import connect as websocket_connect
 
-from . import api, lemur, types
+from . import api
 from . import client as _client
+from . import lemur, types
 
 
 class _TranscriptImpl:
@@ -982,7 +983,7 @@ class _RealtimeTranscriberImpl:
         client: _client.Client,
     ) -> None:
         self._client = client
-        self._websocket: Optional[websockets.sync.client.ClientConnection] = None
+        self._websocket: Optional[websockets_client.ClientConnection] = None
 
         self._on_open = on_open
         self._on_data = on_data
