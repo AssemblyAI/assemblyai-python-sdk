@@ -493,7 +493,7 @@ transcript = transcriber.transcribe(
 
 for entity in transcript.entities:
   print(entity.text) # i.e. "Dan Gilbert"
-  print(entity.type) # i.e. EntityType.person
+  print(entity.entity_type) # i.e. EntityType.person
   print(f"Timestamp: {entity.start} - {entity.end}")
 ```
 
