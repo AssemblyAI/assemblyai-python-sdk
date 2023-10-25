@@ -2,9 +2,10 @@ import factory
 import pytest
 from pytest_httpx import HTTPXMock
 
-import tests.unit.factories as factories
-import tests.unit.unit_test_utils as test_utils
+import assemblyai.tests.unit.factories as factories
+import assemblyai.tests.unit.unit_test_utils as test_utils
 import assemblyai as aai
+from tests.unit import factories
 
 aai.settings.api_key = "test"
 
@@ -26,8 +27,7 @@ def test_summarization_fails_without_required_field(
             httpx_mock,
             {},
             config=aai.TranscriptionConfig(
-                summarization=True,
-                **{required_field: False},  # type: ignore
+                summarization=True, **{required_field: False}  # type: ignore
             ),
         )
 
@@ -74,9 +74,9 @@ def test_default_summarization_params(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("summarization") is True
-    assert request_body.get("summary_model") is None
-    assert request_body.get("summary_type") is None
+    assert request_body.get("summarization") == True
+    assert request_body.get("summary_model") == None
+    assert request_body.get("summary_type") == None
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
@@ -106,7 +106,7 @@ def test_summarization_with_params(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("summarization") is True
+    assert request_body.get("summarization") == True
     assert request_body.get("summary_model") == summary_model
     assert request_body.get("summary_type") == summary_type
 

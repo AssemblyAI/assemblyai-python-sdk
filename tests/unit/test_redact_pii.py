@@ -3,7 +3,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 from pytest_mock import MockerFixture
 
-import tests.unit.unit_test_utils as unit_test_utils
+import assemblyai.tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
 from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories

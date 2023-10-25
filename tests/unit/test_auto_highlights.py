@@ -1,7 +1,7 @@
 import factory
 from pytest_httpx import HTTPXMock
 
-import tests.unit.unit_test_utils as unit_test_utils
+import assemblyai.tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
 from tests.unit import factories
 
@@ -64,7 +64,7 @@ def test_auto_highlights_enabled(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("auto_highlights") is True
+    assert request_body.get("auto_highlights") == True
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None

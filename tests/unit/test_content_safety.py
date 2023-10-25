@@ -4,7 +4,7 @@ import factory
 import pytest
 from pytest_httpx import HTTPXMock
 
-import tests.unit.unit_test_utils as unit_test_utils
+import assemblyai.tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
 from tests.unit import factories
 
@@ -98,7 +98,7 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("content_safety") is True
+    assert request_body.get("content_safety") == True
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
@@ -202,7 +202,7 @@ def test_content_safety_with_confidence_threshold(httpx_mock: HTTPXMock):
         ),
     )
 
-    assert request.get("content_safety") is True
+    assert request.get("content_safety") == True
     assert request.get("content_safety_confidence") == confidence
 
 
