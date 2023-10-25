@@ -460,7 +460,7 @@ for sentiment_result in transcript.sentiment_analysis:
   print(sentiment_result.text)
   print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
   print(sentiment_result.confidence)
-  print(f"Timestamp: {sentiment_result.timestamp.start} - {sentiment_result.timestamp.end}")
+  print(f"Timestamp: {sentiment_result.start} - {sentiment_result.end}")
 ```
 
 If `speaker_labels` is also enabled, then each sentiment analysis result will also include a `speaker` field.

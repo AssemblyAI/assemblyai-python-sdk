@@ -1,63 +1,17 @@
-import json
-from typing import Any, Dict
-
-import httpx
+import factory
 import pytest
 from pytest_httpx import HTTPXMock
 
+import tests.unit.factories as factories
+import tests.unit.unit_test_utils as test_utils
 import assemblyai as aai
-from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
 
 aai.settings.api_key = "test"
 
 
-def __submit_request(httpx_mock: HTTPXMock, **params) -> Dict[str, Any]:
-    """
-    Helper function to abstract calling transcriber with given parameters,
-    and perform some common assertions.
-
-    Returns the body (dictionary) of the initial submission request.
-    """
-    summary = "example summary"
-
-    mock_transcript_response = factories.generate_dict_factory(
-        factories.TranscriptCompletedResponseFactory
-    )()
-
-    # Mock initial submission response
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
-        status_code=httpx.codes.OK,
-        method="POST",
-        json=mock_transcript_response,
-    )
-
-    # Mock polling-for-completeness response, with mock summary result
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_response['id']}",
-        status_code=httpx.codes.OK,
-        method="GET",
-        json={**mock_transcript_response, "summary": summary},
-    )
-
-    # == Make API request via SDK ==
-    transcript = aai.Transcriber().transcribe(
-        data="https://example.org/audio.wav",
-        config=aai.TranscriptionConfig(
-            **params,
-        ),
-    )
-
-    # Check that submission and polling requests were made
-    assert len(httpx_mock.get_requests()) == 2
-
-    # Check that summary field from response was traced back through SDK classes
-    assert transcript.summary == summary
-
-    # Extract and return body of initial submission request
-    request = httpx_mock.get_requests()[0]
-    return json.loads(request.content.decode())
+class SummarizationResponseFactory(factories.TranscriptCompletedResponseFactory):
+    summary = factory.Faker("sentence")
 
 
 @pytest.mark.parametrize("required_field", ["punctuate", "format_text"])
@@ -69,7 +23,13 @@ def test_summarization_fails_without_required_field(
     if `summarization` is enabled and the given required field is disabled
     """
     with pytest.raises(ValueError) as error:
-        __submit_request(httpx_mock, summarization=True, **{required_field: False})
+        test_utils.submit_mock_transcription_request(
+            httpx_mock,
+            {},
+            config=aai.TranscriptionConfig(
+                summarization=True, **{required_field: False}  # type: ignore
+            ),
+        )
 
     # Check that the error message informs the user of the invalid parameter
     assert required_field in str(error)
@@ -86,8 +46,21 @@ def test_summarization_disabled_by_default(httpx_mock: HTTPXMock):
     Tests that excluding `summarization` from the `TranscriptionConfig` will
     result in the default behavior of it being excluded from the request body
     """
-    request_body = __submit_request(httpx_mock)
+    mock_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    request_body, transcript = test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response,
+        config=aai.TranscriptionConfig(),
+    )
+
+    # Check that request body was properly defined
     assert request_body.get("summarization") is None
+
+    # Check that transcript was properly parsed from JSON response
+    assert transcript.error is None
+    assert transcript.summary is None
 
 
 def test_default_summarization_params(httpx_mock: HTTPXMock):
@@ -95,8 +68,19 @@ def test_default_summarization_params(httpx_mock: HTTPXMock):
     Tests that including `summarization=True` in the `TranscriptionConfig`
     will result in `summarization=True` in the request body.
     """
-    request_body = __submit_request(httpx_mock, summarization=True)
+    mock_response = factories.generate_dict_factory(SummarizationResponseFactory)()
+    request_body, transcript = test_utils.submit_mock_transcription_request(
+        httpx_mock, mock_response, aai.TranscriptionConfig(summarization=True)
+    )
+
+    # Check that request body was properly defined
     assert request_body.get("summarization") == True
+    assert request_body.get("summary_model") == None
+    assert request_body.get("summary_type") == None
+
+    # Check that transcript was properly parsed from JSON response
+    assert transcript.error is None
+    assert transcript.summary == mock_response["summary"]
 
 
 def test_summarization_with_params(httpx_mock: HTTPXMock):
@@ -109,16 +93,26 @@ def test_summarization_with_params(httpx_mock: HTTPXMock):
     summary_model = aai.SummarizationModel.conversational
     summary_type = aai.SummarizationType.bullets
 
-    request_body = __submit_request(
+    mock_response = factories.generate_dict_factory(SummarizationResponseFactory)()
+
+    request_body, transcript = test_utils.submit_mock_transcription_request(
         httpx_mock,
-        summarization=True,
-        summary_model=summary_model,
-        summary_type=summary_type,
+        mock_response,
+        aai.TranscriptionConfig(
+            summarization=True,
+            summary_model=summary_model,
+            summary_type=summary_type,
+        ),
     )
 
+    # Check that request body was properly defined
     assert request_body.get("summarization") == True
     assert request_body.get("summary_model") == summary_model
     assert request_body.get("summary_type") == summary_type
+
+    # Check that transcript was properly parsed from JSON response
+    assert transcript.error is None
+    assert transcript.summary == mock_response["summary"]
 
 
 def test_summarization_params_excluded_when_disabled(httpx_mock: HTTPXMock):
@@ -126,13 +120,24 @@ def test_summarization_params_excluded_when_disabled(httpx_mock: HTTPXMock):
     Tests that additional summarization parameters are excluded from the submission
     request body if `summarization` itself is not enabled.
     """
-    request_body = __submit_request(
+    mock_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    request_body, transcript = test_utils.submit_mock_transcription_request(
         httpx_mock,
-        summarization=False,
-        summary_model=aai.SummarizationModel.conversational,
-        summary_type=aai.SummarizationType.bullets,
+        mock_response,
+        aai.TranscriptionConfig(
+            summarization=False,
+            summary_model=aai.SummarizationModel.conversational,
+            summary_type=aai.SummarizationType.bullets,
+        ),
     )
 
+    # Check that request body was properly defined
     assert request_body.get("summarization") is None
     assert request_body.get("summary_model") is None
     assert request_body.get("summary_type") is None
+
+    # Check that transcript was properly parsed from JSON response
+    assert transcript.error is None
+    assert transcript.summary is None
