@@ -52,7 +52,7 @@ def test_entity_detection_enabled(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("entity_detection") is True
+    assert request_body.get("entity_detection") == True
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None

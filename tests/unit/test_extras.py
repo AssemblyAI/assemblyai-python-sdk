@@ -1,6 +1,6 @@
 from unittest.mock import mock_open, patch
 
-import assemblyai as aai
+import assemblyai.developer_tools.python.sdk as aai
 
 
 def test_stream_file_empty_file():
