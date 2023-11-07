@@ -1,7 +1,6 @@
 import datetime
 import json
 import uuid
-from typing import Optional
 from unittest.mock import MagicMock
 from urllib.parse import urlencode
 
