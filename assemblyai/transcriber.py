@@ -983,7 +983,7 @@ class _RealtimeTranscriberImpl:
         client: _client.Client,
     ) -> None:
         self._client = client
-        self._websocket: Optional[websockets_client.ClientConnection] = None
+        self._websocket: Optional[websockets.sync.client.ClientConnection] = None
 
         self._on_open = on_open
         self._on_data = on_data
