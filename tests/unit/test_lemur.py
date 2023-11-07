@@ -385,7 +385,7 @@ def test_lemur_purge_request_data_fails(httpx_mock: HTTPXMock):
         json=mock_lemur_purge_response,
     )
 
-    with pytest.raises(aai.LemurError) as error:
+    with pytest.raises(aai.LemurError):
         aai.Lemur.purge_request_data(mock_request_id)
 
     assert len(httpx_mock.get_requests()) == 1
