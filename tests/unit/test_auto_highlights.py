@@ -64,7 +64,7 @@ def test_auto_highlights_enabled(httpx_mock: HTTPXMock):
     )
 
     # Check that request body was properly defined
-    assert request_body.get("auto_highlights") == True
+    assert request_body.get("auto_highlights") is True
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
