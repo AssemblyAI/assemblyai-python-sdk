@@ -1773,6 +1773,7 @@ class BaseLemurRequest(BaseModel):
     final_model: Optional[LemurModel]
     max_output_size: Optional[int]
     temperature: Optional[float]
+    input_text: Optional[str]
 
 
 class LemurTaskRequest(BaseLemurRequest):
