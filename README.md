@@ -266,6 +266,37 @@ print(result.response)
 
 </details>
 
+
+<details>
+  <summary>Use LeMUR to with Input Text</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+config = aai.TranscriptionConfig(
+  speaker_labels=True,
+)
+transcript = transcriber.transcribe("https://example.org/customer.mp3", config=config)
+
+# Example converting speaker label utterances into LeMUR input text
+text = ""
+
+for utt in transcript.utterances:
+    text += f"Speaker {utt.speaker}:\n{utt.text}\n"
+
+result = aai.Lemur().task(
+  "You are a helpful coach. Provide an analysis of the transcript "
+  "and offer areas to improve with exact quotes. Include no preamble. "
+  "Start with an overall summary then get into the examples with feedback.",
+  input_text=text
+)
+
+print(result.response)
+```
+
+</details>
+
 <details>
   <summary>Delete data previously sent to LeMUR</summary>
 
