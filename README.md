@@ -10,7 +10,7 @@
 [![AssemblyAI Twitter](https://img.shields.io/twitter/follow/AssemblyAI?label=%40AssemblyAI&style=social)](https://twitter.com/AssemblyAI)
 [![AssemblyAI YouTube](https://img.shields.io/youtube/channel/subscribers/UCtatfZMf-8EkIwASXM4ts0A)](https://www.youtube.com/@AssemblyAI)
 [![Discord](https://img.shields.io/discord/875120158014853141?logo=discord&label=Discord&link=https%3A%2F%2Fdiscord.com%2Fchannels%2F875120158014853141&style=social)
-](https://discord.gg/5aQNZyq3)
+](https://assemblyai.com/discord)
 
 # AssemblyAI's Python SDK
 
@@ -266,6 +266,37 @@ print(result.response)
 
 </details>
 
+
+<details>
+  <summary>Use LeMUR to with Input Text</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+config = aai.TranscriptionConfig(
+  speaker_labels=True,
+)
+transcript = transcriber.transcribe("https://example.org/customer.mp3", config=config)
+
+# Example converting speaker label utterances into LeMUR input text
+text = ""
+
+for utt in transcript.utterances:
+    text += f"Speaker {utt.speaker}:\n{utt.text}\n"
+
+result = aai.Lemur().task(
+  "You are a helpful coach. Provide an analysis of the transcript "
+  "and offer areas to improve with exact quotes. Include no preamble. "
+  "Start with an overall summary then get into the examples with feedback.",
+  input_text=text
+)
+
+print(result.response)
+```
+
+</details>
+
 <details>
   <summary>Delete data previously sent to LeMUR</summary>
 
@@ -460,7 +491,7 @@ for sentiment_result in transcript.sentiment_analysis:
   print(sentiment_result.text)
   print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
   print(sentiment_result.confidence)
-  print(f"Timestamp: {sentiment_result.timestamp.start} - {sentiment_result.timestamp.end}")
+  print(f"Timestamp: {sentiment_result.start} - {sentiment_result.end}")
 ```
 
 If `speaker_labels` is also enabled, then each sentiment analysis result will also include a `speaker` field.
@@ -493,7 +524,7 @@ transcript = transcriber.transcribe(
 
 for entity in transcript.entities:
   print(entity.text) # i.e. "Dan Gilbert"
-  print(entity.type) # i.e. EntityType.person
+  print(entity.entity_type) # i.e. EntityType.person
   print(f"Timestamp: {entity.start} - {entity.end}")
 ```
 

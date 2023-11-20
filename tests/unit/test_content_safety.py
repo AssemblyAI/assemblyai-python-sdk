@@ -1,14 +1,11 @@
-import json
 import random
-from typing import Any, Dict, Tuple
 
 import factory
-import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
+import tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
-from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
 
 aai.settings.api_key = "test"
@@ -69,63 +66,12 @@ class ContentSafetyTranscriptResponseFactory(
     content_safety_labels = factory.SubFactory(ContentSafetyResponseFactory)
 
 
-def __submit_mock_request(
-    httpx_mock: HTTPXMock,
-    mock_response: Dict[str, Any],
-    config: aai.TranscriptionConfig,
-) -> Tuple[Dict[str, Any], aai.Transcript]:
-    """
-    Helper function to abstract mock transcriber calls with given `TranscriptionConfig`,
-    and perform some common assertions.
-    """
-
-    mock_transcript_id = mock_response.get("id", "mock_id")
-
-    # Mock initial submission response (transcript is processing)
-    mock_processing_response = factories.generate_dict_factory(
-        factories.TranscriptProcessingResponseFactory
-    )()
-
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
-        status_code=httpx.codes.OK,
-        method="POST",
-        json={
-            **mock_processing_response,
-            "id": mock_transcript_id,  # inject ID from main mock response
-        },
-    )
-
-    # Mock polling-for-completeness response, with completed transcript
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_id}",
-        status_code=httpx.codes.OK,
-        method="GET",
-        json=mock_response,
-    )
-
-    # == Make API request via SDK ==
-    transcript = aai.Transcriber().transcribe(
-        data="https://example.org/audio.wav",
-        config=config,
-    )
-
-    # Check that submission and polling requests were made
-    assert len(httpx_mock.get_requests()) == 2
-
-    # Extract body of initial submission request
-    request = httpx_mock.get_requests()[0]
-    request_body = json.loads(request.content.decode())
-
-    return request_body, transcript
-
-
 def test_content_safety_disabled_by_default(httpx_mock: HTTPXMock):
     """
     Tests that excluding `content_safety` from the `TranscriptionConfig` will
     result in the default behavior of it being excluded from the request body
     """
-    request_body, transcript = __submit_mock_request(
+    request_body, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             factories.TranscriptCompletedResponseFactory
@@ -145,14 +91,14 @@ def test_content_safety_enabled(httpx_mock: HTTPXMock):
     mock_response = factories.generate_dict_factory(
         ContentSafetyTranscriptResponseFactory
     )()
-    request_body, transcript = __submit_mock_request(
+    request_body, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=mock_response,
         config=aai.TranscriptionConfig(content_safety=True),
     )
 
     # Check that request body was properly defined
-    assert request_body.get("content_safety") == True
+    assert request_body.get("content_safety") is True
 
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
@@ -248,7 +194,7 @@ def test_content_safety_with_confidence_threshold(httpx_mock: HTTPXMock):
     and will be included in the request body
     """
     confidence = 40
-    request, _ = __submit_mock_request(
+    request, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response={},  # Response doesn't matter here; we're just testing the request body
         config=aai.TranscriptionConfig(
@@ -256,7 +202,7 @@ def test_content_safety_with_confidence_threshold(httpx_mock: HTTPXMock):
         ),
     )
 
-    assert request.get("content_safety") == True
+    assert request.get("content_safety") is True
     assert request.get("content_safety_confidence") == confidence
 
 
@@ -269,7 +215,7 @@ def test_content_safety_with_invalid_confidence_threshold(
     an exception to be raised before the request is sent
     """
     with pytest.raises(ValueError) as error:
-        __submit_mock_request(
+        unit_test_utils.submit_mock_transcription_request(
             httpx_mock,
             mock_response={},  # We don't expect to produce a response
             config=aai.TranscriptionConfig(

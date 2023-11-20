@@ -835,7 +835,7 @@ class TranscriptionConfig:
         "Enable Auto Chapters."
 
         # Validate required params are also set
-        if enable and self.punctuate == False:
+        if enable and self.punctuate is False:
             raise ValueError(
                 "If `auto_chapters` is enabled, then `punctuate` must not be disabled"
             )
@@ -1146,11 +1146,11 @@ class TranscriptionConfig:
             return self
 
         # Validate that required parameters are also set
-        if self._raw_transcription_config.punctuate == False:
+        if self._raw_transcription_config.punctuate is False:
             raise ValueError(
                 "If `summarization` is enabled, then `punctuate` must not be disabled"
             )
-        if self._raw_transcription_config.format_text == False:
+        if self._raw_transcription_config.format_text is False:
             raise ValueError(
                 "If `summarization` is enabled, then `format_text` must not be disabled"
             )
@@ -1666,7 +1666,7 @@ class LemurTranscriptSource(LemurSource):
         """
         from . import Transcript
 
-        if type(transcript) == str:
+        if isinstance(transcript, str):
             transcript = Transcript(transcript_id=transcript)
 
         super().__init__(transcript)
@@ -1773,6 +1773,7 @@ class BaseLemurRequest(BaseModel):
     final_model: Optional[LemurModel]
     max_output_size: Optional[int]
     temperature: Optional[float]
+    input_text: Optional[str]
 
 
 class LemurTaskRequest(BaseLemurRequest):

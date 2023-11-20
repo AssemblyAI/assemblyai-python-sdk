@@ -1,11 +1,9 @@
-import json
-from typing import Any, Dict, Tuple
-
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 from pytest_mock import MockerFixture
 
+import tests.unit.unit_test_utils as unit_test_utils
 import assemblyai as aai
 from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
@@ -23,63 +21,12 @@ class TranscriptWithPIIRedactionResponseFactory(
     ]
 
 
-def __submit_mock_request(
-    httpx_mock: HTTPXMock,
-    mock_response: Dict[str, Any],
-    config: aai.TranscriptionConfig,
-) -> Tuple[Dict[str, Any], aai.Transcript]:
-    """
-    Helper function to abstract mock transcriber calls with given `TranscriptionConfig`,
-    and perform some common assertions.
-    """
-
-    mock_transcript_id = mock_response.get("id", "mock_id")
-
-    # Mock initial submission response (transcript is processing)
-    mock_processing_response = factories.generate_dict_factory(
-        factories.TranscriptProcessingResponseFactory
-    )()
-
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
-        status_code=httpx.codes.OK,
-        method="POST",
-        json={
-            **mock_processing_response,
-            "id": mock_transcript_id,  # inject ID from main mock response
-        },
-    )
-
-    # Mock polling-for-completeness response, with completed transcript
-    httpx_mock.add_response(
-        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_id}",
-        status_code=httpx.codes.OK,
-        method="GET",
-        json=mock_response,
-    )
-
-    # == Make API request via SDK ==
-    transcript = aai.Transcriber().transcribe(
-        data="https://example.org/audio.wav",
-        config=config,
-    )
-
-    # Check that submission and polling requests were made
-    assert len(httpx_mock.get_requests()) == 2
-
-    # Extract body of initial submission request
-    request = httpx_mock.get_requests()[0]
-    request_body = json.loads(request.content.decode())
-
-    return request_body, transcript
-
-
 def test_redact_pii_disabled_by_default(httpx_mock: HTTPXMock):
     """
     Tests that excluding `redact_pii` from the `TranscriptionConfig` will
     result in the default behavior of it being excluded from the request body
     """
-    request_body, _ = __submit_mock_request(
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             factories.TranscriptCompletedResponseFactory
@@ -102,7 +49,7 @@ def test_redact_pii_enabled(httpx_mock: HTTPXMock):
         aai.types.PIIRedactionPolicy.phone_number,
     ]
 
-    request_body, _ = __submit_mock_request(
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -129,7 +76,7 @@ def test_redact_pii_enabled_with_optional_params(httpx_mock: HTTPXMock):
     ]
     sub_type = aai.types.PIISubstitutionPolicy.entity_name
 
-    request_body, _ = __submit_mock_request(
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -154,7 +101,7 @@ def test_redact_pii_fails_without_policies(httpx_mock: HTTPXMock):
     will result in an exception being raised before the API call is made
     """
     with pytest.raises(ValueError) as error:
-        __submit_mock_request(
+        unit_test_utils.submit_mock_transcription_request(
             httpx_mock,
             mock_response={},
             config=aai.TranscriptionConfig(
@@ -177,7 +124,7 @@ def test_redact_pii_params_excluded_when_disabled(httpx_mock: HTTPXMock):
     Tests that additional PII redaction parameters are excluded from the submission
     request body if `redact_pii` itself is not enabled.
     """
-    request_body, _ = __submit_mock_request(
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             factories.TranscriptCompletedResponseFactory
@@ -244,7 +191,7 @@ def test_get_pii_redacted_audio_url(httpx_mock: HTTPXMock):
     Tests that the PII-redacted audio URL can be retrieved from the API
     with a successful response
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -273,11 +220,11 @@ def test_get_pii_redacted_audio_url_fails_if_redact_pii_not_enabled_for_transcri
     `redact_pii` was not enabled for the transcript and
     `get_redacted_audio_url` is called
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
-            factories.TranscriptCompletedResponseFactory  # standard response
-        )(),
+            factories.TranscriptCompletedResponseFactory
+        )(),  # standard response
         config=aai.TranscriptionConfig(),  # blank config
     )
 
@@ -298,7 +245,7 @@ def test_get_pii_redacted_audio_url_fails_if_redact_pii_audio_not_enabled_for_tr
     `redact_pii_audio` was not enabled for the transcript and
     `get_redacted_audio_url` is called
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response={
             **factories.generate_dict_factory(
@@ -326,7 +273,7 @@ def test_get_pii_redacted_audio_url_fails_if_bad_response(httpx_mock: HTTPXMock)
     the request to fetch the redacted audio URL returns a `400` status code, indicating
     that the redacted audio has expired
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -349,7 +296,7 @@ def test_save_pii_redacted_audio(httpx_mock: HTTPXMock, mocker: MockerFixture):
     to the caller's file system
     """
 
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -398,11 +345,11 @@ def test_save_pii_redacted_audio_fails_if_redact_pii_not_enabled_for_transcript(
     `redact_pii` was not enabled for the transcript and
     `save_redacted_audio` is called
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
-            factories.TranscriptCompletedResponseFactory  # standard response
-        )(),
+            factories.TranscriptCompletedResponseFactory
+        )(),  # standard response
         config=aai.TranscriptionConfig(),  # blank config
     )
 
@@ -423,7 +370,7 @@ def test_save_pii_redacted_audio_fails_if_redact_pii_audio_not_enabled_for_trans
     `redact_pii_audio` was not enabled for the transcript and
     `get_redacted_audio_url` is called
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response={
             **factories.generate_dict_factory(
@@ -451,7 +398,7 @@ def test_save_pii_redacted_audio_fails_if_bad_response(httpx_mock: HTTPXMock):
     the request to fetch the redacted audio URL returns a `400` status code,
     indicating that the redacted audio has expired
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
@@ -473,7 +420,7 @@ def test_save_pii_redacted_audio_fails_if_bad_audio_url_response(httpx_mock: HTT
     Tests that `save_redacted_audio` raises a `RedactedAudioUnavailableError` if
     the request to fetch the redacted audio **file** returns a non-200 status code
     """
-    _, transcript = __submit_mock_request(
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
         mock_response=factories.generate_dict_factory(
             TranscriptWithPIIRedactionResponseFactory
