@@ -1,8 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
-from . import api
+from . import api, types
 from . import client as _client
-from . import types
 
 
 class _LemurImpl:
