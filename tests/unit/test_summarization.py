@@ -26,7 +26,8 @@ def test_summarization_fails_without_required_field(
             httpx_mock,
             {},
             config=aai.TranscriptionConfig(
-                summarization=True, **{required_field: False}  # type: ignore
+                summarization=True,
+                **{required_field: False},  # type: ignore
             ),
         )
 
