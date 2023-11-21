@@ -27,9 +27,8 @@ import websockets.exceptions
 from typing_extensions import Self
 from websockets.sync.client import connect as websocket_connect
 
-from . import api
+from . import api, lemur, types
 from . import client as _client
-from . import lemur, types
 
 
 class _TranscriptImpl:
