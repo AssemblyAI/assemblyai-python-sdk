@@ -176,6 +176,7 @@ class Lemur:
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: One or a list of answer objects.
         """
@@ -217,6 +218,7 @@ class Lemur:
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the summary.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The summary as a string.
         """
@@ -256,6 +258,7 @@ class Lemur:
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the action items response.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The action items as a string.
         """
@@ -290,6 +293,7 @@ class Lemur:
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
