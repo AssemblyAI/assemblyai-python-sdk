@@ -268,7 +268,7 @@ print(result.response)
 
 
 <details>
-  <summary>Use LeMUR to with Input Text</summary>
+  <summary>Use LeMUR with Input Text</summary>
 
 ```python
 import assemblyai as aai
