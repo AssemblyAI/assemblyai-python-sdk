@@ -1247,6 +1247,7 @@ class Word(BaseModel):
     start: int
     end: int
     confidence: float
+    speaker: Optional[str]
 
 
 class UtteranceWord(Word):
@@ -1382,6 +1383,10 @@ class RedactedAudioResponse(BaseModel):
 
 class Sentence(Word):
     words: List[Word]
+    start: int
+    end: int
+    confidence: int
+    speaker: Optional[str]
 
 
 class SentencesResponse(BaseModel):
@@ -1392,6 +1397,10 @@ class SentencesResponse(BaseModel):
 
 class Paragraph(Word):
     words: List[Word]
+    start: int
+    end: int
+    confidence: int
+    text: str
 
 
 class ParagraphsResponse(BaseModel):
@@ -1921,7 +1930,7 @@ class RealtimeTranscript(BaseModel):
     text: str
     "The transcript for your audio"
 
-    words: List[Word]
+    words: List[RealtimeWord]
     """
     An array of objects, with the information for each word in the transcription text.
     Will include the `start`/`end` time (in milliseconds) of the word, the `confidence` score of the word,
