@@ -1704,7 +1704,7 @@ class LemurSourceRequest(BaseModel):
 
 class LemurModel(str, Enum):
     """
-    LeMUR features two model modes, Basic and Default, that allow you to configure your request
+    LeMUR features three model modes, Basic, Default and Mistral 7B, that allow you to configure your request
     to suit your needs. These options tell LeMUR whether to use the more advanced Default model or
     the cheaper, faster, but simplified Basic model. The implicit setting is Default when no option
     is explicitly passed in.
@@ -1727,6 +1727,11 @@ class LemurModel(str, Enum):
 
     The best use cases for Basic include summary and simple questions with factual answers. It is not recommended to use Basic
     for complex/subjective tasks where answers require more nuance to be effective.
+    """
+
+    mistral7b = "assemblyai/mistral-7b"
+    """
+    Mistral 7B is an open source model that works well for summarization and answering questions.
     """
 
 
