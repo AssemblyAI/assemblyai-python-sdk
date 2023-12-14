@@ -514,6 +514,40 @@ def test_lemur_task_succeeds_input_text(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 1
 
 
+def test_lemur_task_succeeds_mistral(httpx_mock: HTTPXMock):
+    """
+    Tests whether creating a task request succeeds with mistral.
+    """
+
+    # create a mock response of a LemurSummaryResponse
+    mock_lemur_task_response = factories.generate_dict_factory(
+        factories.LemurTaskResponse
+    )()
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR}/task",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_lemur_task_response,
+    )
+    # test input_text input
+    lemur = aai.Lemur()
+    result = lemur.task(
+        final_model=aai.LemurModel.mistral7b,
+        prompt="Create action items of the meeting",
+        input_text="Test test",
+    )
+
+    # check the response
+    assert isinstance(result, aai.LemurTaskResponse)
+
+    assert result.response == mock_lemur_task_response["response"]
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
 def test_lemur_ask_coach_fails(httpx_mock: HTTPXMock):
     """
     Tests whether creating a task request fails.
