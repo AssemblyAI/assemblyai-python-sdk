@@ -1247,6 +1247,7 @@ class Word(BaseModel):
     start: int
     end: int
     confidence: float
+    speaker: Optional[str]
 
 
 class UtteranceWord(Word):
@@ -1382,6 +1383,10 @@ class RedactedAudioResponse(BaseModel):
 
 class Sentence(Word):
     words: List[Word]
+    start: int
+    end: int
+    confidence: int
+    speaker: Optional[str]
 
 
 class SentencesResponse(BaseModel):
@@ -1392,6 +1397,10 @@ class SentencesResponse(BaseModel):
 
 class Paragraph(Word):
     words: List[Word]
+    start: int
+    end: int
+    confidence: int
+    text: str
 
 
 class ParagraphsResponse(BaseModel):
@@ -1695,7 +1704,7 @@ class LemurSourceRequest(BaseModel):
 
 class LemurModel(str, Enum):
     """
-    LeMUR features two model modes, Basic and Default, that allow you to configure your request
+    LeMUR features three model modes, Basic, Default and Mistral 7B, that allow you to configure your request
     to suit your needs. These options tell LeMUR whether to use the more advanced Default model or
     the cheaper, faster, but simplified Basic model. The implicit setting is Default when no option
     is explicitly passed in.
@@ -1718,6 +1727,11 @@ class LemurModel(str, Enum):
 
     The best use cases for Basic include summary and simple questions with factual answers. It is not recommended to use Basic
     for complex/subjective tasks where answers require more nuance to be effective.
+    """
+
+    mistral7b = "assemblyai/mistral-7b"
+    """
+    Mistral 7B is an open source model that works well for summarization and answering questions.
     """
 
 
@@ -1921,7 +1935,7 @@ class RealtimeTranscript(BaseModel):
     text: str
     "The transcript for your audio"
 
-    words: List[Word]
+    words: List[RealtimeWord]
     """
     An array of objects, with the information for each word in the transcription text.
     Will include the `start`/`end` time (in milliseconds) of the word, the `confidence` score of the word,

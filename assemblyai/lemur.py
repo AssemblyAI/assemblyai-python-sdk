@@ -1,8 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
-from . import api
+from . import api, types
 from . import client as _client
-from . import types
 
 
 class _LemurImpl:
@@ -173,10 +172,11 @@ class Lemur:
         Args:
             questions: One or a list of questions to ask.
             context: The context which is shared among all questions. This can be a string or a dictionary.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the answer(s).
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: One or a list of answer objects.
         """
@@ -214,10 +214,11 @@ class Lemur:
         Args:
             context: An optional context on the transcript.
             answer_format: The format on how the summary shall be summarized.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the summary.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The summary as a string.
         """
@@ -253,10 +254,11 @@ class Lemur:
         Args:
             context: An optional context on the transcript.
             answer_format: The preferred format for the result action items.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the action items response.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: The action items as a string.
         """
@@ -287,10 +289,11 @@ class Lemur:
 
         Args:
             prompt: The prompt to use for this task.
-            final_model: The model that is used for the final prompt after compression is performed (options: "basic" and "default").
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", and "assemblyai/mistral-7b").
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
 
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
