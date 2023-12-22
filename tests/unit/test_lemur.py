@@ -541,7 +541,7 @@ def test_lemur_task_succeeds(final_model, httpx_mock: HTTPXMock):
     # test input_text input
     lemur = aai.Lemur()
     result = lemur.task(
-        final_model=aai.LemurModel.mistral7b,
+        final_model=final_model,
         prompt="Create action items of the meeting",
         input_text="Test test",
     )
