@@ -514,7 +514,14 @@ def test_lemur_task_succeeds_input_text(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 1
 
 
-def test_lemur_task_succeeds_mistral(httpx_mock: HTTPXMock):
+@pytest.mark.parametrize(
+    "final_model",
+    (
+        aai.LemurModel.mistral7b,
+        aai.LemurModel.claude2_1,
+    ),
+)
+def test_lemur_task_succeeds(final_model, httpx_mock: HTTPXMock):
     """
     Tests whether creating a task request succeeds with mistral.
     """
