@@ -1704,10 +1704,10 @@ class LemurSourceRequest(BaseModel):
 
 class LemurModel(str, Enum):
     """
-    LeMUR features three model modes, Basic, Default and Mistral 7B, that allow you to configure your request
-    to suit your needs. These options tell LeMUR whether to use the more advanced Default model or
-    the cheaper, faster, but simplified Basic model. The implicit setting is Default when no option
-    is explicitly passed in.
+    LeMUR features four model modes, Basic, Default, Mistral 7B, and Claude v2.1, that allow you to
+    configure your request to suit your needs. These options tell LeMUR whether to use the more
+    advanced Default model or the cheaper, faster, but simplified Basic model. The implicit setting
+    is Default when no option is explicitly passed in.
     """
 
     default = "default"
@@ -1733,6 +1733,8 @@ class LemurModel(str, Enum):
     """
     Mistral 7B is an open source model that works well for summarization and answering questions.
     """
+
+    claude2_1 = "anthropic/claude-2-1"
 
 
 class LemurQuestionAnswer(BaseModel):
