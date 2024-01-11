@@ -1385,7 +1385,7 @@ class Sentence(Word):
     words: List[Word]
     start: int
     end: int
-    confidence: int
+    confidence: float
     speaker: Optional[str]
 
 
@@ -1399,7 +1399,7 @@ class Paragraph(Word):
     words: List[Word]
     start: int
     end: int
-    confidence: int
+    confidence: float
     text: str
 
 
