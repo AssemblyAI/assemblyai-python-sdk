@@ -4,6 +4,7 @@ from .lemur import Lemur
 from .transcriber import RealtimeTranscriber, Transcriber, Transcript, TranscriptGroup
 from .types import (
     AssemblyAIError,
+    AudioEncoding,
     AutohighlightResponse,
     AutohighlightResult,
     Chapter,
@@ -65,6 +66,7 @@ settings = Settings()
 __all__ = [
     # types
     "AssemblyAIError",
+    "AudioEncoding",
     "AutohighlightResponse",
     "AutohighlightResult",
     "Chapter",
