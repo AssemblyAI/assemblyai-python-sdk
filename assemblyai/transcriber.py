@@ -979,6 +979,8 @@ class _RealtimeTranscriberImpl:
         on_close: Optional[Callable[[], None]],
         sample_rate: int,
         word_boost: List[str],
+        encoding: Optional[types.AudioEncoding] = None,
+        token: Optional[str] = None,
         client: _client.Client,
     ) -> None:
         self._client = client
@@ -990,6 +992,8 @@ class _RealtimeTranscriberImpl:
         self._on_close = on_close
         self._sample_rate = sample_rate
         self._word_boost = word_boost
+        self._encoding = encoding
+        self._token = token
 
         self._write_queue: queue.Queue[bytes] = queue.Queue()
         self._write_thread = threading.Thread(target=self._write)
@@ -1012,15 +1016,21 @@ class _RealtimeTranscriberImpl:
         }
         if self._word_boost:
             params["word_boost"] = json.dumps(self._word_boost)
+        if self._encoding:
+            params["encoding"] = self._encoding.value
+        if self._token:
+            params["token"] = self._token
 
         websocket_base_url = self._client.settings.base_url.replace("https", "wss")
 
+        additional_headers = None
+        if self._token is None:
+            additional_headers = {"Authorization": f"{self._client.settings.api_key}"}
+
         try:
             self._websocket = websocket_connect(
-                f"{websocket_base_url}/v2/realtime/ws?{urlencode(params)}",
-                additional_headers={
-                    "Authorization": f"{self._client.settings.api_key}"
-                },
+                f"{websocket_base_url}{api.ENDPOINT_REALTIME_WEBSOCKET}?{urlencode(params)}",
+                additional_headers=additional_headers,
                 open_timeout=timeout,
             )
         except Exception as exc:
@@ -1167,6 +1177,31 @@ class _RealtimeTranscriberImpl:
 
         self.close()
 
+    @classmethod
+    def create_temporary_token(
+        cls,
+        expires_in: int,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """
+        Request a temporary authentication token.
+
+        Args:
+            expires_in: The amount of time until the token expires in seconds.
+            timeout: The timeout in seconds to wait for a response.
+                A `timeout` of `None` means no timeout.
+
+        Returns: The temporary authentication token.
+        """
+
+        return api.create_temporary_token(
+            client=_client.Client.get_default().http_client,
+            request=types.RealtimeCreateTemporaryTokenRequest(
+                expires_in=expires_in,
+            ),
+            http_timeout=timeout,
+        )
+
 
 class RealtimeTranscriber:
     def __init__(
@@ -1178,6 +1213,8 @@ class RealtimeTranscriber:
         on_close: Optional[Callable[[], None]] = None,
         sample_rate: int,
         word_boost: List[str] = [],
+        encoding: Optional[types.AudioEncoding] = None,
+        token: Optional[str] = None,
         client: Optional[_client.Client] = None,
     ) -> None:
         """
@@ -1190,10 +1227,14 @@ class RealtimeTranscriber:
             `on_close`: (Optional) The callback to call when the connection to the real-time service
             `sample_rate`: The sample rate of the audio data.
             `word_boost`: (Optional) A list of words to boost the confidence of.
+            `encoding`: (Optional) The encoding of the audio data.
+            `token`: (Optional) A temporary authentication token.
             `client`: (Optional) The client to use for the real-time service.
         """
 
-        self._client = client or _client.Client.get_default()
+        self._client = client or _client.Client.get_default(
+            api_key_required=token is None
+        )
 
         self._impl = _RealtimeTranscriberImpl(
             on_open=on_open,
@@ -1202,6 +1243,8 @@ class RealtimeTranscriber:
             on_close=on_close,
             sample_rate=sample_rate,
             word_boost=word_boost,
+            encoding=encoding,
+            token=token,
             client=self._client,
         )
 
@@ -1244,3 +1287,29 @@ class RealtimeTranscriber:
         """
 
         self._impl.close(terminate=True)
+
+    @classmethod
+    def create_temporary_token(
+        cls,
+        expires_in: int,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """
+        Request a temporary authentication token.
+
+        Example:
+            To create a token, you can simply do:
+            ```
+            token = aai.RealtimeTranscriber.create_temporary_token(expires_in=360000)
+            ```
+
+        Args:
+            expires_in: The amount of time until the token expires in seconds.
+            timeout: The timeout in seconds to wait for a response.
+                A `timeout` of `None` means no timeout.
+
+        Returns: The temporary authentication token.
+        """
+        return _RealtimeTranscriberImpl.create_temporary_token(
+            expires_in=expires_in, timeout=timeout
+        )

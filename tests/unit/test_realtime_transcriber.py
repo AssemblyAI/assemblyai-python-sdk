@@ -4,12 +4,15 @@ import uuid
 from unittest.mock import MagicMock
 from urllib.parse import urlencode
 
+import httpx
 import pytest
 import websockets.exceptions
 from faker import Faker
+from pytest_httpx import HTTPXMock
 from pytest_mock import MockFixture
 
 import assemblyai as aai
+from assemblyai.api import ENDPOINT_REALTIME_TOKEN
 
 aai.settings.api_key = "test"
 
@@ -22,7 +25,19 @@ def _disable_rw_threads(mocker: MockFixture):
     mocker.patch("threading.Thread.start", return_value=None)
 
 
-def test_realtime_connect_has_parameters(mocker: MockFixture):
+@pytest.mark.parametrize(
+    "encoding,token,expected_header",
+    [
+        (None, None, {"Authorization": aai.settings.api_key}),
+        (aai.AudioEncoding.pcm_s16le, None, {"Authorization": aai.settings.api_key}),
+        (aai.AudioEncoding.pcm_mulaw, None, {"Authorization": aai.settings.api_key}),
+        (None, "12345678", None),
+        (aai.AudioEncoding.pcm_s16le, "12345678", None),
+    ],
+)
+def test_realtime_connect_has_parameters(
+    encoding, token, expected_header, mocker: MockFixture
+):
     """
     Test that the connect method has the correct parameters set
     """
@@ -51,15 +66,20 @@ def test_realtime_connect_has_parameters(mocker: MockFixture):
         on_error=lambda error: print(error),
         sample_rate=44_100,
         word_boost=["AssemblyAI"],
+        encoding=encoding,
+        token=token,
     )
 
     transcriber.connect(timeout=15.0)
 
-    assert (
-        actual_url
-        == f"wss://api.assemblyai.com/v2/realtime/ws?{urlencode(dict(sample_rate=44100, word_boost=json.dumps(['AssemblyAI'])))}"
-    )
-    assert actual_additional_headers == {"Authorization": aai.settings.api_key}
+    params = dict(sample_rate=44100, word_boost=json.dumps(["AssemblyAI"]))
+    if encoding:
+        params["encoding"] = encoding.value
+    if token:
+        params["token"] = token
+
+    assert actual_url == f"wss://api.assemblyai.com/v2/realtime/ws?{urlencode(params)}"
+    assert actual_additional_headers == expected_header
     assert actual_open_timeout == 15.0
 
 
@@ -77,6 +97,39 @@ def test_realtime_connect_succeeds(mocker: MockFixture):
         on_data=lambda _: None,
         on_error=on_error,
         sample_rate=44_100,
+    )
+
+    mocker.patch(
+        "assemblyai.transcriber.websocket_connect",
+        return_value=MagicMock(),
+    )
+
+    # mock the read/write threads
+    _disable_rw_threads(mocker)
+
+    # should pass
+    transcriber.connect()
+
+    # no errors should be called
+    assert not on_error_called
+
+
+def test_realtime_token_connect_succeeds(mocker: MockFixture):
+    """
+    Tests that the `RealtimeTranscriber` successfully connects
+    to the `real-time` service when a token is used.
+    """
+    on_error_called = False
+
+    # reset the API key
+    mocker.patch("assemblyai.settings.api_key", new=None)
+
+    def on_error(error: aai.RealtimeError):
+        nonlocal on_error_called
+        on_error_called = True
+
+    transcriber = aai.RealtimeTranscriber(
+        on_data=lambda _: None, on_error=on_error, sample_rate=44_100, token="12345"
     )
 
     mocker.patch(
@@ -485,6 +538,24 @@ def test_realtime__handle_message_unknown_message(mocker: MockFixture):
 
     assert not on_data_called
     assert not on_error_called
+
+
+def test_create_temporary_token(httpx_mock: HTTPXMock):
+    """
+    Tests whether the creation of a temporary token is successful.
+    """
+
+    # mock the specific endpoint
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_REALTIME_TOKEN}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={"token": "123456"},
+    )
+
+    token = aai.RealtimeTranscriber.create_temporary_token(expires_in=3000)
+
+    assert token == "123456"
 
 
 # TODO: create tests for the `RealtimeTranscriber.close` method
