@@ -1885,6 +1885,25 @@ class RealtimeMessageTypes(str, Enum):
     session_terminated = "SessionTerminated"
 
 
+class AudioEncoding(str, Enum):
+    """
+    The encoding of the audio data
+    """
+
+    pcm_s16le = "pcm_s16le"
+    pcm_mulaw = "pcm_mulaw"
+
+
+class RealtimeCreateTemporaryTokenRequest(BaseModel):
+    expires_in: int
+    "The amount of time until the token expires in seconds"
+
+
+class RealtimeCreateTemporaryTokenResponse(BaseModel):
+    token: str
+    "The temporary authentication token for real-time transcription"
+
+
 class RealtimeSessionOpened(BaseModel):
     """
     Once a real-time session is opened, the client will receive this message
