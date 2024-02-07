@@ -284,6 +284,11 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.audio_url
 
     @property
+    def speech_model(self) -> Optional[str]:
+        "The speech model used for the transcription"
+        return self._impl.transcript.speech_model
+
+    @property
     def text(self) -> Optional[str]:
         "The text transcription of your media file"
 

@@ -9,6 +9,7 @@ from pytest_httpx import HTTPXMock
 import assemblyai as aai
 from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
+from assemblyai.types import SpeechModel
 
 aai.settings.api_key = "test"
 
@@ -307,10 +308,13 @@ def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 2
 
 
-def test_get_by_id(httpx_mock: HTTPXMock):
+@pytest.mark.parametrize("speech_model", [None, SpeechModel.nano])
+def test_get_by_id(httpx_mock: HTTPXMock, speech_model):
     transcript_id = "123"
     mock_transcript_response = factories.generate_dict_factory(
         factories.TranscriptCompletedResponseFactory
+        if speech_model is None
+        else factories.TranscriptCompletedResponseFactoryNano
     )()
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
@@ -325,13 +329,18 @@ def test_get_by_id(httpx_mock: HTTPXMock):
     assert transcript.status == aai.TranscriptStatus.completed
     assert transcript.id == transcript_id
     assert transcript.error is None
+    assert transcript.speech_model == speech_model
 
 
-def test_get_by_id_async(httpx_mock: HTTPXMock):
+@pytest.mark.parametrize("speech_model", [None, SpeechModel.nano])
+def test_get_by_id_async(httpx_mock: HTTPXMock, speech_model):
     transcript_id = "123"
     mock_transcript_response = factories.generate_dict_factory(
         factories.TranscriptCompletedResponseFactory
+        if speech_model is None
+        else factories.TranscriptCompletedResponseFactoryNano
     )()
+
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
         status_code=httpx.codes.OK,
@@ -346,3 +355,4 @@ def test_get_by_id_async(httpx_mock: HTTPXMock):
     assert transcript.status == aai.TranscriptStatus.completed
     assert transcript.id == transcript_id
     assert transcript.error is None
+    assert transcript.speech_model == speech_model

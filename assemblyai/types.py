@@ -360,6 +360,15 @@ class SummarizationType(str, Enum):
     "A single paragraph summarizing the entire transcription text."
 
 
+class SpeechModel(str, Enum):
+    """
+    Used for AssemblyAI's Speech Model feature.
+    """
+
+    nano = "nano"
+    "The Nano tier is a lightweight model that is optimized for speed and cost."
+
+
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[LanguageCode]
     """
@@ -464,6 +473,11 @@ class RawTranscriptionConfig(BaseModel):
     speech_threshold: Optional[float]
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
 
+    speech_model: Optional[SpeechModel]
+    """
+    The speech model to use for the transcription.
+    """
+
     class Config:
         extra = Extra.allow
 
@@ -504,6 +518,7 @@ class TranscriptionConfig:
         language_detection: Optional[bool] = None,
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
+        speech_model: Optional[SpeechModel] = None,
     ) -> None:
         """
         Args:
@@ -583,6 +598,7 @@ class TranscriptionConfig:
         self.auto_highlights = auto_highlights
         self.language_detection = language_detection
         self.speech_threshold = speech_threshold
+        self.speech_model = speech_model
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -600,6 +616,16 @@ class TranscriptionConfig:
         "Sets the language code of the audio file."
 
         self._raw_transcription_config.language_code = language_code
+
+    @property
+    def speech_model(self) -> Optional[SpeechModel]:
+        "The speech model to use for the transcription."
+        return self._raw_transcription_config.speech_model
+
+    @speech_model.setter
+    def speech_model(self, speech_model: Optional[SpeechModel]) -> None:
+        "Sets the speech model to use for the transcription."
+        self._raw_transcription_config.speech_model = speech_model
 
     @property
     def punctuate(self) -> Optional[bool]:
@@ -1520,6 +1546,9 @@ class BaseTranscript(BaseModel):
     speech_threshold: Optional[float]
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
 
+    speech_model: Optional[SpeechModel]
+    "The speech model to use for the transcription."
+
 
 class TranscriptRequest(BaseTranscript):
     """
@@ -1581,6 +1610,9 @@ class TranscriptResponse(BaseTranscript):
 
     entities: Optional[List[Entity]]
     "When Entity Detection is enabled, the list of detected Entities"
+
+    speech_model: Optional[SpeechModel]
+    "The speech model used for the transcription"
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
