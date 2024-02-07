@@ -93,7 +93,7 @@ class BaseTranscriptFactory(factory.Factory):
     speech_threshold = None
 
 
-class TranscriptCompletedResponseFactory(BaseTranscriptFactory):
+class BaseTranscriptResponseFactory(BaseTranscriptFactory):
     class Meta:
         model = types.TranscriptResponse
 
@@ -107,6 +107,14 @@ class TranscriptCompletedResponseFactory(BaseTranscriptFactory):
     audio_duration = factory.Faker("pyint")
     webhook_auth = False
     webhook_status_code = None
+
+
+class TranscriptCompletedResponseFactory(BaseTranscriptResponseFactory):
+    pass
+
+
+class TranscriptCompletedResponseFactoryNano(BaseTranscriptResponseFactory):
+    speech_model = "nano"
 
 
 class TranscriptQueuedResponseFactory(BaseTranscriptFactory):
