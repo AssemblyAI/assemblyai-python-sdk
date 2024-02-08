@@ -10,7 +10,8 @@ def test_reset_client_on_settings_change():
 
     assert transcriber._client.settings.api_key == "before"
 
-    aai.settings.api_key = "after"
+    # Reset it to "test" again. All other tests are also working with this value
+    aai.settings.api_key = "test"
     transcriber = aai.Transcriber()
 
-    assert transcriber._client.settings.api_key == "after"
+    assert transcriber._client.settings.api_key == "test"

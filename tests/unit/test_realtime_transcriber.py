@@ -28,9 +28,9 @@ def _disable_rw_threads(mocker: MockFixture):
 @pytest.mark.parametrize(
     "encoding,token,expected_header",
     [
-        (None, None, {"Authorization": aai.settings.api_key}),
-        (aai.AudioEncoding.pcm_s16le, None, {"Authorization": aai.settings.api_key}),
-        (aai.AudioEncoding.pcm_mulaw, None, {"Authorization": aai.settings.api_key}),
+        (None, None, {"Authorization": "test"}),
+        (aai.AudioEncoding.pcm_s16le, None, {"Authorization": "test"}),
+        (aai.AudioEncoding.pcm_mulaw, None, {"Authorization": "test"}),
         (None, "12345678", None),
         (aai.AudioEncoding.pcm_s16le, "12345678", None),
     ],
