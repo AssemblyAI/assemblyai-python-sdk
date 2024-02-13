@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import concurrent.futures
 import functools
 import json
@@ -1116,24 +1115,11 @@ class _RealtimeTranscriberImpl:
                 if isinstance(data, dict):
                     self._websocket.send(json.dumps(data))
                 elif isinstance(data, bytes):
-                    self._websocket.send(self._encode_data(data))
+                    self._websocket.send(data)
                 else:
                     raise ValueError("unsupported message type")
             except websockets.exceptions.ConnectionClosed as exc:
                 return self._handle_error(exc)
-
-    def _encode_data(self, data: bytes) -> str:
-        """
-        Encodes the given audio chunk as a base64 string.
-
-        This is a helper method for `_write`.
-        """
-
-        return json.dumps(
-            {
-                "audio_data": base64.b64encode(data).decode("utf-8"),
-            }
-        )
 
     def _handle_message(
         self,
