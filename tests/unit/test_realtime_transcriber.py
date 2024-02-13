@@ -274,38 +274,10 @@ def test_realtime__write_succeeds(mocker: MockFixture):
 
     transcriber._impl._write()
 
-    # assert that the correct data was sent (base64 encoded)
+    # assert that the correct data was sent (= the exact input bytes)
     assert len(actual_sent) == 2
-    assert json.loads(actual_sent[0]) == {"audio_data": "AQIDBAU="}
-    assert json.loads(actual_sent[1]) == {"audio_data": "BgcICQo="}
-
-
-def test_realtime__encode_data(mocker: MockFixture):
-    """
-    Tests the `_encode_data` method of the `_RealtimeTranscriberImpl` class.
-    """
-
-    audio_chunks = [
-        bytes([1, 2, 3, 4, 5]),
-        bytes([6, 7, 8, 9, 10]),
-    ]
-
-    expected_encoded_data = [
-        json.dumps({"audio_data": "AQIDBAU="}),
-        json.dumps({"audio_data": "BgcICQo="}),
-    ]
-
-    transcriber = aai.RealtimeTranscriber(
-        on_data=lambda _: None,
-        on_error=lambda _: None,
-        sample_rate=44_100,
-    )
-
-    actual_encoded_data = []
-    for chunk in audio_chunks:
-        actual_encoded_data.append(transcriber._impl._encode_data(chunk))
-
-    assert actual_encoded_data == expected_encoded_data
+    assert actual_sent[0] == audio_chunks[0]
+    assert actual_sent[1] == audio_chunks[1]
 
 
 def test_realtime__handle_message_session_begins(mocker: MockFixture):
