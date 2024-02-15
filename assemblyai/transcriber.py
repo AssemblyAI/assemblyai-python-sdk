@@ -986,7 +986,7 @@ class _RealtimeTranscriberImpl:
         encoding: Optional[types.AudioEncoding] = None,
         token: Optional[str] = None,
         client: _client.Client,
-        end_utterance_silence_threshold_milliseconds: Optional[int],
+        end_utterance_silence_threshold: Optional[int],
     ) -> None:
         self._client = client
         self._websocket: Optional[websockets.sync.client.ClientConnection] = None
@@ -999,9 +999,7 @@ class _RealtimeTranscriberImpl:
         self._word_boost = word_boost
         self._encoding = encoding
         self._token = token
-        self._end_utterance_silence_threshold_milliseconds = (
-            end_utterance_silence_threshold_milliseconds
-        )
+        self._end_utterance_silence_threshold = end_utterance_silence_threshold
 
         self._write_queue: queue.Queue[Union[bytes, Dict]] = queue.Queue()
         self._write_thread = threading.Thread(target=self._write)
@@ -1051,9 +1049,9 @@ class _RealtimeTranscriberImpl:
         self._read_thread.start()
         self._write_thread.start()
 
-        if self._end_utterance_silence_threshold_milliseconds is not None:
+        if self._end_utterance_silence_threshold is not None:
             self.configure_end_utterance_silence_threshold(
-                self._end_utterance_silence_threshold_milliseconds
+                self._end_utterance_silence_threshold
             )
 
     def stream(self, data: bytes) -> None:
@@ -1257,7 +1255,7 @@ class RealtimeTranscriber:
         encoding: Optional[types.AudioEncoding] = None,
         token: Optional[str] = None,
         client: Optional[_client.Client] = None,
-        end_utterance_silence_threshold_milliseconds: Optional[int] = None,
+        end_utterance_silence_threshold: Optional[int] = None,
     ) -> None:
         """
         Creates a new real-time transcriber.
@@ -1272,7 +1270,7 @@ class RealtimeTranscriber:
             `encoding`: (Optional) The encoding of the audio data.
             `token`: (Optional) A temporary authentication token.
             `client`: (Optional) The client to use for the real-time service.
-            `end_utterance_silence_threshold_milliseconds`: (Optional) The end utterance silence threshold in milliseconds.
+            `end_utterance_silence_threshold`: (Optional) The end utterance silence threshold in milliseconds.
         """
 
         self._client = client or _client.Client.get_default(
@@ -1289,7 +1287,7 @@ class RealtimeTranscriber:
             encoding=encoding,
             token=token,
             client=self._client,
-            end_utterance_silence_threshold_milliseconds=end_utterance_silence_threshold_milliseconds,
+            end_utterance_silence_threshold=end_utterance_silence_threshold,
         )
 
     def connect(
