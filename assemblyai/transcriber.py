@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import concurrent.futures
 import functools
 import json
@@ -987,6 +986,7 @@ class _RealtimeTranscriberImpl:
         encoding: Optional[types.AudioEncoding] = None,
         token: Optional[str] = None,
         client: _client.Client,
+        end_utterance_silence_threshold: Optional[int],
     ) -> None:
         self._client = client
         self._websocket: Optional[websockets.sync.client.ClientConnection] = None
@@ -999,8 +999,9 @@ class _RealtimeTranscriberImpl:
         self._word_boost = word_boost
         self._encoding = encoding
         self._token = token
+        self._end_utterance_silence_threshold = end_utterance_silence_threshold
 
-        self._write_queue: queue.Queue[bytes] = queue.Queue()
+        self._write_queue: queue.Queue[Union[bytes, Dict]] = queue.Queue()
         self._write_thread = threading.Thread(target=self._write)
         self._read_thread = threading.Thread(target=self._read)
         self._stop_event = threading.Event()
@@ -1048,12 +1049,39 @@ class _RealtimeTranscriberImpl:
         self._read_thread.start()
         self._write_thread.start()
 
+        if self._end_utterance_silence_threshold is not None:
+            self.configure_end_utterance_silence_threshold(
+                self._end_utterance_silence_threshold
+            )
+
     def stream(self, data: bytes) -> None:
         """
         Streams audio data to the real-time service by putting it into a queue.
         """
 
         self._write_queue.put(data)
+
+    def configure_end_utterance_silence_threshold(
+        self, threshold_milliseconds: int
+    ) -> None:
+        """
+        Configures the end of utterance silence threshold.
+        Can be called multiple times during a session at any point after the session starts.
+
+        Args:
+            `threshold_milliseconds`: The threshold in milliseconds.
+        """
+
+        self._write_queue.put(
+            _RealtimeEndUtteranceSilenceThreshold(threshold_milliseconds).as_dict()
+        )
+
+    def force_end_utterance(self) -> None:
+        """
+        Forces the end of the current utterance.
+        """
+
+        self._write_queue.put(_RealtimeForceEndUtterance().as_dict())
 
     def close(self, terminate: bool = False) -> None:
         """
@@ -1116,24 +1144,11 @@ class _RealtimeTranscriberImpl:
                 if isinstance(data, dict):
                     self._websocket.send(json.dumps(data))
                 elif isinstance(data, bytes):
-                    self._websocket.send(self._encode_data(data))
+                    self._websocket.send(data)
                 else:
                     raise ValueError("unsupported message type")
             except websockets.exceptions.ConnectionClosed as exc:
                 return self._handle_error(exc)
-
-    def _encode_data(self, data: bytes) -> str:
-        """
-        Encodes the given audio chunk as a base64 string.
-
-        This is a helper method for `_write`.
-        """
-
-        return json.dumps(
-            {
-                "audio_data": base64.b64encode(data).decode("utf-8"),
-            }
-        )
 
     def _handle_message(
         self,
@@ -1208,6 +1223,25 @@ class _RealtimeTranscriberImpl:
         )
 
 
+class _RealtimeForceEndUtterance:
+    def as_dict(self) -> Dict[str, bool]:
+        return {
+            "force_end_utterance": True,
+        }
+
+
+class _RealtimeEndUtteranceSilenceThreshold:
+    def __init__(self, threshold_milliseconds: int) -> None:
+        self._value = threshold_milliseconds
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    def as_dict(self) -> Dict[str, int]:
+        return {"end_utterance_silence_threshold": self._value}
+
+
 class RealtimeTranscriber:
     def __init__(
         self,
@@ -1221,6 +1255,7 @@ class RealtimeTranscriber:
         encoding: Optional[types.AudioEncoding] = None,
         token: Optional[str] = None,
         client: Optional[_client.Client] = None,
+        end_utterance_silence_threshold: Optional[int] = None,
     ) -> None:
         """
         Creates a new real-time transcriber.
@@ -1235,6 +1270,7 @@ class RealtimeTranscriber:
             `encoding`: (Optional) The encoding of the audio data.
             `token`: (Optional) A temporary authentication token.
             `client`: (Optional) The client to use for the real-time service.
+            `end_utterance_silence_threshold`: (Optional) The end utterance silence threshold in milliseconds.
         """
 
         self._client = client or _client.Client.get_default(
@@ -1251,6 +1287,7 @@ class RealtimeTranscriber:
             encoding=encoding,
             token=token,
             client=self._client,
+            end_utterance_silence_threshold=end_utterance_silence_threshold,
         )
 
     def connect(
@@ -1268,8 +1305,7 @@ class RealtimeTranscriber:
         self._impl.connect(timeout=timeout)
 
     def stream(
-        self,
-        data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]],
+        self, data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]]
     ) -> None:
         """
         Streams raw audio data to the real-time service.
@@ -1285,6 +1321,26 @@ class RealtimeTranscriber:
 
         for chunk in data:
             self._impl.stream(chunk)
+
+    def configure_end_utterance_silence_threshold(
+        self, threshold_milliseconds: int
+    ) -> None:
+        """
+        Configures the silence duration threshold used to detect the end of an utterance.
+        In practice, it's used to tune how the transcriptions are split into final transcripts.
+        Can be called multiple times during a session at any point after the session starts.
+
+        Args:
+            `threshold_milliseconds`: The threshold in milliseconds.
+        """
+        self._impl.configure_end_utterance_silence_threshold(threshold_milliseconds)
+
+    def force_end_utterance(self) -> None:
+        """
+        Forces the end of the current utterance.
+        After calling this method, the server will end the current utterance and return a final transcript.
+        """
+        self._impl.force_end_utterance()
 
     def close(self) -> None:
         """

@@ -27,7 +27,7 @@ def _get_error_message(response: httpx.Response) -> str:
     try:
         return response.json()["error"]
     except Exception:
-        return response.text
+        return f"\nReason: {response.text}\nRequest: {response.request}"
 
 
 def create_transcript(
@@ -43,7 +43,7 @@ def create_transcript(
     )
     if response.status_code != httpx.codes.ok:
         raise types.TranscriptError(
-            f"failed to transcript url {request.audio_url}: {_get_error_message(response)}"
+            f"failed to transcribe url {request.audio_url}: {_get_error_message(response)}"
         )
 
     return types.TranscriptResponse.parse_obj(response.json())
