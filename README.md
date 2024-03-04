@@ -98,6 +98,21 @@ print(transcript.text)
 </details>
 
 <details>
+  <summary>Transcribe from stream</summary>
+
+```python
+import assemblyai as aai
+
+# Upload binary data.
+upload_url = aai.extras.file_from_stream(data)
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(upload_url)
+```
+
+</details>
+
+<details>
   <summary>Export Subtitles of an Audio File</summary>
 
 ```python
@@ -613,7 +628,7 @@ def on_data(transcript: aai.RealtimeTranscript):
     print(transcript.text, end="\r")
 
 def on_error(error: aai.RealtimeError):
-  "This function is called when the connection has been closed."
+  "This function is called when an error occurs."
 
   print("An error occured:", error)
 
@@ -689,6 +704,28 @@ file_stream = aai.extras.stream_file(
 transcriber.stream(file_stream)
 
 transcriber.close()
+```
+
+</details>
+
+<details>
+  <summary>End-of-utterance controls</summary>
+
+```python
+transcriber = aai.RealtimeTranscriber(...)
+
+# Manually end an utterance and immediately produce a final transcript.
+transcriber.force_end_utterance()
+
+# Configure the threshold for automatic utterance detection.
+transcriber = aai.RealtimeTranscriber(
+    ...,
+    end_utterance_silence_threshold=500
+)
+
+# Can be changed any time during a session.
+# The valid range is between 0 and 20000.
+transcriber.configure_end_utterance_silence_threshold(300)
 ```
 
 </details>
