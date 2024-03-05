@@ -1,3 +1,4 @@
+import concurrent.futures
 from typing import Any, Dict, List, Optional, Union
 
 from . import api, types
@@ -121,6 +122,22 @@ class _LemurImpl:
 
         return response
 
+    @classmethod
+    def purge_request_data(
+        cls,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> types.LemurPurgeResponse:
+        response = api.lemur_purge_request_data(
+            client=_client.Client.get_default().http_client,
+            request=types.LemurPurgeRequest(
+                request_id=request_id,
+            ),
+            http_timeout=timeout,
+        )
+
+        return response
+
 
 class Lemur:
     """
@@ -149,6 +166,7 @@ class Lemur:
             client=self._client,
             sources=sources,
         )
+        self._executor = concurrent.futures.ThreadPoolExecutor()
 
     def question(
         self,
@@ -194,6 +212,51 @@ class Lemur:
             input_text=input_text,
         )
 
+    def question_async(
+        self,
+        questions: Union[types.LemurQuestion, List[types.LemurQuestion]],
+        context: Optional[Union[str, Dict[str, Any]]] = None,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
+        timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
+        input_text: Optional[str] = None,
+    ) -> concurrent.futures.Future[types.LemurQuestionResponse]:
+        """
+        Question & Answer allows you to ask free form questions about one or many transcripts.
+
+        This can be any question you find useful, such as judging the outcome or determining facts
+        about the audio. For instance, you can ask for action items from a meeting, did the customer
+        respond positively, or count how many times a word or phrase was said.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
+
+        Args:
+            questions: One or a list of questions to ask.
+            context: The context which is shared among all questions. This can be a string or a dictionary.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", "assemblyai/mistral-7b", and "anthropic/claude-2-1").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the answer(s).
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
+
+        Returns: One or a list of answer objects.
+        """
+
+        if not isinstance(questions, list):
+            questions = [questions]
+
+        return self._executor.submit(
+            self._impl.question,
+            questions=questions,
+            context=context,
+            final_model=final_model,
+            max_output_size=max_output_size,
+            timeout=timeout,
+            temperature=temperature,
+            input_text=input_text,
+        )
+
     def summarize(
         self,
         context: Optional[Union[str, Dict[str, Any]]] = None,
@@ -224,6 +287,46 @@ class Lemur:
         """
 
         return self._impl.summarize(
+            context=context,
+            answer_format=answer_format,
+            final_model=final_model,
+            max_output_size=max_output_size,
+            timeout=timeout,
+            temperature=temperature,
+            input_text=input_text,
+        )
+
+    def summarize_async(
+        self,
+        context: Optional[Union[str, Dict[str, Any]]] = None,
+        answer_format: Optional[str] = None,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
+        timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
+        input_text: Optional[str] = None,
+    ) -> concurrent.futures.Future[types.LemurSummaryResponse]:
+        """
+        Summary allows you to distill a piece of audio into a few impactful sentences.
+        You can give the model context to get more pinpoint results while outputting the
+        results in a variety of formats described in human language.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
+
+        Args:
+            context: An optional context on the transcript.
+            answer_format: The format on how the summary shall be summarized.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", "assemblyai/mistral-7b", and "anthropic/claude-2-1").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the summary.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
+
+        Returns: The summary as a string.
+        """
+
+        return self._executor.submit(
+            self._impl.summarize,
             context=context,
             answer_format=answer_format,
             final_model=final_model,
@@ -273,6 +376,47 @@ class Lemur:
             input_text=input_text,
         )
 
+    def action_items_async(
+        self,
+        context: Optional[Union[str, Dict[str, Any]]] = None,
+        answer_format: Optional[str] = None,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
+        timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
+        input_text: Optional[str] = None,
+    ) -> concurrent.futures.Future[types.LemurActionItemsResponse]:
+        """
+        Action Items allows you to generate action items from one or many transcripts.
+
+        You can provide the model with a context to get more pinpoint results while outputting the
+        results in a variety of formats described in human language.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
+
+        Args:
+            context: An optional context on the transcript.
+            answer_format: The preferred format for the result action items.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", "assemblyai/mistral-7b", and "anthropic/claude-2-1").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the action items response.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
+
+        Returns: The action items as a string.
+        """
+
+        return self._executor.submit(
+            self._impl.action_items,
+            context=context,
+            answer_format=answer_format,
+            final_model=final_model,
+            max_output_size=max_output_size,
+            timeout=timeout,
+            temperature=temperature,
+            input_text=input_text,
+        )
+
     def task(
         self,
         prompt: str,
@@ -307,6 +451,41 @@ class Lemur:
             input_text=input_text,
         )
 
+    def task_async(
+        self,
+        prompt: str,
+        final_model: Optional[types.LemurModel] = None,
+        max_output_size: Optional[int] = None,
+        timeout: Optional[float] = None,
+        temperature: Optional[float] = None,
+        input_text: Optional[str] = None,
+    ) -> concurrent.futures.Future[types.LemurTaskResponse]:
+        """
+        Task feature allows you to submit a custom prompt to the model.
+
+        See also Best Practices on LeMUR: https://www.assemblyai.com/docs/Guides/lemur_best_practices
+
+        Args:
+            prompt: The prompt to use for this task.
+            final_model: The model that is used for the final prompt after compression is performed (options: "basic", "default", "assemblyai/mistral-7b", and "anthropic/claude-2-1").
+            max_output_size: Max output size in tokens
+            timeout: The timeout in seconds to wait for the task.
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            input_text: Custom formatted transcript data. Use instead of transcript_ids.
+
+        Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
+        """
+
+        return self._executor.submit(
+            self._impl.task,
+            prompt=prompt,
+            final_model=final_model,
+            max_output_size=max_output_size,
+            timeout=timeout,
+            temperature=temperature,
+            input_text=input_text,
+        )
+
     @classmethod
     def purge_request_data(
         cls,
@@ -321,11 +500,29 @@ class Lemur:
 
         Returns: A response saying whether the LeMUR request data was successfully purged.
         """
-
-        return api.lemur_purge_request_data(
-            client=_client.Client.get_default().http_client,
-            request=types.LemurPurgeRequest(
-                request_id=request_id,
-            ),
-            http_timeout=timeout,
+        return _LemurImpl.purge_request_data(
+            request_id=request_id,
+            timeout=timeout,
         )
+
+    @classmethod
+    def purge_request_data_async(
+        cls,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> concurrent.futures.Future[types.LemurPurgeResponse]:
+        """
+        Purge sent LeMUR request data that was previously sent.
+
+        Args:
+            request_id: The request ID that was returned to you from the original LeMUR request that should be purged.
+
+        Returns: A response saying whether the LeMUR request data was successfully purged.
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            response_future = executor.submit(
+                _LemurImpl.purge_request_data,
+                request_id=request_id,
+                timeout=timeout,
+            )
+        return response_future
