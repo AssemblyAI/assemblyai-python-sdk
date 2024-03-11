@@ -368,9 +368,6 @@ class SpeechModel(str, Enum):
     nano = "nano"
     "The Nano tier is a lightweight model that is optimized for speed and cost."
 
-    conformer2 = "conformer-2"
-    "Conformer-2 is a heavy-duty model optimized for accuracy."
-
 
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[LanguageCode]
