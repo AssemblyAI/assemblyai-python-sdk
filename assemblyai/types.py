@@ -1,6 +1,7 @@
 from datetime import datetime
-from enum import Enum
+from enum import Enum, EnumMeta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+from warnings import warn
 
 if TYPE_CHECKING:
     from .transcriber import Transcript
@@ -92,9 +93,46 @@ class TranscriptStatus(str, Enum):
     error = "error"
 
 
-class LanguageCode(str, Enum):
+class DeprecatedLanguageCodeMeta(EnumMeta):
+    def __getattribute__(self, item):
+        # Deprecate all 20 possible values
+        languages = [
+            "de",
+            "en",
+            "en_au",
+            "en_uk",
+            "en_us",
+            "es",
+            "fi",
+            "fr",
+            "hi",
+            "it",
+            "ja",
+            "ko",
+            "nl",
+            "pl",
+            "pt",
+            "ru",
+            "tr",
+            "uk",
+            "vi",
+            "zh",
+        ]
+        if item in languages:
+            warn(
+                "LanuageCode Enum is deprecated and will be removed in 1.0.0. Use a string instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        return EnumMeta.__getattribute__(self, item)
+
+
+class LanguageCode(str, Enum, metaclass=DeprecatedLanguageCodeMeta):
     """
-    Supported languages for Transcribing Audio
+    DeprecationWarning: LanuageCode is deprecated and will be removed in 1.0.0. Use a string instead.
+
+    Supported languages for transcribing audio.
     """
 
     de = "de"
@@ -373,11 +411,11 @@ class SpeechModel(str, Enum):
 
 
 class RawTranscriptionConfig(BaseModel):
-    language_code: Optional[LanguageCode]
+    language_code: Optional[Union[str, LanguageCode]]
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
-    The default value is `en_us`.
+    The default value is "en_us".
     """
 
     punctuate: Optional[bool]
@@ -488,7 +526,7 @@ class RawTranscriptionConfig(BaseModel):
 class TranscriptionConfig:
     def __init__(
         self,
-        language_code: Optional[LanguageCode] = None,
+        language_code: Optional[Union[str, LanguageCode]] = None,
         punctuate: Optional[bool] = None,
         format_text: Optional[bool] = None,
         dual_channel: Optional[bool] = None,
@@ -610,12 +648,12 @@ class TranscriptionConfig:
     # region: Getters/Setters
 
     @property
-    def language_code(self) -> Optional[LanguageCode]:
+    def language_code(self) -> Optional[Union[str, LanguageCode]]:
         "The language code of the audio file."
         return self._raw_transcription_config.language_code
 
     @language_code.setter
-    def language_code(self, language_code: Optional[LanguageCode]) -> None:
+    def language_code(self, language_code: Optional[Union[str, LanguageCode]]) -> None:
         "Sets the language code of the audio file."
 
         self._raw_transcription_config.language_code = language_code
@@ -1443,11 +1481,11 @@ class BaseTranscript(BaseModel):
     Available transcription features
     """
 
-    language_code: Optional[LanguageCode]
+    language_code: Optional[Union[str, LanguageCode]]
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
-    The default value is `en_us`.
+    The default value is "en_us".
     """
 
     audio_url: str
