@@ -61,7 +61,7 @@ class BaseTranscriptFactory(factory.Factory):
     class Meta:
         model = types.BaseTranscript
 
-    language_code = aai.LanguageCode.en
+    language_code = "en"
     audio_url = factory.Faker("url")
     punctuate = True
     format_text = True

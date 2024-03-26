@@ -451,3 +451,44 @@ def test_language_detection(httpx_mock: HTTPXMock):
     request = json.loads(httpx_mock.get_requests()[0].content.decode())
     assert request["language_detection"] is True
     assert request.get("language_code") is None
+
+
+def test_language_code_string(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={},
+    )
+
+    aai.Transcriber().transcribe(
+        "https://example.org/audio.wav",
+        config=aai.TranscriptionConfig(
+            language_code="en",
+        ),
+    )
+
+    request = json.loads(httpx_mock.get_requests()[0].content.decode())
+    assert request.get("language_code") == "en"
+
+
+def test_language_code_enum(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={},
+    )
+
+    with pytest.deprecated_call():
+        language_code = aai.LanguageCode.en
+
+    aai.Transcriber().transcribe(
+        "https://example.org/audio.wav",
+        config=aai.TranscriptionConfig(
+            language_code=language_code,
+        ),
+    )
+
+    request = json.loads(httpx_mock.get_requests()[0].content.decode())
+    assert request.get("language_code") == "en"
