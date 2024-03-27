@@ -403,8 +403,11 @@ class SpeechModel(str, Enum):
     Used for AssemblyAI's Speech Model feature.
     """
 
+    best = "best"
+    "The best model optimized for accuracy."
+
     nano = "nano"
-    "The Nano tier is a lightweight model that is optimized for speed and cost."
+    "A lightweight, lower cost model for a wide range of languages."
 
     conformer2 = "conformer-2"
     "Conformer-2 is a heavy-duty model optimized for accuracy."
