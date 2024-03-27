@@ -308,14 +308,25 @@ def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 2
 
 
-@pytest.mark.parametrize("speech_model", [None, SpeechModel.nano])
+@pytest.mark.parametrize(
+    "speech_model",
+    [
+        None,
+        SpeechModel.best,
+        SpeechModel.nano,
+    ],
+)
 def test_get_by_id(httpx_mock: HTTPXMock, speech_model):
     transcript_id = "123"
-    mock_transcript_response = factories.generate_dict_factory(
-        factories.TranscriptCompletedResponseFactory
-        if speech_model is None
-        else factories.TranscriptCompletedResponseFactoryNano
-    )()
+
+    factory_class = factories.TranscriptCompletedResponseFactory
+    if speech_model == SpeechModel.best:
+        factory_class = factories.TranscriptCompletedResponseFactoryBest
+    elif speech_model == SpeechModel.nano:
+        factory_class = factories.TranscriptCompletedResponseFactoryNano
+
+    mock_transcript_response = factories.generate_dict_factory(factory_class)()
+
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
         status_code=httpx.codes.OK,
@@ -332,14 +343,23 @@ def test_get_by_id(httpx_mock: HTTPXMock, speech_model):
     assert transcript.speech_model == speech_model
 
 
-@pytest.mark.parametrize("speech_model", [None, SpeechModel.nano])
+@pytest.mark.parametrize(
+    "speech_model",
+    [
+        None,
+        SpeechModel.best,
+        SpeechModel.nano,
+    ],
+)
 def test_get_by_id_async(httpx_mock: HTTPXMock, speech_model):
     transcript_id = "123"
-    mock_transcript_response = factories.generate_dict_factory(
-        factories.TranscriptCompletedResponseFactory
-        if speech_model is None
-        else factories.TranscriptCompletedResponseFactoryNano
-    )()
+    factory_class = factories.TranscriptCompletedResponseFactory
+    if speech_model == SpeechModel.best:
+        factory_class = factories.TranscriptCompletedResponseFactoryBest
+    elif speech_model == SpeechModel.nano:
+        factory_class = factories.TranscriptCompletedResponseFactoryNano
+
+    mock_transcript_response = factories.generate_dict_factory(factory_class)()
 
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",

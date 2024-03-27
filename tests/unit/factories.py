@@ -113,6 +113,10 @@ class TranscriptCompletedResponseFactory(BaseTranscriptResponseFactory):
     pass
 
 
+class TranscriptCompletedResponseFactoryBest(BaseTranscriptResponseFactory):
+    speech_model = "best"
+
+
 class TranscriptCompletedResponseFactoryNano(BaseTranscriptResponseFactory):
     speech_model = "nano"
 
