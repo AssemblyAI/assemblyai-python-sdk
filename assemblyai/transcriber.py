@@ -187,6 +187,13 @@ class _TranscriptImpl:
                 for chunk in response.iter_bytes():
                     f.write(chunk)
 
+    @classmethod
+    def delete_by_id(cls, transcript_id: str) -> types.Transcript:
+        client = _client.Client.get_default().http_client
+        response = api.delete_transcript(client=client, transcript_id=transcript_id)
+
+        return Transcript.from_response(client=client, response=response)
+
 
 class Transcript(types.Sourcable):
     """
@@ -257,6 +264,37 @@ class Transcript(types.Sourcable):
             A future that will resolve to the transcript object identified by the given id.
         """
         return cls(transcript_id=transcript_id).wait_for_completion_async()
+
+    @classmethod
+    def delete_by_id(cls, transcript_id: str) -> types.Transcript:
+        """Delete an existing transcript. Blocks until the transcript is completed.
+
+        Args:
+            transcript_id: the id of the transcript to delete
+
+        Returns:
+            A transcript object identified by the given id, with relevant fields/attributes cleared.
+        """
+        return _TranscriptImpl.delete_by_id(transcript_id)
+
+    @classmethod
+    def delete_by_id_async(
+        cls, transcript_id: str
+    ) -> concurrent.futures.Future[types.Transcript]:
+        """Delete an existing transcript asynchronously.
+
+        Args:
+            transcript_id: the id of the transcript to delete
+
+        Returns:
+            A future that will resolve to a transcript object identified by the given id, with relevant fields/attributes cleared.
+        """
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future_transcript = executor.submit(
+                _TranscriptImpl.delete_by_id, transcript_id
+            )
+        return future_transcript
 
     @property
     def id(self) -> Optional[str]:

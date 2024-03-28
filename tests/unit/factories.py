@@ -109,6 +109,50 @@ class BaseTranscriptResponseFactory(BaseTranscriptFactory):
     webhook_status_code = None
 
 
+class TranscriptDeletedResponseFactory(BaseTranscriptResponseFactory):
+    language_code = None
+    audio_url = "http://deleted_by_user"
+    text = "Deleted by user."
+    words = None
+    utterances = None
+    confidence = None
+    punctuate = None
+    format_text = None
+    dual_channel = None
+    webhook_url = "http://deleted_by_user"
+    webhook_status_code = None
+    webhook_auth = False
+    # webhook_auth_header_name = None  # not yet supported in SDK
+    speed_boost = None
+    auto_highlights = None
+    audio_start_from = None
+    audio_end_at = None
+    word_boost = None
+    boost_param = None
+    filter_profanity = None
+    redact_pii_audio = None
+    # redact_pii_quality = None # not yet supported in SDK
+    redact_pii_policies = None
+    redact_pii_sub = None
+    speaker_labels = None
+    error = None
+    content_safety = None
+    iab_categories = None
+    content_safety_labels = None
+    iab_categories = None
+    language_detection = None
+    custom_spelling = None
+    # cluster_id = None  # not yet supported in SDK
+    # custom_topics = None  # not yet supported in SDK
+    # topics = None  # not yet supported in SDK
+    speech_threshold = None
+    chapters = None
+    entities = None
+    speakers_expected = None
+    summary = None
+    sentiment_analysis = None
+
+
 class TranscriptCompletedResponseFactory(BaseTranscriptResponseFactory):
     pass
 

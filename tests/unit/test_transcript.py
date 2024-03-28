@@ -376,3 +376,49 @@ def test_get_by_id_async(httpx_mock: HTTPXMock, speech_model):
     assert transcript.id == transcript_id
     assert transcript.error is None
     assert transcript.speech_model == speech_model
+
+
+def test_delete_by_id(httpx_mock: HTTPXMock):
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptDeletedResponseFactory
+    )()
+    transcript_id = mock_transcript_response["id"]
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
+        status_code=httpx.codes.OK,
+        method="DELETE",
+        json=mock_transcript_response,
+    )
+
+    transcript = aai.Transcript.delete_by_id(transcript_id)
+
+    assert isinstance(transcript, aai.Transcript)
+    assert transcript.status == aai.TranscriptStatus.completed
+    assert transcript.id == transcript_id
+    assert transcript.error is None
+    assert transcript.text == mock_transcript_response["text"]
+    assert transcript.audio_url == mock_transcript_response["audio_url"]
+
+
+def test_delete_by_id_async(httpx_mock: HTTPXMock):
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptDeletedResponseFactory
+    )()
+    transcript_id = mock_transcript_response["id"]
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
+        status_code=httpx.codes.OK,
+        method="DELETE",
+        json=mock_transcript_response,
+    )
+
+    transcript_future = aai.Transcript.delete_by_id_async(transcript_id)
+    transcript = transcript_future.result()
+
+    assert isinstance(transcript, aai.Transcript)
+    assert transcript.status == aai.TranscriptStatus.completed
+    assert transcript.id == transcript_id
+    assert transcript.error is None
+    assert transcript.text == mock_transcript_response["text"]
+    assert transcript.audio_url == mock_transcript_response["audio_url"]

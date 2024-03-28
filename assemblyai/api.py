@@ -65,6 +65,22 @@ def get_transcript(
     return types.TranscriptResponse.parse_obj(response.json())
 
 
+def delete_transcript(
+    client: httpx.Client,
+    transcript_id: str,
+) -> types.TranscriptResponse:
+    response = client.delete(
+        f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
+    )
+
+    if response.status_code != httpx.codes.ok:
+        raise types.TranscriptError(
+            f"failed to delete transcript {transcript_id}: {_get_error_message(response)}",
+        )
+
+    return types.TranscriptResponse.parse_obj(response.json())
+
+
 def upload_file(
     client: httpx.Client,
     audio_file: BinaryIO,
