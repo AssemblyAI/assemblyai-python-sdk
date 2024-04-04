@@ -16,11 +16,8 @@ def test_stream_file_empty_file():
     with patch("builtins.open", m), patch("time.sleep", return_value=None):
         chunks = list(aai.extras.stream_file("fake_path", sample_rate))
 
-    # Always expect one chunk due to padding
-    expected_chunk_length = int(sample_rate * 1 * 2)
-    assert len(chunks) == 1
-    assert len(chunks[0]) == expected_chunk_length
-    assert chunks[0] == b"\x00" * expected_chunk_length
+    # Expect no chunk
+    assert len(chunks) == 0
 
 
 def test_stream_file_small_file():
@@ -36,8 +33,11 @@ def test_stream_file_small_file():
     with patch("builtins.open", m), patch("time.sleep", return_value=None):
         chunks = list(aai.extras.stream_file("fake_path", sample_rate))
 
-    # Expecting two chunks because of padding at the end
-    assert len(chunks) == 2
+    # Expecting one chunks because of no padding at the end
+    expected_chunk_length = int(0.2 * sample_rate * 2)
+    assert len(chunks) == 1
+    assert len(chunks[0]) == expected_chunk_length
+    assert chunks[0] == b"\x00" * expected_chunk_length
 
 
 def test_stream_file_large_file():
@@ -53,8 +53,8 @@ def test_stream_file_large_file():
     with patch("builtins.open", m), patch("time.sleep", return_value=None):
         chunks = list(aai.extras.stream_file("fake_path", sample_rate))
 
-    # Expecting three chunks because of padding at the end
-    assert len(chunks) == 3
+    # Expecting two chunks
+    assert len(chunks) == 2
 
 
 def test_stream_file_exact_file():
@@ -70,5 +70,5 @@ def test_stream_file_exact_file():
     with patch("builtins.open", m), patch("time.sleep", return_value=None):
         chunks = list(aai.extras.stream_file("fake_path", sample_rate))
 
-    # Expecting two chunks because of padding at the end
-    assert len(chunks) == 2
+    # Expecting one chunk
+    assert len(chunks) == 1
