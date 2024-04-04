@@ -100,24 +100,18 @@ def stream_file(
 
     Returns: A generator that yields chunks of audio data.
     """
-
+    chunk_duration = 0.3
     with open(filepath, "rb") as f:
         while True:
-            # send in 300ms segments
-            data = f.read(int(sample_rate * 0.300) * 2)
+            # send in 300ms segments (2 bytes per frame)
+            data = f.read(int(sample_rate * chunk_duration) * 2)
 
             if not data:
-                yield b"\x00" * int(sample_rate * 1 * 2)
                 break
-
-            enough_data = (len(data) / 2) / sample_rate
-
-            if enough_data < 0.300:
-                data = data + b"\x00" * int(sample_rate * (1 - enough_data) * 2)
 
             yield data
 
-            time.sleep(0.15)
+            time.sleep(chunk_duration)
 
 
 def file_from_stream(data: BinaryIO) -> str:
