@@ -730,6 +730,38 @@ transcriber.configure_end_utterance_silence_threshold(300)
 
 </details>
 
+<details>
+  <summary>Disable partial transcripts</summary>
+
+```python
+# Set disable_partial_transcripts to `True`
+transcriber = aai.RealtimeTranscriber(
+    ...,
+    disable_partial_transcripts=True
+)
+```
+
+</details>
+
+<details>
+  <summary>Enable extra session information</summary>
+
+```python
+# Define a callback to handle the extra session information message
+def on_extra_session_information(data: aai.RealtimeSessionInformation):
+    "This function is called when a session information message has been received."
+
+    print(data.audio_duration_seconds)
+
+# Configure the RealtimeTranscriber
+transcriber = aai.RealtimeTranscriber(
+    ...,
+    on_extra_session_information=on_extra_session_information,
+)
+```
+
+</details>
+
 ---
 
 ## Playgrounds

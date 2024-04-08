@@ -1025,6 +1025,10 @@ class _RealtimeTranscriberImpl:
         token: Optional[str] = None,
         client: _client.Client,
         end_utterance_silence_threshold: Optional[int],
+        disable_partial_transcripts: Optional[bool],
+        on_extra_session_information: Optional[
+            Callable[[types.RealtimeSessionInformation], None]
+        ] = None,
     ) -> None:
         self._client = client
         self._websocket: Optional[websockets.sync.client.ClientConnection] = None
@@ -1038,6 +1042,8 @@ class _RealtimeTranscriberImpl:
         self._encoding = encoding
         self._token = token
         self._end_utterance_silence_threshold = end_utterance_silence_threshold
+        self._disable_partial_transcripts = disable_partial_transcripts
+        self._on_extra_session_information = on_extra_session_information
 
         self._write_queue: queue.Queue[Union[bytes, Dict]] = queue.Queue()
         self._write_thread = threading.Thread(target=self._write)
@@ -1064,6 +1070,10 @@ class _RealtimeTranscriberImpl:
             params["encoding"] = self._encoding.value
         if self._token:
             params["token"] = self._token
+        if self._disable_partial_transcripts:
+            params["disable_partial_transcripts"] = self._disable_partial_transcripts
+        if self._on_extra_session_information:
+            params["enable_extra_session_information"] = True
 
         websocket_base_url = self._client.settings.base_url.replace("https", "wss")
 
@@ -1213,6 +1223,13 @@ class _RealtimeTranscriberImpl:
                 message["message_type"] == types.RealtimeMessageTypes.session_terminated
             ):
                 self._stop_event.set()
+            elif (
+                message["message_type"]
+                == types.RealtimeMessageTypes.session_information
+            ):
+                self._on_extra_session_information(
+                    types.RealtimeSessionInformation(**message)
+                )
         elif "error" in message:
             self._on_error(types.RealtimeError(message["error"]))
 
@@ -1294,6 +1311,10 @@ class RealtimeTranscriber:
         token: Optional[str] = None,
         client: Optional[_client.Client] = None,
         end_utterance_silence_threshold: Optional[int] = None,
+        disable_partial_transcripts: Optional[bool] = None,
+        on_extra_session_information: Optional[
+            Callable[[types.RealtimeSessionInformation], None]
+        ] = None,
     ) -> None:
         """
         Creates a new real-time transcriber.
@@ -1301,14 +1322,18 @@ class RealtimeTranscriber:
         Args:
             `on_data`: The callback to call when a new transcript is received.
             `on_error`: The callback to call when an error occurs.
-            `on_open`: (Optional) The callback to call when the connection to the real-time service
-            `on_close`: (Optional) The callback to call when the connection to the real-time service
+            `on_open`: (Optional) The callback to call when the connection to the real-time service opens.
+            `on_close`: (Optional) The callback to call when the connection to the real-time service closes.
             `sample_rate`: The sample rate of the audio data.
-            `word_boost`: (Optional) A list of words to boost the confidence of.
+            `word_boost`: (Optional) A list of words to boost transcription probability for.
             `encoding`: (Optional) The encoding of the audio data.
             `token`: (Optional) A temporary authentication token.
             `client`: (Optional) The client to use for the real-time service.
             `end_utterance_silence_threshold`: (Optional) The end utterance silence threshold in milliseconds.
+            `disable_partial_transcripts`: (Optional) If set to `True`, only final transcripts will be received.
+            `on_extra_session_information`: (Optional) The callback to call when a `SessionInformation` message is received.
+                If this callback is set, the parameter `enable_extra_session_information` is sent to the API, and the client
+                receives a `SessionInformation` message right before receiving the session termination message.
         """
 
         self._client = client or _client.Client.get_default(
@@ -1326,6 +1351,8 @@ class RealtimeTranscriber:
             token=token,
             client=self._client,
             end_utterance_silence_threshold=end_utterance_silence_threshold,
+            disable_partial_transcripts=disable_partial_transcripts,
+            on_extra_session_information=on_extra_session_information,
         )
 
     def connect(
