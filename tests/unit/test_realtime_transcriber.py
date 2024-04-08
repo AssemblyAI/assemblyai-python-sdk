@@ -478,6 +478,37 @@ def test_realtime__handle_message_error_message(mocker: MockFixture):
     assert on_error_called
 
 
+def test_realtime__handle_message_session_information_message(mocker: MockFixture):
+    """
+    Tests the `_handle_message` method of the `_RealtimeTranscriberImpl` class
+    with the session information message.
+    """
+
+    test_message = {
+        "message_type": "SessionInformation",
+        "audio_duration_seconds": 3000.0,
+    }
+
+    on_extra_session_information_called = False
+
+    def on_extra_session_information(data: aai.RealtimeSessionInformation):
+        nonlocal on_extra_session_information_called
+        on_extra_session_information_called = True
+        assert isinstance(data, aai.RealtimeSessionInformation)
+        assert data.audio_duration_seconds == test_message["audio_duration_seconds"]
+
+    transcriber = aai.RealtimeTranscriber(
+        on_data=lambda _: None,
+        on_error=lambda _: None,
+        sample_rate=44_100,
+        on_extra_session_information=on_extra_session_information,
+    )
+
+    transcriber._impl._handle_message(test_message)
+
+    assert on_extra_session_information_called
+
+
 def test_realtime__handle_message_unknown_message(mocker: MockFixture):
     """
     Tests the `_handle_message` method of the `_RealtimeTranscriberImpl` class

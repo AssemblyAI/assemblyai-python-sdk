@@ -1959,6 +1959,7 @@ class RealtimeMessageTypes(str, Enum):
     final_transcript = "FinalTranscript"
     session_begins = "SessionBegins"
     session_terminated = "SessionTerminated"
+    session_information = "SessionInformation"
 
 
 class AudioEncoding(str, Enum):
@@ -2065,6 +2066,18 @@ class RealtimeFinalTranscript(RealtimeTranscript):
 
     text_formatted: bool
     "Whether the transcript has been formatted (e.g. Dollar -> $)"
+
+
+class RealtimeSessionInformation(BaseModel):
+    """
+    If `on_extra_session_information` is set, the client receives this message
+    right before receiving the session termination message.
+    """
+
+    message_type: RealtimeMessageTypes = RealtimeMessageTypes.session_information
+
+    audio_duration_seconds: float
+    "The duration of the audio in seconds"
 
 
 class RealtimeError(AssemblyAIError):
