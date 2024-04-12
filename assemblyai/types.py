@@ -202,6 +202,11 @@ class WordBoost(str, Enum):
     high = "high"
 
 
+class RedactedAudioQuality(str, Enum):
+    mp3 = "mp3"
+    wav = "wav"
+
+
 class EntityType(str, Enum):
     """
     Used for AssemblyAI's Entity Detection feature.
@@ -454,6 +459,8 @@ class RawTranscriptionConfig(BaseModel):
     "Redact PII from the transcribed text."
     redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
+    redact_pii_audio_quality: Optional[RedactedAudioQuality]
+    "Set the quality level of the redacted audio: mp3 or wav"    
     redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
     redact_pii_sub: Optional[PIISubstitutionPolicy]
@@ -543,6 +550,7 @@ class TranscriptionConfig:
         filter_profanity: Optional[bool] = None,
         redact_pii: Optional[bool] = None,
         redact_pii_audio: Optional[bool] = None,
+        redact_pii_audio_quality: Optional[RedactedAudioQuality] = None,
         redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
@@ -580,6 +588,7 @@ class TranscriptionConfig:
             filter_profanity: Filter profanity from the transcribed text.
             redact_pii: Redact PII from the transcribed text.
             redact_pii_audio: Generate a copy of the original media file with spoken PII 'beeped' out (new audio only available for 24 hours).
+            redact_pii_audio_quality: Select the quality level for audio redaction: mp3 or wav
             redact_pii_policies: The list of PII Redaction policies to enable.
             redact_pii_sub: The replacement logic for detected PII.
             speaker_labels: Enable Speaker Diarization.
@@ -623,6 +632,7 @@ class TranscriptionConfig:
         self.set_redact_pii(
             redact_pii,
             redact_pii_audio,
+            redact_pii_audio_quality,
             redact_pii_policies,
             redact_pii_sub,
         )
@@ -772,6 +782,12 @@ class TranscriptionConfig:
         "Whether or not to generate a copy of the original media file with spoken PII 'beeped' out."
 
         return self._raw_transcription_config.redact_pii_audio
+
+    @property
+    def redact_pii_audio_quality(self) -> Optional[RedactedAudioQuality]:
+        "The quality of the redacted audio (mp3 or wav)"
+
+        return self._raw_transcription_config.redact_pii_audio_quality
 
     @property
     def redact_pii_policies(self) -> Optional[List[PIIRedactionPolicy]]:
@@ -1122,6 +1138,7 @@ class TranscriptionConfig:
         self,
         enable: Optional[bool] = True,
         redact_audio: Optional[bool] = None,
+        redact_audio_quality: Optional[RedactedAudioQuality] = None,
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
     ) -> Self:
@@ -1131,6 +1148,7 @@ class TranscriptionConfig:
         Args:
             enable: whether to enable or disable the PII Redaction feature.
             redact_audio: Generate a copy of the original media file with spoken PII 'beeped' out. NOTE: The copy is available for 24h
+            redact_audio_quality: The quality level of the redacted audio: either mp3 or wav
             policies: A list of PII redaction policies to enable.
             substitution: The replacement logic for detected PII (`PIISubstutionPolicy.hash` by default).
         """
@@ -1138,6 +1156,7 @@ class TranscriptionConfig:
         if not enable:
             self._raw_transcription_config.redact_pii = None
             self._raw_transcription_config.redact_pii_audio = None
+            self._raw_transcription_config.redact_pii_audio_quality = None
             self._raw_transcription_config.redact_pii_policies = None
             self._raw_transcription_config.redact_pii_sub = None
 
@@ -1148,6 +1167,7 @@ class TranscriptionConfig:
 
         self._raw_transcription_config.redact_pii = True
         self._raw_transcription_config.redact_pii_audio = redact_audio
+        self._raw_transcription_config.redact_pii_audio_quality = redact_audio_quality
         self._raw_transcription_config.redact_pii_policies = policies
         self._raw_transcription_config.redact_pii_sub = substitution
 
@@ -1527,6 +1547,8 @@ class BaseTranscript(BaseModel):
     "Redact PII from the transcribed text."
     redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
+    redact_pii_audio_quality: Optional[RedactedAudioQuality]
+    "The audio quality level of the redacted audio (wav or mp3)"
     redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
     redact_pii_sub: Optional[PIISubstitutionPolicy]
