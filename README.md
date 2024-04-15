@@ -98,15 +98,16 @@ print(transcript.text)
 </details>
 
 <details>
-  <summary>Transcribe from stream</summary>
+  <summary>Transcribe binary data</summary>
 
 ```python
 import assemblyai as aai
 
-# Upload binary data.
-upload_url = aai.extras.file_from_stream(data)
-
 transcriber = aai.Transcriber()
+
+# Upload binary data.
+upload_url = transcriber.upload_file(data)
+
 transcript = transcriber.transcribe(upload_url)
 ```
 

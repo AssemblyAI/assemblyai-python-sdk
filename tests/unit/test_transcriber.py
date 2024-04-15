@@ -17,6 +17,60 @@ from tests.unit import factories
 aai.settings.api_key = "test"
 
 
+def test_upload_file_succeeds(httpx_mock: HTTPXMock):
+    """
+    Tests whether the submission of a file fails.
+    """
+
+    # our local audio file that we want to transcribe
+    local_file = os.urandom(10)
+
+    # this is the url that we should receive when uploading the local file
+    expected_upload_url = "https://example.org/audio.wav"
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={"upload_url": expected_upload_url},
+        match_content=local_file,
+    )
+
+    # mimic the usage of the SDK
+    transcriber = aai.Transcriber()
+
+    # patch the reading of a local file
+    with patch("builtins.open", mock_open(read_data=local_file)):
+        audio_url = transcriber.upload_file("audio.wav")
+
+    # check whether returned audio_url is correct
+    assert audio_url == expected_upload_url
+
+
+def test_upload_file_fails(httpx_mock: HTTPXMock):
+    """
+    Tests whether the submission of a file fails.
+    """
+
+    returned_error_message = "something went wrong"
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
+        status_code=httpx.codes.INTERNAL_SERVER_ERROR,
+        method="POST",
+        json={"error": returned_error_message},
+    )
+
+    # check whether uploading a file raises a TranscriptError
+    with pytest.raises(aai.TranscriptError) as excinfo:
+        aai.Transcriber().upload_file(os.urandom(10))
+
+    # check wheter the TranscriptError contains the specified error message
+    assert returned_error_message in str(excinfo.value)
+
+
 def test_submit_url_succeeds(httpx_mock: HTTPXMock):
     """
     Tests whether the submission of an URL works.

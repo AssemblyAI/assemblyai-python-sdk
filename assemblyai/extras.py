@@ -1,5 +1,6 @@
 import time
 from typing import BinaryIO, Generator
+from warnings import warn
 
 from . import api
 from .client import Client
@@ -116,6 +117,8 @@ def stream_file(
 
 def file_from_stream(data: BinaryIO) -> str:
     """
+    DeprecationWarning: `file_from_stream()` is deprecated and will be removed in 1.0.0. Use `Transcriber.upload_file()` instead.
+
     Uploads the given stream and returns the uploaded audio url.
 
     This function can be used to transcribe data that's already
@@ -132,6 +135,11 @@ def file_from_stream(data: BinaryIO) -> str:
     Args:
         `data`: A file-like object (in binary mode)
     """
+    warn(
+        "`file_from_stream()` is deprecated and will be removed in 1.0.0. Use `Transcriber.upload_file()` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return api.upload_file(
         client=Client.get_default().http_client,
         audio_file=data,
