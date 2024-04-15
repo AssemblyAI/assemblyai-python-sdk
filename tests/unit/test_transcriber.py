@@ -259,6 +259,59 @@ def test_transcribe_file_succeeds(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 3
 
 
+def test_transcribe_file_binary_succeeds(httpx_mock: HTTPXMock):
+    """
+    Tests whether the transcription of a binary file works.
+    """
+
+    # create a mock response of a completed transcript
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    # our binary audio file that we want to transcribe
+    file_data = os.urandom(10)
+
+    # this is the url that we should receive when uploading the local file
+    expected_upload_url = "https://example.org/audio.wav"
+    mock_transcript_response["audio_url"] = expected_upload_url
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={"upload_url": expected_upload_url},
+        match_content=file_data,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_transcript_response,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_transcript_response['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_transcript_response,
+    )
+
+    # mimic the usage of the SDK
+    transcriber = aai.Transcriber()
+
+    transcript = transcriber.transcribe(file_data)
+
+    # ensure integrity
+    assert transcript.id == mock_transcript_response["id"]
+    assert transcript.audio_url == expected_upload_url
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 3
+
+
 def test_transcribe_group_urls_succeeds(httpx_mock: HTTPXMock):
     """
     Tests whether the transcription of multiple URLs work.
