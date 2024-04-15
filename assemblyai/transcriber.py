@@ -9,6 +9,7 @@ import threading
 import time
 from typing import (
     Any,
+    BinaryIO,
     Callable,
     Dict,
     Generator,
@@ -697,6 +698,19 @@ class _TranscriberImpl:
         self._client = client
         self.config = config
 
+    def upload_file(self, data: Union[str, BinaryIO]) -> str:
+        if isinstance(data, str):
+            with open(data, "rb") as audio_file:
+                return api.upload_file(
+                    client=self._client.http_client,
+                    audio_file=audio_file,
+                )
+        else:
+            return api.upload_file(
+                client=self._client.http_client,
+                audio_file=data,
+            )
+
     def transcribe_url(
         self,
         *,
@@ -888,6 +902,33 @@ class Transcriber:
             `config`: The new default configuration.
         """
         self._impl.config = config
+
+    def upload_file(self, data: Union[str, BinaryIO]) -> str:
+        """
+        Uploads an audio file which can be specified as local path or binary object.
+
+        Args:
+            `data`: A local file (as path), or a binary object.
+
+        Returns: The URL of the uploaded audio file.
+        """
+        return self._impl.upload_file(data=data)
+
+    def upload_file_async(
+        self, data: Union[str, BinaryIO]
+    ) -> concurrent.futures.Future[str]:
+        """
+        Uploads an audio file which can be specified as local path or binary object.
+
+        Args:
+            `data`: A local file (as path), or a binary object.
+
+        Returns: The URL of the uploaded audio file.
+        """
+        return self._executor.submit(
+            self._impl.upload_file,
+            data=data,
+        )
 
     def submit(
         self,
