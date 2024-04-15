@@ -105,9 +105,11 @@ import assemblyai as aai
 
 transcriber = aai.Transcriber()
 
-# Upload binary data.
-upload_url = transcriber.upload_file(data)
+# Binary data is supported directly:
+transcript = transcriber.transcribe(data)
 
+# Or: Upload data separately:
+upload_url = transcriber.upload_file(data)
 transcript = transcriber.transcribe(upload_url)
 ```
 

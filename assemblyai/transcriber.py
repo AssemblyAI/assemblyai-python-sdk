@@ -749,26 +749,25 @@ class _TranscriberImpl:
     def transcribe_file(
         self,
         *,
-        path: str,
+        data: Union[str, BinaryIO],
         config: types.TranscriptionConfig,
         poll: bool,
     ) -> Transcript:
-        with open(path, "rb") as audio_file:
-            try:
-                audio_url = api.upload_file(
-                    client=self._client.http_client,
-                    audio_file=audio_file,
-                )
-            except Exception as exc:
-                return Transcript.from_response(
-                    client=self._client,
-                    response=types.TranscriptResponse(
-                        audio_url=path,
-                        **config.raw.dict(exclude_none=True),
-                        status=types.TranscriptStatus.error,
-                        error=str(exc),
-                    ),
-                )
+        try:
+            audio_url = self.upload_file(data)
+        except OSError:
+            # If the file cannot be opened, pass it to the user.
+            raise
+        except Exception as exc:
+            return Transcript.from_response(
+                client=self._client,
+                response=types.TranscriptResponse(
+                    audio_url=data if isinstance(data, str) else "",
+                    **config.raw.dict(exclude_none=True),
+                    status=types.TranscriptStatus.error,
+                    error=str(exc),
+                ),
+            )
 
         return self.transcribe_url(
             url=audio_url,
@@ -778,14 +777,14 @@ class _TranscriberImpl:
 
     def transcribe(
         self,
-        data: str,
+        data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
     ) -> Transcript:
         if config is None:
             config = self.config
 
-        if urlparse(data).scheme in {"http", "https"}:
+        if isinstance(data, str) and urlparse(data).scheme in {"http", "https"}:
             return self.transcribe_url(
                 url=data,
                 config=config,
@@ -793,7 +792,7 @@ class _TranscriberImpl:
             )
 
         return self.transcribe_file(
-            path=data,
+            data=data,
             config=config,
             poll=poll,
         )
@@ -801,7 +800,7 @@ class _TranscriberImpl:
     def transcribe_group(
         self,
         *,
-        data: List[str],
+        data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
     ) -> TranscriptGroup:
@@ -932,14 +931,14 @@ class Transcriber:
 
     def submit(
         self,
-        data: str,
+        data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> Transcript:
         """
         Submits a transcription job without waiting for its completion.
 
         Args:
-            data: An URL or a local file (as path)
+            data: An URL, a local file (as path), or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -951,14 +950,14 @@ class Transcriber:
 
     def submit_group(
         self,
-        data: List[str],
+        data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> TranscriptGroup:
         """
         Submits multiple transcription jobs without waiting for their completion.
 
         Args:
-            data: A list of paths or URLs (can be mixed)
+            data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -970,14 +969,14 @@ class Transcriber:
 
     def transcribe(
         self,
-        data: str,
+        data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> Transcript:
         """
-        Transcribes an audio file whose location can be specified via a URL or file path.
+        Transcribes an audio file which can be specified as local path, URL, or binary object.
 
         Args:
-            data: An URL or a local file (as path)
+            data: An URL, a local file (as path), or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -990,14 +989,14 @@ class Transcriber:
 
     def transcribe_async(
         self,
-        data: str,
+        data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> concurrent.futures.Future[Transcript]:
         """
-        Transcribes an audio file whose location can be specified via a URL or file path.
+        Transcribes an audio file which can be specified as local path, URL, or binary object.
 
         Args:
-            data: An URL or a local file (as path)
+            data: An URL, a local file (as path), or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -1011,14 +1010,14 @@ class Transcriber:
 
     def transcribe_group(
         self,
-        data: List[str],
+        data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> TranscriptGroup:
         """
-        Transcribes a list of files (as paths) or URLs with the given configs.
+        Transcribes a list of files (as local paths, URLs, or binary objects).
 
         Args:
-            data: A list of paths or URLs (can be mixed)
+            data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -1031,15 +1030,14 @@ class Transcriber:
 
     def transcribe_group_async(
         self,
-        data: List[str],
+        data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> concurrent.futures.Future[TranscriptGroup]:
         """
-        Transcribes a list of files (as paths) or URLs with the given configs asynchronously
-        by returning a `concurrent.futures.Future[TranscriptGroup]` object.
+        Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
 
         Args:
-            data: A list of paths or URLs (can be mixed)
+            data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
