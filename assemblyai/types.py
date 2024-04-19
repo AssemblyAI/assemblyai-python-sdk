@@ -785,7 +785,7 @@ class TranscriptionConfig:
 
     @property
     def redact_pii_audio_quality(self) -> Optional[RedactedAudioQuality]:
-        "The quality of the redacted audio (mp3 or wav)"
+        "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
 
         return self._raw_transcription_config.redact_pii_audio_quality
 
