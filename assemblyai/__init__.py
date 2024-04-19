@@ -117,6 +117,7 @@ __all__ = [
     "Utterance",
     "UtteranceWord",
     "Paragraph",
+    "PIIRedactedAudioQuality",
     "PIISubstitutionPolicy",
     "PIIRedactionPolicy",
     "RawTranscriptionConfig",
