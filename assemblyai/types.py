@@ -202,7 +202,7 @@ class WordBoost(str, Enum):
     high = "high"
 
 
-class RedactedAudioQuality(str, Enum):
+class PIIRedactedAudioQuality(str, Enum):
     mp3 = "mp3"
     wav = "wav"
 
@@ -459,7 +459,7 @@ class RawTranscriptionConfig(BaseModel):
     "Redact PII from the transcribed text."
     redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_audio_quality: Optional[RedactedAudioQuality]
+    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality]
     "The quality of the redacted audio file in case `redact_pii_audio` is enabled."    
     redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
@@ -550,7 +550,7 @@ class TranscriptionConfig:
         filter_profanity: Optional[bool] = None,
         redact_pii: Optional[bool] = None,
         redact_pii_audio: Optional[bool] = None,
-        redact_pii_audio_quality: Optional[RedactedAudioQuality] = None,
+        redact_pii_audio_quality: Optional[PIIRedactedAudioQuality] = None,
         redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
@@ -784,7 +784,7 @@ class TranscriptionConfig:
         return self._raw_transcription_config.redact_pii_audio
 
     @property
-    def redact_pii_audio_quality(self) -> Optional[RedactedAudioQuality]:
+    def redact_pii_audio_quality(self) -> Optional[PIIRedactedAudioQuality]:
         "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
 
         return self._raw_transcription_config.redact_pii_audio_quality
@@ -1138,7 +1138,7 @@ class TranscriptionConfig:
         self,
         enable: Optional[bool] = True,
         redact_audio: Optional[bool] = None,
-        redact_audio_quality: Optional[RedactedAudioQuality] = None,
+        redact_audio_quality: Optional[PIIRedactedAudioQuality] = None,
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
     ) -> Self:
@@ -1547,7 +1547,7 @@ class BaseTranscript(BaseModel):
     "Redact PII from the transcribed text."
     redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_audio_quality: Optional[RedactedAudioQuality]
+    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality]
     "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
     redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
