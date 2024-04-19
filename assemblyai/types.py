@@ -1148,7 +1148,7 @@ class TranscriptionConfig:
         Args:
             enable: whether to enable or disable the PII Redaction feature.
             redact_audio: Generate a copy of the original media file with spoken PII 'beeped' out. NOTE: The copy is available for 24h
-            redact_audio_quality: The quality level of the redacted audio: either mp3 or wav
+            redact_audio_quality: The quality of the redacted audio file in case `redact_audio` is enabled.
             policies: A list of PII redaction policies to enable.
             substitution: The replacement logic for detected PII (`PIISubstutionPolicy.hash` by default).
         """
