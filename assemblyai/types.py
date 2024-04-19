@@ -588,7 +588,7 @@ class TranscriptionConfig:
             filter_profanity: Filter profanity from the transcribed text.
             redact_pii: Redact PII from the transcribed text.
             redact_pii_audio: Generate a copy of the original media file with spoken PII 'beeped' out (new audio only available for 24 hours).
-            redact_pii_audio_quality: Select the quality level for audio redaction: mp3 or wav
+            redact_pii_audio_quality: The quality of the redacted audio file in case `redact_pii_audio` is enabled.
             redact_pii_policies: The list of PII Redaction policies to enable.
             redact_pii_sub: The replacement logic for detected PII.
             speaker_labels: Enable Speaker Diarization.
