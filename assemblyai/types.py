@@ -460,7 +460,7 @@ class RawTranscriptionConfig(BaseModel):
     redact_pii_audio: Optional[bool]
     "Generate a copy of the original media file with spoken PII 'beeped' out."
     redact_pii_audio_quality: Optional[PIIRedactedAudioQuality]
-    "The quality of the redacted audio file in case `redact_pii_audio` is enabled."    
+    "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
     redact_pii_policies: Optional[List[PIIRedactionPolicy]]
     "The list of PII Redaction policies to enable."
     redact_pii_sub: Optional[PIISubstitutionPolicy]
