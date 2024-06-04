@@ -211,89 +211,122 @@ class EntityType(str, Enum):
     """
     Used for AssemblyAI's Entity Detection feature.
 
-    See: https://www.assemblyai.com/docs/audio-intelligence#entity-detection
+    See: https://www.assemblyai.com/docs/audio-intelligence/entity-detection
     """
 
-    medical_process = "medical_process"
-    "Medical process, including treatments, procedures, and tests (e.g., heart surgery, CT scan)"
+    account_number = "account_number"
+    "Customer account or membership identification number (e.g., Policy No. 10042992; Member ID: HZ-5235-001)"
 
-    medical_condition = "medical_condition"
-    "Name of a medical condition, disease, syndrome, deficit, or disorder (e.g., chronic fatigue syndrome, arrhythmia, depression)"
+    banking_information = "banking_information"
+    "Banking information, including account and routing numbers (e.g., Acct. No.: 012345-67)"
 
     blood_type = "blood_type"
     "Blood type (e.g., O-, AB positive)"
 
-    drug = "drug"
-    "Medications, vitamins, or supplements (e.g., Advil, Acetaminophen, Panadol)"
-
-    injury = "injury"
-    "Bodily injury (e.g., I broke my arm, I have a sprained wrist)"
-
-    number_sequence = "number_sequence"
-    "A 'lazy' rule that will redact any sequence of numbers equal to or greater than 2"
-
-    email_address = "email_address"
-    "Email address (e.g., support@assemblyai.com)"
-
-    date_of_birth = "date_of_birth"
-    "Date of Birth (e.g., Date of Birth: March 7,1961)"
-
-    phone_number = "phone_number"
-    "Telephone or fax number"
-
-    us_social_security_number = "us_social_security_number"
-    "Social Security Number or equivalent"
-
-    credit_card_number = "credit_card_number"
-    "Credit card number"
-
-    credit_card_expiration = "credit_card_expiration"
-    "Expiration date of a credit card"
-
     credit_card_cvv = "credit_card_cvv"
     "Credit card verification code (e.g., CVV: 080)"
+
+    credit_card_expiration = "credit_card_expiration"
+    "Expiration date of a credit card (e.g., Expires: July 2023; Exp: 02/28)"
+
+    credit_card_number = "credit_card_number"
+    "Credit card number (e.g., 0123 0123 0123 0123)"
 
     date = "date"
     "Specific calendar date (e.g., December 18)"
 
-    nationality = "nationality"
-    "Terms indicating nationality, ethnicity, or race (e.g., American, Asian, Caucasian)"
+    date_interval = "date_interval"
+    "Broader time periods, including date ranges, months, seasons, years, and decades (e.g., 2020-2021; 5-9 May; January 1984 )"
+
+    date_of_birth = "date_of_birth"
+    "Date of Birth (e.g., Date of Birth: March 7,1961)"
+
+    drivers_license = "drivers_license"
+    "Driver's license number (e.g., DL# 356933-540)"
+
+    drug = "drug"
+    "Medications, vitamins, or supplements (e.g., Advil, Acetaminophen, Panadol)"
+
+    duration = "duration"
+    "Periods of time, specified as a number and a unit of time (e.g., 8 months; 2 years)"
+
+    email_address = "email_address"
+    "Email address (e.g., support@assemblyai.com)"
 
     event = "event"
     "Name of an event or holiday (e.g., Olympics, Yom Kippur)"
+
+    filename = "filename"
+    "Names of computer files, including the extension or filepath (e.g., Taxes/2012/brad-tax-returns.pdf)"
+
+    gender_sexuality = "gender_sexuality"
+    "Terms indicating gender identity or sexual orientation, including slang terms (e.g., female; bisexual; trans)"
+
+    healthcare_number = "healthcare_number"
+    "Healthcare numbers and health plan beneficiary numbers (e.g., Policy No.: 5584-486-674-YM)"
+
+    injury = "injury"
+    "Bodily injury (e.g., I broke my arm, I have a sprained wrist)"
+
+    ip_address = "ip_address"
+    "Internet IP address, including IPv4 and IPv6 formats (e.g., 192.168.0.1)"
 
     language = "language"
     "Name of a natural language (e.g., Spanish, French)"
 
     location = "location"
-    "Any Location reference including mailing address, postal code, city, state, province, or country"
+    "Any Location reference including mailing address, postal code, city, state, province, country, or coordinates (e.g., Lake Victoria, 145 Windsor St., 90210)"
+
+    marital_status = "marital_status"
+    "Terms indicating marital status (e.g., Single, common-law, ex-wife, married)"
+
+    medical_condition = "medical_condition"
+    "Name of a medical condition, disease, syndrome, deficit, or disorder (e.g., chronic fatigue syndrome, arrhythmia, depression)"
+
+    medical_process = "medical_process"
+    "Medical process, including treatments, procedures, and tests (e.g., heart surgery, CT scan)"
 
     money_amount = "money_amount"
     "Name and/or amount of currency (e.g., 15 pesos, $94.50)"
 
-    person_name = "person_name"
-    "Name of a person (e.g., Bob, Doug Jones)"
+    nationality = "nationality"
+    "Terms indicating nationality, ethnicity, or race (e.g., American, Asian, Caucasian)"
 
-    person_age = "person_age"
-    "Number associated with an age (e.g., 27, 75)"
-
-    organization = "organization"
-    "Name of an organization (e.g., CNN, McDonalds, University of Alaska)"
-
-    political_affiliation = "political_affiliation"
-    "Terms referring to a political party, movement, or ideology (e.g., Republican, Liberal)"
+    number_sequence = "number_sequence"
+    "Numerical PII (including alphanumeric strings) that doesn't fall under other categories"
 
     occupation = "occupation"
     "Job title or profession (e.g., professor, actors, engineer, CPA)"
 
+    organization = "organization"
+    "Name of an organization (e.g., CNN, McDonalds, University of Alaska, Northwest General Hospital)"
+
+    passport_number = "passport_number"
+    "Passport numbers, issued by any country (e.g., PA4568332; NU3C6L86S12)"
+
+    password = "password"
+    "Account passwords, PINs, access keys, or verification answers (e.g., 27%alfalfa, temp1234, My mother's maiden name is Smith)"
+
+    person_age = "person_age"
+    "Number associated with an age (e.g., 27, 75)"
+
+    person_name = "person_name"
+    "Name of a person (e.g., Bob, Doug Jones, Dr. Kay Martinez, MD)"
+
+    phone_number = "phone_number"
+    "Telephone or fax number (e.g., +4917643476050)"
+
+    physical_attribute = "physical_attribute"
+    "Distinctive bodily attributes, including terms indicating race (e.g., I'm 190cm tall, He has black hair)"
+
+    political_affiliation = "political_affiliation"
+    "Terms referring to a political party, movement, or ideology (e.g., Republican, Liberal)"
+
     religion = "religion"
     "Terms indicating religious affiliation (e.g., Hindu, Catholic)"
 
-    drivers_license = "drivers_license"
-    "Driver’s license number (e.g., DL# 356933-540)"
-
-    banking_information = "banking_information"
-    "Banking information, including account and routing numbers"
+    statistics = "statistics"
+    "Medical statistics (e.g., 18%, 18 percent)"
 
     time = "time"
     "Expressions indicating clock times (e.g., 19:37:28, 10pm EST)"
@@ -301,8 +334,17 @@ class EntityType(str, Enum):
     url = "url"
     "Internet addresses (e.g., www.assemblyai.com)"
 
-    password = "password"
-    "Account passwords, PINs, access keys, or verification answers (e.g., 27%alfalfa, temp1234, My mother's maiden name is Smith)"
+    us_social_security_number = "us_social_security_number"
+    "Social Security Number or equivalent (e.g., 078-05-1120, ***-***-3256)"
+
+    username = "username"
+    "Usernames, login names, or handles (e.g., @AssemblyAI)"
+
+    vehicle_id = "vehicle_id"
+    "Vehicle identification numbers (VINs), vehicle serial numbers, and license plate numbers (e.g., 5FNRL38918B111818, BIF7547)"
+
+    zodiac_sign = "zodiac_sign"
+    "Names of Zodiac signs (e.g., Aries, Taurus)"
 
 
 # EntityType and PIIRedactionPolicy share the same values
@@ -310,7 +352,7 @@ PIIRedactionPolicy = EntityType
 """
 Used for AssemblyAI's PII Redaction feature.
 
-See: https://www.assemblyai.com/docs/audio-intelligence#pii-redaction
+See: https://www.assemblyai.com/docs/audio-intelligence/pii-redaction
 """
 
 
@@ -318,7 +360,7 @@ class PIISubstitutionPolicy(str, Enum):
     """
     Used for AssemblyAI's PII Redaction feature.
 
-    See: https://www.assemblyai.com/docs/audio-intelligence#customize-how-redacted-pii-is-transcribed
+    See: https://www.assemblyai.com/docs/audio-intelligence/pii-redaction
     """
 
     hash = "hash"
@@ -332,7 +374,7 @@ class SummarizationModel(str, Enum):
     """
     Used for AssemblyAI's Summarization feature.
 
-    See: https://www.assemblyai.com/docs/audio-intelligence#summarization
+    See: https://www.assemblyai.com/docs/audio-intelligence/summarization
     """
 
     informative = "informative"
@@ -384,7 +426,7 @@ class SummarizationType(str, Enum):
     """
     Used for AssemblyAI's Summarization feature.
 
-    See: https://www.assemblyai.com/docs/audio-intelligence#summarization
+    See: https://www.assemblyai.com/docs/audio-intelligence/summarization
     """
 
     bullets = "bullets"
