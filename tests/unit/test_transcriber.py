@@ -144,12 +144,11 @@ def test_submit_file_fails_due_api_error(httpx_mock: HTTPXMock):
 
     # patch the reading of a local file
     with patch("builtins.open", mock_open(read_data=os.urandom(10))):
-        transcript = transcriber.transcribe("audio.wav")
+        with pytest.raises(aai.TranscriptError) as excinfo:
+            transcriber.transcribe("audio.wav")
 
-    # check whether the status is set to error
-    assert transcript.audio_url == "audio.wav"
-    assert transcript.status == aai.TranscriptStatus.error
-    assert "something went wrong" in transcript.error
+    # check wheter the Exception contains the specified error message
+    assert "something went wrong" in str(excinfo.value)
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
