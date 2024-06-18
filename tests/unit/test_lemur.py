@@ -60,6 +60,8 @@ def test_lemur_single_question_succeeds_transcript(httpx_mock: HTTPXMock):
     assert answers[0].question == mock_lemur_answer["response"][0]["question"]
     assert answers[0].answer == mock_lemur_answer["response"][0]["answer"]
 
+    assert result.usage == mock_lemur_answer["usage"]
+
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
 
@@ -280,6 +282,8 @@ def test_lemur_summarize_succeeds_transcript(httpx_mock: HTTPXMock):
     # check the response
     assert summary == mock_lemur_summary["response"]
 
+    assert result.usage == mock_lemur_summary["usage"]
+
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
 
@@ -378,6 +382,8 @@ def test_lemur_action_items_succeeds_transcript(httpx_mock: HTTPXMock):
     # check the response
     assert action_items == mock_lemur_action_items["response"]
 
+    assert result.usage == mock_lemur_action_items["usage"]
+
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
 
@@ -452,7 +458,7 @@ def test_lemur_task_succeeds_transcript(httpx_mock: HTTPXMock):
     Tests whether creating a task request succeeds.
     """
 
-    # create a mock response of a LemurSummaryResponse
+    # create a mock response of a LemurTaskResponse
     mock_lemur_task_response = factories.generate_dict_factory(
         factories.LemurTaskResponse
     )()
@@ -478,6 +484,8 @@ def test_lemur_task_succeeds_transcript(httpx_mock: HTTPXMock):
 
     assert result.response == mock_lemur_task_response["response"]
 
+    assert result.usage == mock_lemur_task_response["usage"]
+
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
 
@@ -487,7 +495,7 @@ def test_lemur_task_succeeds_input_text(httpx_mock: HTTPXMock):
     Tests whether creating a task request succeeds.
     """
 
-    # create a mock response of a LemurSummaryResponse
+    # create a mock response of a LemurTaskResponse
     mock_lemur_task_response = factories.generate_dict_factory(
         factories.LemurTaskResponse
     )()
@@ -526,7 +534,7 @@ def test_lemur_task_succeeds(final_model, httpx_mock: HTTPXMock):
     Tests whether creating a task request succeeds with other models.
     """
 
-    # create a mock response of a LemurSummaryResponse
+    # create a mock response of a LemurTaskResponse
     mock_lemur_task_response = factories.generate_dict_factory(
         factories.LemurTaskResponse
     )()
@@ -774,7 +782,7 @@ def test_lemur_task_async_succeeds_transcript(httpx_mock: HTTPXMock):
     Tests whether creating a task request succeeds when async is used.
     """
 
-    # create a mock response of a LemurSummaryResponse
+    # create a mock response of a LemurTaskResponse
     mock_lemur_task_response = factories.generate_dict_factory(
         factories.LemurTaskResponse
     )()
@@ -833,6 +841,92 @@ def test_lemur_purge_request_data_async_succeeds(httpx_mock: HTTPXMock):
 
     # check the response
     assert isinstance(result, aai.LemurPurgeResponse)
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_usage_data(httpx_mock: HTTPXMock):
+    """
+    Tests whether usage data is correctly returned.
+    """
+
+    # create a mock response of a LemurTaskResponse
+    mock_lemur_task_response = factories.generate_dict_factory(
+        factories.LemurTaskResponse
+    )()
+    mock_lemur_task_response["usage"]["input_tokens"] = 100
+    mock_lemur_task_response["usage"]["output_tokens"] = 200
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR}/task",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_lemur_task_response,
+    )
+
+    # mimic the usage of the SDK
+    transcript = aai.Transcript(str(uuid.uuid4()))
+
+    lemur = aai.Lemur(
+        sources=[aai.LemurSource(transcript)],
+    )
+    result = lemur.task(prompt="Create action items of the meeting")
+
+    # check the response
+    assert isinstance(result, aai.LemurTaskResponse)
+
+    assert result.usage == mock_lemur_task_response["usage"]
+    assert (
+        result.usage.input_tokens == mock_lemur_task_response["usage"]["input_tokens"]
+    )
+    assert (
+        result.usage.output_tokens == mock_lemur_task_response["usage"]["output_tokens"]
+    )
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+@pytest.mark.parametrize("response_type", ("string_response", "qa_response"))
+def test_lemur_get_response_data(response_type, httpx_mock: HTTPXMock):
+    """
+    Tests whether a LeMUR response data is correctly returned.
+    """
+    request_id = "1234"
+
+    # create a mock response
+    if response_type == "string_response":
+        mock_lemur_response = factories.generate_dict_factory(
+            factories.LemurStringResponse
+        )()
+    else:
+        mock_lemur_response = factories.generate_dict_factory(
+            factories.LemurQuestionResponse
+        )()
+
+    mock_lemur_response["request_id"] = request_id
+
+    # mock the specific endpoint
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{request_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_lemur_response,
+    )
+
+    # mimic the usage of the SDK
+    lemur = aai.Lemur()
+    result = lemur.get_response_data(request_id)
+
+    # check the response
+    if response_type == "string_response":
+        assert isinstance(result, aai.LemurStringResponse)
+    else:
+        assert isinstance(result, aai.LemurQuestionResponse)
+
+    assert result.request_id == request_id
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1

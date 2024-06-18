@@ -1,4 +1,4 @@
-from typing import BinaryIO, List, Optional
+from typing import BinaryIO, List, Optional, Union
 from urllib.parse import urlencode
 
 import httpx
@@ -347,6 +347,32 @@ def lemur_purge_request_data(
         )
 
     return types.LemurPurgeResponse.parse_obj(response.json())
+
+
+def lemur_get_response_data(
+    client: httpx.Client,
+    request_id: int,
+    http_timeout: Optional[float],
+) -> Union[
+    types.LemurStringResponse,
+    types.LemurQuestionResponse,
+]:
+    response = client.get(
+        f"{ENDPOINT_LEMUR_BASE}/{request_id}",
+        timeout=http_timeout,
+    )
+
+    if response.status_code != httpx.codes.ok:
+        raise types.LemurError(
+            f"Failed to get LeMUR response data for provided request ID: {request_id}. Error: {_get_error_message(response)}"
+        )
+
+    json_data = response.json()
+
+    if isinstance(json_data.get("response"), list):
+        return types.LemurQuestionResponse.parse_obj(json_data)
+
+    return types.LemurStringResponse.parse_obj(json_data)
 
 
 def create_temporary_token(
