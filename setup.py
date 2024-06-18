@@ -7,7 +7,7 @@ long_description = (Path(__file__).parent / "README.md").read_text()
 
 setup(
     name="assemblyai",
-    version="0.27.0",
+    version="0.28.0",
     description="AssemblyAI Python SDK",
     author="AssemblyAI",
     author_email="engineering.sdk@assemblyai.com",

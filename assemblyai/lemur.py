@@ -140,6 +140,22 @@ class _LemurImpl:
 
         return response
 
+    def get_response_data(
+        self,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> Union[
+        types.LemurStringResponse,
+        types.LemurQuestionResponse,
+    ]:
+        response = api.lemur_get_response_data(
+            client=_client.Client.get_default().http_client,
+            request_id=request_id,
+            http_timeout=timeout,
+        )
+
+        return response
+
 
 class Lemur:
     """
@@ -528,3 +544,47 @@ class Lemur:
                 timeout=timeout,
             )
         return response_future
+
+    def get_response_data(
+        self,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> Union[
+        types.LemurStringResponse,
+        types.LemurQuestionResponse,
+    ]:
+        """
+        Retrieve a LeMUR response that was previously generated.
+
+        Args:
+            request_id: The ID of a previous LeMUR request.
+            timeout: The timeout in seconds to wait for the task.
+
+        Returns: A LeMUR response that was previously generated.
+        """
+        return self._impl.get_response_data(request_id=request_id, timeout=timeout)
+
+    def get_response_data_async(
+        self,
+        request_id: str,
+        timeout: Optional[float] = None,
+    ) -> concurrent.futures.Future[
+        Union[
+            types.LemurStringResponse,
+            types.LemurQuestionResponse,
+        ]
+    ]:
+        """
+        Retrieve a LeMUR response that was previously generated.
+
+        Args:
+            request_id: The ID of a previous LeMUR request.
+            timeout: The timeout in seconds to wait for the task.
+
+        Returns: A LeMUR response that was previously generated.
+        """
+        return self._executor.submit(
+            self._impl.get_response_data,
+            request_id=request_id,
+            timeout=timeout,
+        )

@@ -204,6 +204,14 @@ class TranscriptRequestFactory(BaseTranscriptFactory):
         model = types.TranscriptRequest
 
 
+class LemurUsage(factory.Factory):
+    class Meta:
+        model = types.LemurUsage
+
+    input_tokens = factory.Faker("pyint")
+    output_tokens = factory.Faker("pyint")
+
+
 class LemurQuestionAnswer(factory.Factory):
     class Meta:
         model = types.LemurQuestionAnswer
@@ -217,6 +225,7 @@ class LemurQuestionResponse(factory.Factory):
         model = types.LemurQuestionResponse
 
     request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
     response = factory.List(
         [
             factory.SubFactory(LemurQuestionAnswer),
@@ -230,6 +239,7 @@ class LemurSummaryResponse(factory.Factory):
         model = types.LemurSummaryResponse
 
     request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
     response = factory.Faker("text")
 
 
@@ -238,6 +248,7 @@ class LemurActionItemsResponse(factory.Factory):
         model = types.LemurActionItemsResponse
 
     request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
     response = factory.Faker("text")
 
 
@@ -246,6 +257,16 @@ class LemurTaskResponse(factory.Factory):
         model = types.LemurTaskResponse
 
     request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
+    response = factory.Faker("text")
+
+
+class LemurStringResponse(factory.Factory):
+    class Meta:
+        model = types.LemurStringResponse
+
+    request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
     response = factory.Faker("text")
 
 
