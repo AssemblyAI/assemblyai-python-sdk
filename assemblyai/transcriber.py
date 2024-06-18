@@ -753,21 +753,8 @@ class _TranscriberImpl:
         config: types.TranscriptionConfig,
         poll: bool,
     ) -> Transcript:
-        try:
-            audio_url = self.upload_file(data)
-        except OSError:
-            # If the file cannot be opened, pass it to the user.
-            raise
-        except Exception as exc:
-            return Transcript.from_response(
-                client=self._client,
-                response=types.TranscriptResponse(
-                    audio_url=data if isinstance(data, str) else "",
-                    **config.raw.dict(exclude_none=True),
-                    status=types.TranscriptStatus.error,
-                    error=str(exc),
-                ),
-            )
+        # Note: If uploading fails, it should raise an Exception to the user, hence no try-except here.
+        audio_url = self.upload_file(data)
 
         return self.transcribe_url(
             url=audio_url,
