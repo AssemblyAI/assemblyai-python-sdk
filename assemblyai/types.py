@@ -1948,7 +1948,7 @@ class BaseLemurResponse(BaseModel):
     request_id: str
     "The unique identifier of your LeMUR request"
 
-    usage: Optional[LemurUsage]
+    usage: LemurUsage
     "The usage numbers for the LeMUR request"
 
 
