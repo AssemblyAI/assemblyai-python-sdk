@@ -1,10 +1,11 @@
+import sys
 import threading
 from typing import ClassVar, Optional
 
 import httpx
 from typing_extensions import Self
 
-from . import types
+from . import __version__, types
 
 
 class Client:
@@ -33,19 +34,19 @@ class Client:
                 "Please provide an API key via the ASSEMBLYAI_API_KEY environment variable or the global settings."
             )
 
+        vi = sys.version_info
+        python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+        user_agent = f"{httpx._client.USER_AGENT} AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
+
+        headers = {"user-agent": user_agent}
         if self._settings.api_key:
-            self._http_client = httpx.Client(
-                base_url=self.settings.base_url,
-                headers={
-                    "authorization": self.settings.api_key,
-                },
-                timeout=self.settings.http_timeout,
-            )
-        else:
-            self._http_client = httpx.Client(
-                base_url=self.settings.base_url,
-                timeout=self.settings.http_timeout,
-            )
+            headers["authorization"] = self.settings.api_key
+
+        self._http_client = httpx.Client(
+            base_url=self.settings.base_url,
+            headers=headers,
+            timeout=self.settings.http_timeout,
+        )
 
     @property
     def settings(self) -> types.Settings:

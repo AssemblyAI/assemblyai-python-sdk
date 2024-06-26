@@ -1,4 +1,5 @@
 from . import extras
+from .__version__ import __version__
 from .client import Client
 from .lemur import Lemur
 from .transcriber import RealtimeTranscriber, Transcriber, Transcript, TranscriptGroup
@@ -139,4 +140,6 @@ __all__ = [
     "settings",
     # packages
     "extras",
+    # version
+    "__version__",
 ]

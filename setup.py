@@ -5,9 +5,16 @@ from setuptools import find_packages, setup
 long_description = (Path(__file__).parent / "README.md").read_text()
 
 
+def get_version() -> str:
+    version = {}
+    with open(Path(__file__).parent / "assemblyai" / "__version__.py") as f:
+        exec(f.read(), version)
+    return version["__version__"]
+
+
 setup(
     name="assemblyai",
-    version="0.28.0",
+    version=get_version(),
     description="AssemblyAI Python SDK",
     author="AssemblyAI",
     author_email="engineering.sdk@assemblyai.com",
