@@ -5,7 +5,8 @@ from typing import ClassVar, Optional
 import httpx
 from typing_extensions import Self
 
-from . import __version__, types
+from . import types
+from .__version__ import __version__
 
 
 class Client:
