@@ -1690,7 +1690,7 @@ class TranscriptResponse(BaseTranscript):
     confidence: Optional[float]
     "The confidence our model has in the transcribed text, between 0.0 and 1.0"
 
-    audio_duration: Optional[float]
+    audio_duration: Optional[int]
     "The duration of your media file, in seconds"
 
     webhook_status_code: Optional[int]
