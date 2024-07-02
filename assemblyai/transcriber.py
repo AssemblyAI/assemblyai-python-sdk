@@ -408,7 +408,7 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.confidence
 
     @property
-    def audio_duration(self) -> Optional[float]:
+    def audio_duration(self) -> Optional[int]:
         "The duration of the audio in seconds"
 
         return self._impl.transcript.audio_duration
