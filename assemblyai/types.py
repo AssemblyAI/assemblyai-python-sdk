@@ -1844,37 +1844,58 @@ class LemurSourceRequest(BaseModel):
 
 class LemurModel(str, Enum):
     """
-    LeMUR features four model modes, Basic, Default, Mistral 7B, and Claude v2.1, that allow you to
-    configure your request to suit your needs. These options tell LeMUR whether to use the more
-    advanced Default model or the cheaper, faster, but simplified Basic model. The implicit setting
-    is Default when no option is explicitly passed in.
+    LeMUR features different model modes that allow you to configure your request to suit your needs.
+    """
+
+    claude3_5_sonnet = "anthropic/claude-3-5-sonnet"
+    """
+    Claude 3.5 Sonnet is the most intelligent model to date, outperforming Claude 3 Opus on a wide range of evaluations, with the speed and cost of Claude 3 Sonnet.
+    """
+
+    claude3_opus = "anthropic/claude-3-opus"
+    """
+    Claude 3 Opus is good at handling complex analysis, longer tasks with many steps, and higher-order math and coding tasks.
+    """
+
+    claude3_haiku = "anthropic/claude-3-haiku"
+    """
+    Claude 3 Haiku is the fastest model that can execute lightweight actions.
+    """
+
+    claude3_sonnet = "anthropic/claude-3-sonnet"
+    """
+    Claude 3 Sonnet is a legacy model with a balanced combination of performance and speed for efficient, high-throughput tasks.
+    """
+
+    claude2_1 = "anthropic/claude-2-1"
+    """
+    Claude 2.1 is a legacy model similar to Claude 2.0. The key difference is that it minimizes model hallucination and system prompts, has a larger context window, and performs better in citations.
+    """
+
+    claude2_0 = "anthropic/claude-2"
+    """
+    Claude 2.0 is a legacy model that has good complex reasoning. It offers more nuanced responses and improved contextual comprehension.
     """
 
     default = "default"
     """
-    LeMUR Default is the standard model to use. It is capable of handling any task as well, or better
-    than LeMUR Basic. Default is capable of more nuanced and complex questions, where Basic would provide poor results.
+    Legacy model. The same as `claude2_0`.
+    """
 
-    Additionally, responses provide more insightful responses with Default.
-    The drawback of this expanded functionality and quality is execution speed and cost. Default is up to 20% slower than
-    Basic and has an increased cost.
+    claude_instant1_2 = "anthropic/claude-instant-1-2"
+    """
+    Claude Instant is a legacy model that is optimized for speed and cost. Claude Instant can complete requests up to 20% faster than Claude 2.0.
     """
 
     basic = "basic"
     """
-    LeMUR Basic is a simplified model optimized for speed and cost allowing you to complete simple requests quickly, and cheaply.
-    LeMUR Basic can complete requests up to 20% faster than Default.
-
-    The best use cases for Basic include summary and simple questions with factual answers. It is not recommended to use Basic
-    for complex/subjective tasks where answers require more nuance to be effective.
+    Legacy model. The same as `claude_instant1_2`.
     """
 
     mistral7b = "assemblyai/mistral-7b"
     """
     Mistral 7B is an open source model that works well for summarization and answering questions.
     """
-
-    claude2_1 = "anthropic/claude-2-1"
 
 
 class LemurQuestionAnswer(BaseModel):

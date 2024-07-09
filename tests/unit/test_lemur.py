@@ -525,8 +525,16 @@ def test_lemur_task_succeeds_input_text(httpx_mock: HTTPXMock):
 @pytest.mark.parametrize(
     "final_model",
     (
-        aai.LemurModel.mistral7b,
+        aai.LemurModel.claude3_5_sonnet,
+        aai.LemurModel.claude3_opus,
+        aai.LemurModel.claude3_haiku,
+        aai.LemurModel.claude3_sonnet,
         aai.LemurModel.claude2_1,
+        aai.LemurModel.claude2_0,
+        aai.LemurModel.default,
+        aai.LemurModel.claude_instant1_2,
+        aai.LemurModel.basic,
+        aai.LemurModel.mistral7b,
     ),
 )
 def test_lemur_task_succeeds(final_model, httpx_mock: HTTPXMock):
