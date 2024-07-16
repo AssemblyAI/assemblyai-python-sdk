@@ -456,9 +456,6 @@ class SpeechModel(str, Enum):
     nano = "nano"
     "A lightweight, lower cost model for a wide range of languages."
 
-    conformer2 = "conformer-2"
-    "Conformer-2 is a heavy-duty model optimized for accuracy."
-
 
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[Union[str, LanguageCode]]
