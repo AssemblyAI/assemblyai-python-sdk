@@ -247,6 +247,29 @@ def get_paragraphs(
     return types.ParagraphsResponse.parse_obj(response.json())
 
 
+def list_transcripts(
+    client: httpx.Client,
+    params: Optional[types.ListTranscriptParameters],
+) -> types.ListTranscriptResponse:
+    response = client.get(
+        ENDPOINT_TRANSCRIPT,
+        params=(
+            params.dict(
+                exclude_none=True,
+            )
+            if params
+            else None
+        ),
+    )
+
+    if response.status_code != httpx.codes.ok:
+        raise types.AssemblyAIError(
+            f"failed to retrieve transcripts: {_get_error_message(response)}"
+        )
+
+    return types.ListTranscriptResponse.parse_obj(response.json())
+
+
 def lemur_question(
     client: httpx.Client,
     request: types.LemurQuestionRequest,

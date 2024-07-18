@@ -192,6 +192,74 @@ print(transcript.text)
 
 </details>
 
+<details>
+  <summary>Upload a file</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+upload_url = transcriber.upload_file(data)
+```
+
+</details>
+
+<details>
+  <summary>Delete a transcript</summary>
+
+```python
+import assemblyai as aai
+
+transcript = aai.Transcriber().transcribe(audio_url)
+
+aai.Transcript.delete_by_id(transcript.id)
+```
+
+</details>
+
+<details>
+  <summary>List transcripts</summary>
+
+This returns a page of transcripts you created.
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+
+page = transcriber.list_transcripts()
+print(page.page_details)  # Page details
+print(page.transcripts)  # List of transcripts
+```
+
+You can apply filter parameters:
+
+```python
+params = aai.ListTranscriptParameters(
+    limit=3,
+    status=aai.TranscriptStatus.completed,
+)
+page = transcriber.list_transcripts(params)
+```
+
+You can also paginate over all pages by using the helper property `before_id_of_prev_url`.
+
+The `prev_url` always points to a page with older transcripts. If you extract the `before_id`
+of the `prev_url` query parameters, you can paginate over all pages from newest to oldest.
+
+```python
+transcriber = aai.Transcriber()
+
+params = aai.ListTranscriptParameters()
+
+page = transcriber.list_transcripts(params)
+while page.page_details.before_id_of_prev_url is not None:
+    params.before_id = page.page_details.before_id_of_prev_url
+    page = transcriber.list_transcripts(params)
+```
+
+</details>
+
 ---
 
 ### **LeMUR Examples**

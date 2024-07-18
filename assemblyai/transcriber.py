@@ -821,6 +821,12 @@ class _TranscriberImpl:
 
         return transcript_group
 
+    def list_transcripts(
+        self,
+        params: Optional[types.ListTranscriptParameters],
+    ) -> types.ListTranscriptResponse:
+        return api.list_transcripts(client=self._client.http_client, params=params)
+
 
 class Transcriber:
     """
@@ -1035,6 +1041,45 @@ class Transcriber:
             config=config,
             poll=True,
         )
+
+    def list_transcripts(
+        self,
+        params: Optional[types.ListTranscriptParameters] = None,
+    ) -> types.ListTranscriptResponse:
+        """
+        Retrieve a list of transcripts that were created. Transcripts are sorted from newest to oldest.
+
+        Args:
+            params: The parameters to filter the transcript list by.
+
+        Returns: A page with a list of transcripts along with page details.
+
+        To paginate over all pages, you can set the `ListTranscriptParameters.before_id`
+        to the `before_id` of the `prev_url`. Example:
+        ```
+        transcriber = aai.Transcriber()
+        params = aai.ListTranscriptParameters()
+        page = transcriber.list_transcripts(params)
+        while page.page_details.before_id_of_prev_url is not None:
+            params.before_id = page.page_details.before_id_of_prev_url
+            page = transcriber.list_transcripts(params)
+        ```
+        """
+        return self._impl.list_transcripts(params=params)
+
+    def list_transcripts_async(
+        self,
+        params: Optional[types.ListTranscriptParameters] = None,
+    ) -> concurrent.futures.Future[types.ListTranscriptResponse]:
+        """
+        Retrieve a list of transcripts that were created. Transcripts are sorted from newest to oldest.
+
+        Args:
+            params: The parameters to filter the transcript list by.
+
+        Returns: A page with a list of transcripts along with page details.
+        """
+        return self._executor.submit(self._impl.list_transcripts, params=params)
 
 
 class _RealtimeTranscriberImpl:

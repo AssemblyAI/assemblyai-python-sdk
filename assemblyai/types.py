@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum, EnumMeta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+from urllib.parse import parse_qs, urlparse
 from warnings import warn
 
 if TYPE_CHECKING:
@@ -1734,6 +1735,89 @@ class TranscriptResponse(BaseTranscript):
             data["content_safety_labels"] = None
 
         super().__init__(**data)
+
+
+class ListTranscriptParameters(BaseModel):
+    """
+    The query parameters when listing transcripts.
+    """
+
+    after_id: Optional[str]
+    "Get transcripts that were created after this transcript ID"
+
+    before_id: Optional[str]
+    "Get transcripts that were created before this transcript ID"
+
+    created_on: Optional[str]
+    "Get only transcripts created on this date"
+
+    limit: Optional[int]
+    "Maximum amount of transcripts to retrieve. Default is 10"
+
+    status: Optional[TranscriptStatus]
+    "Filter by transcript status"
+
+    throttled_only: Optional[bool]
+    "Get only throttled transcripts, overrides the status filter"
+
+    class Config:
+        use_enum_values = True  # Populate the enum value for the query parameters
+
+
+class PageDetails(BaseModel):
+    """
+    Details of the transcript page.
+    """
+
+    current_url: str
+    "The URL used to retrieve the current page of transcripts"
+
+    limit: int
+    "The number of results this page is limited to"
+
+    next_url: Optional[str]
+    "The URL to the next page of transcripts. The next URL always points to a page with newer transcripts."
+
+    prev_url: Optional[str]
+    "The URL to the next page of transcripts. The previous URL always points to a page with older transcripts."
+
+    result_count: int
+    "The actual number of results in the page"
+
+    @property
+    def before_id_of_prev_url(self) -> Optional[str]:
+        """
+        The `before_id` contained in the `prev_url` query params. Can be used as the
+        `ListTranscriptParameters.before_id` for the subsequent `list_transcripts()` call to paginate over results.
+        """
+        if not self.prev_url:
+            return None
+        parsed_query_params = parse_qs(urlparse(self.prev_url).query)
+        before_id_list = parsed_query_params.get("before_id")
+        return before_id_list[0] if before_id_list else None
+
+
+class TranscriptItem(BaseModel):
+    audio_url: str
+    completed: Optional[str]
+    created: str
+    error: Optional[str]
+    id: str
+    resource_url: str
+    status: TranscriptStatus
+
+
+class ListTranscriptResponse(BaseModel):
+    """
+    A list of returned transcripts along with page details.
+    Transcripts are sorted from newest to oldest. The previous URL always points to a page with older transcripts.
+    """
+
+    page_details: PageDetails
+    "Details of the returned transcript page"
+
+    transcripts: List[TranscriptItem]
+    "A list of transcripts sorted from newest to oldest"
 
 
 class LemurSourceType(str, Enum):
