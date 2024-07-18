@@ -204,6 +204,43 @@ class TranscriptRequestFactory(BaseTranscriptFactory):
         model = types.TranscriptRequest
 
 
+class PageDetails(factory.Factory):
+    class Meta:
+        model = types.PageDetails
+
+    current_url = factory.Faker("url")
+    limit = 10
+    next_url = None
+    prev_url = None
+    result_count = 2
+
+
+class TranscriptItem(factory.Factory):
+    class Meta:
+        model = types.TranscriptItem
+
+    audio_url = factory.Faker("url")
+    created = factory.Faker("iso8601")
+    id = factory.Faker("uuid4")
+    resource_url = factory.Faker("url")
+    status = aai.TranscriptStatus.completed
+    completed = None
+    error = None
+
+
+class ListTranscriptResponse(factory.Factory):
+    class Meta:
+        model = types.ListTranscriptResponse
+
+    page_details = factory.SubFactory(PageDetails)
+    transcripts = factory.List(
+        [
+            factory.SubFactory(TranscriptItem),
+            factory.SubFactory(TranscriptItem),
+        ]
+    )
+
+
 class LemurUsage(factory.Factory):
     class Meta:
         model = types.LemurUsage

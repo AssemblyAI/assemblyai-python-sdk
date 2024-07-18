@@ -2,6 +2,7 @@ import copy
 import json
 import os
 from unittest.mock import mock_open, patch
+from urllib.parse import urlencode
 
 import httpx
 import pytest
@@ -598,3 +599,52 @@ def test_language_code_enum(httpx_mock: HTTPXMock):
 
     request = json.loads(httpx_mock.get_requests()[0].content.decode())
     assert request.get("language_code") == "en"
+
+
+def test_list_transcripts(httpx_mock: HTTPXMock):
+    mock_list_transcript_response = factories.generate_dict_factory(
+        factories.ListTranscriptResponse
+    )()
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_list_transcript_response,
+    )
+
+    page = aai.Transcriber().list_transcripts()
+
+    assert isinstance(page, aai.ListTranscriptResponse)
+    assert page.page_details is not None
+    assert page.transcripts is not None
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_list_transcripts_parameters(httpx_mock: HTTPXMock):
+    mock_list_transcript_response = factories.generate_dict_factory(
+        factories.ListTranscriptResponse
+    )()
+
+    params = aai.ListTranscriptParameters(
+        limit=2,
+        status=aai.TranscriptStatus.completed,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}?{urlencode(params.dict(exclude_none=True))}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_list_transcript_response,
+    )
+
+    page = aai.Transcriber().list_transcripts(params)
+
+    assert isinstance(page, aai.ListTranscriptResponse)
+    assert page.page_details is not None
+    assert page.transcripts is not None
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
