@@ -1313,7 +1313,11 @@ class _RealtimeTranscriberImpl:
         - https://www.iana.org/assignments/websocket/websocket.xhtml#close-code-number
         - https://www.assemblyai.com/docs/Guides/real-time_streaming_transcription#closing-and-status-codes
         """
-        if error.code >= 4000 and error.code <= 4999:
+        if (
+            error.code >= 4000
+            and error.code <= 4999
+            and error.code in types.RealtimeErrorMapping
+        ):
             error_message = types.RealtimeErrorMapping[error.code]
         else:
             error_message = error.reason
