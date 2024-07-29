@@ -2278,9 +2278,11 @@ RealtimeErrorMapping = {
     4031: "Session idle for too long",
     4032: "Audio duration is too short",
     4033: "Audio duration is too long",
+    4034: "Audio too small to transcode",
     4100: "Endpoint received invalid JSON",
     4101: "Endpoint received a message with an invalid schema",
     4102: "This account has exceeded the number of allowed streams",
     4103: "The session has been reconnected. This websocket is no longer valid.",
+    4104: "Could not parse word boost parameter",
     1013: "Temporary server condition forced blocking client's request",
 }
