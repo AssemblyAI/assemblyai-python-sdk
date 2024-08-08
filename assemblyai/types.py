@@ -1050,9 +1050,6 @@ class TranscriptionConfig:
     def language_confidence_threshold(self, threshold: Optional[float]) -> None:
         "Set a threshold for language detection confidence. Valid values are in the range [0,1] inclusive."
 
-        if threshold is not None and (threshold < 0 or threshold > 1):
-            raise ValueError("speech_threshold must be between 0 and 1 (inclusive).")
-
         self._raw_transcription_config.language_confidence_threshold = threshold
 
     @property
