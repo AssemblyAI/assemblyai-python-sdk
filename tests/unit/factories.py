@@ -191,7 +191,7 @@ class TranscriptProcessingResponseFactory(BaseTranscriptFactory):
     audio_duration = None
 
 
-class TranscriptErrorResponseFactory(TranscriptProcessingResponseFactory):
+class TranscriptErrorResponseFactory(BaseTranscriptFactory):
     class Meta:
         model = types.TranscriptResponse
 

@@ -116,12 +116,10 @@ def test_submit_url_fails(httpx_mock: HTTPXMock):
 
     # mimic the usage of the SDK
     transcriber = aai.Transcriber()
-    transcript = transcriber.submit("https://example.org/audio.wav")
+    with pytest.raises(aai.TranscriptError) as excinfo:
+        transcriber.submit("https://example.org/audio.wav")
 
-    # check whether the status is set to error
-    assert transcript.audio_url == "https://example.org/audio.wav"
-    assert transcript.status == aai.TranscriptStatus.error
-    assert "something went wrong" in transcript.error
+    assert "something went wrong" in str(excinfo)
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -390,6 +388,7 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
     succeeds_response["audio_url"] = expect_succeeded_audio_url
 
     expect_failed_audio_url = "https://example.org/fails.wav"
+    fails_json = {"error": "something went wrong"}
 
     # mock the specific endpoints
 
@@ -398,7 +397,7 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.INTERNAL_SERVER_ERROR,
         method="POST",
-        json={"error": "Aww, Snap!"},
+        json=fails_json,
     )
 
     # the second one succeeds (see `.transcribe_group(...) below`)
@@ -418,22 +417,91 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
 
     # mimic the usage of the SDK
     transcriber = aai.Transcriber()
-    transcript_group = transcriber.transcribe_group(
+    transcript_group, failures = transcriber.transcribe_group(
         [
             expect_failed_audio_url,
             expect_succeeded_audio_url,
         ],
+        return_failures=True,
     )
 
     # ensure integrity
-    assert len(transcript_group.transcripts) == 2
+    assert len(transcript_group.transcripts) == 1
+    assert len(failures) == 1
 
-    # check whether the audio urls match
-    audio_urls = {t.audio_url for t in transcript_group.transcripts}
-    assert audio_urls == {expect_failed_audio_url, expect_succeeded_audio_url}
+    # Check whether the error message corresponds to the raised TranscriptError message
+    assert f"Error processing {expect_failed_audio_url}" in failures[0]
 
-    # check whether we mocked everything
-    assert len(httpx_mock.get_requests()) == 4
+
+def test_transcribe_group_urls_fails_during_polling(httpx_mock: HTTPXMock):
+    """
+    Tests the scenario of when a list of paths or URLs are being transcribed
+    and one (or more) items of that list fail during the polling process.
+
+    In this case we need to ensure that the application flow does not interrupt unexpectedly and the user
+    is able to backtrace the reason
+    """
+    # create a mock response for two processing transcripts
+    mock_processing_response_1 = factories.generate_dict_factory(
+        factories.TranscriptProcessingResponseFactory
+    )()
+
+    mock_processing_response_2 = factories.generate_dict_factory(
+        factories.TranscriptProcessingResponseFactory
+    )()
+
+    expected_audio_urls = ["https://example.org/1.wav", "https://example.org/2.wav"]
+    mock_processing_response_1["audio_url"] = expected_audio_urls[0]
+    mock_processing_response_2["audio_url"] = expected_audio_urls[1]
+
+    # mock both URLs succeeding on submission
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_processing_response_1,
+    )
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_processing_response_2,
+    )
+
+    # create a mock response for a successful GET and a failed GET
+    mock_succeeds_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    failed_json = {"error": "something went wrong"}
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_processing_response_1['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_succeeds_response,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_processing_response_2['id']}",
+        status_code=httpx.codes.INTERNAL_SERVER_ERROR,
+        method="GET",
+        json=failed_json,
+    )
+
+    # mimic the usage of the SDK
+    transcriber = aai.Transcriber()
+    transcript_group, failures = transcriber.transcribe_group(
+        expected_audio_urls,
+        return_failures=True,
+    )
+
+    # ensure integrity
+    assert len(transcript_group.transcripts) == 1
+    assert len(failures) == 1
+
+    # Check whether the error message is correct
+    assert "failed to retrieve transcript" in failures[0]
 
 
 def test_transcribe_async_url_succeeds(httpx_mock: HTTPXMock):
@@ -540,11 +608,22 @@ def test_transcribe_async_url_fails(httpx_mock: HTTPXMock):
 
 
 def test_language_detection(httpx_mock: HTTPXMock):
+    mock_completed_json = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
-        json={},
+        json=mock_completed_json,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_completed_json['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_completed_json,
     )
 
     aai.Transcriber().transcribe(
@@ -561,11 +640,22 @@ def test_language_detection(httpx_mock: HTTPXMock):
 
 
 def test_language_code_string(httpx_mock: HTTPXMock):
+    mock_completed_json = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
-        json={},
+        json=mock_completed_json,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_completed_json['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_completed_json,
     )
 
     aai.Transcriber().transcribe(
@@ -580,25 +670,35 @@ def test_language_code_string(httpx_mock: HTTPXMock):
 
 
 def test_language_code_enum(httpx_mock: HTTPXMock):
+    mock_completed_json = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
     httpx_mock.add_response(
         url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
         status_code=httpx.codes.OK,
         method="POST",
-        json={},
+        json=mock_completed_json,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_completed_json['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_completed_json,
     )
 
     with pytest.deprecated_call():
         language_code = aai.LanguageCode.en
 
-    aai.Transcriber().transcribe(
+    transcript = aai.Transcriber().transcribe(
         "https://example.org/audio.wav",
         config=aai.TranscriptionConfig(
             language_code=language_code,
         ),
     )
 
-    request = json.loads(httpx_mock.get_requests()[0].content.decode())
-    assert request.get("language_code") == "en"
+    assert transcript.config.language_code == language_code
 
 
 def test_list_transcripts(httpx_mock: HTTPXMock):

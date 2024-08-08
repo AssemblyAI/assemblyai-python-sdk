@@ -308,22 +308,13 @@ def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 2
 
 
-@pytest.mark.parametrize(
-    "speech_model",
-    [
-        None,
-        SpeechModel.best,
-        SpeechModel.nano,
-    ],
-)
-def test_get_by_id(httpx_mock: HTTPXMock, speech_model):
+def test_get_by_id_completed(httpx_mock: HTTPXMock):
+    """
+    Tests that a completed transcript can be retrieved by its ID.
+    """
     transcript_id = "123"
 
     factory_class = factories.TranscriptCompletedResponseFactory
-    if speech_model == SpeechModel.best:
-        factory_class = factories.TranscriptCompletedResponseFactoryBest
-    elif speech_model == SpeechModel.nano:
-        factory_class = factories.TranscriptCompletedResponseFactoryNano
 
     mock_transcript_response = factories.generate_dict_factory(factory_class)()
 
@@ -340,24 +331,63 @@ def test_get_by_id(httpx_mock: HTTPXMock, speech_model):
     assert transcript.status == aai.TranscriptStatus.completed
     assert transcript.id == transcript_id
     assert transcript.error is None
-    assert transcript.speech_model == speech_model
 
 
-@pytest.mark.parametrize(
-    "speech_model",
-    [
-        None,
-        SpeechModel.best,
-        SpeechModel.nano,
-    ],
-)
-def test_get_by_id_async(httpx_mock: HTTPXMock, speech_model):
+def test_get_by_id_error(httpx_mock: HTTPXMock):
+    """
+    Tests that an error transcript can be retrieved by its ID.
+    """
+    transcript_id = "123"
+
+    factory_class = factories.TranscriptErrorResponseFactory
+
+    mock_transcript_response = factories.generate_dict_factory(factory_class)()
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_transcript_response,
+    )
+
+    transcript = aai.Transcript.get_by_id(transcript_id)
+
+    assert isinstance(transcript, aai.Transcript)
+    assert transcript.status == aai.TranscriptStatus.error
+    assert transcript.id == transcript_id
+
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_get_by_id_fails(httpx_mock: HTTPXMock):
+    """
+    Tests that a failed transcript lookup raises an exception.
+    """
+    test_id = 1234
+
+    # json response upon failure
+    response_json = {"error": "Transcript lookup error, transcript id not found"}
+
+    # mock the specific endpoints
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{test_id}",
+        status_code=httpx.codes.BAD_REQUEST,
+        method="GET",
+        json=response_json,
+    )
+
+    # Check that an error is properly raised when no such transcript exists
+    with pytest.raises(aai.TranscriptError) as excinfo:
+        aai.Transcript.get_by_id(test_id)
+
+    # check wheter the TranscriptError contains the specified error message
+    assert response_json["error"] in str(excinfo.value)
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_get_by_id_async(httpx_mock: HTTPXMock):
     transcript_id = "123"
     factory_class = factories.TranscriptCompletedResponseFactory
-    if speech_model == SpeechModel.best:
-        factory_class = factories.TranscriptCompletedResponseFactoryBest
-    elif speech_model == SpeechModel.nano:
-        factory_class = factories.TranscriptCompletedResponseFactoryNano
 
     mock_transcript_response = factories.generate_dict_factory(factory_class)()
 
@@ -375,7 +405,6 @@ def test_get_by_id_async(httpx_mock: HTTPXMock, speech_model):
     assert transcript.status == aai.TranscriptStatus.completed
     assert transcript.id == transcript_id
     assert transcript.error is None
-    assert transcript.speech_model == speech_model
 
 
 def test_delete_by_id(httpx_mock: HTTPXMock):
