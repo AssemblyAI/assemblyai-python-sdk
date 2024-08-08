@@ -17,6 +17,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Tuple,
     Union,
 )
 from urllib.parse import urlencode, urlparse
@@ -75,19 +76,11 @@ class _TranscriptImpl:
         """
 
         while True:
-            try:
-                self.transcript = api.get_transcript(
-                    self._client.http_client,
-                    self.transcript_id,
-                )
-            except Exception as exc:
-                self.transcript = types.TranscriptResponse(
-                    **self.transcript.dict(
-                        exclude_none=True, exclude={"status", "error"}
-                    ),
-                    status=types.TranscriptStatus.error,
-                    error=str(exc),
-                )
+            # No try-except - if there is an HTTP error then surface it to user
+            self.transcript = api.get_transcript(
+                self._client.http_client,
+                self.transcript_id,
+            )
 
             if self.transcript.status in (
                 types.TranscriptStatus.completed,
@@ -563,8 +556,9 @@ class _TranscriptGroupImpl:
 
         return self
 
-    def wait_for_completion(self) -> None:
+    def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
         transcripts: List[Transcript] = []
+        failures: List[str] = []
 
         future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
 
@@ -575,9 +569,15 @@ class _TranscriptGroupImpl:
         finished_futures, _ = concurrent.futures.wait(future_transcripts)
 
         for future in finished_futures:
-            transcripts.append(future.result())
+            try:
+                transcripts.append(future.result())
+            except types.TranscriptError as e:
+                failures.append(str(e))
 
         self.transcripts = transcripts
+
+        if return_failures:
+            return failures
 
 
 class TranscriptGroup:
@@ -669,19 +669,37 @@ class TranscriptGroup:
 
         return self
 
-    def wait_for_completion(self) -> Self:
+    def wait_for_completion(
+        self,
+        return_failures: Optional[bool] = False,
+    ) -> Union[Self, Tuple[Self, List[str]]]:
         """
         Polls each transcript within the `TranscriptGroup`.
 
+        Note - if an HTTP error is encountered when waiting for a Transcript in the TranscriptGroup, it will be popped from the group and added to the list of failures.
+        You can return this list of failures with `return_failures=True`.
+
+        Args:
+            return_failures: Whether to return a list of errors for transcripts that failed due to HTTP errors.
         """
-        self._impl.wait_for_completion()
+        if return_failures:
+            failures = self._impl.wait_for_completion(return_failures=return_failures)
+            return self, failures
+
+        self._impl.wait_for_completion(return_failures=return_failures)
 
         return self
 
     def wait_for_completion_async(
         self,
-    ) -> concurrent.futures.Future[Self]:
-        return self._executor.submit(self.wait_for_completion)
+        return_failures: Optional[bool] = False,
+    ) -> Union[
+        concurrent.futures.Future[Self],
+        concurrent.futures.Future[Tuple[Self, List[str]]],
+    ]:
+        return self._executor.submit(
+            self.wait_for_completion, return_failures=return_failures
+        )
 
 
 class _TranscriberImpl:
@@ -722,24 +740,14 @@ class _TranscriberImpl:
             audio_url=url,
             **config.raw.dict(exclude_none=True),
         )
-        try:
-            transcript = Transcript.from_response(
-                client=self._client,
-                response=api.create_transcript(
-                    client=self._client.http_client,
-                    request=transcript_request,
-                ),
-            )
-        except Exception as exc:
-            return Transcript.from_response(
-                client=self._client,
-                response=types.TranscriptResponse(
-                    audio_url=url,
-                    **config.raw.dict(exclude_none=True),
-                    status=types.TranscriptStatus.error,
-                    error=str(exc),
-                ),
-            )
+        # No try-except - if there is an HTTP error raise it to the user
+        transcript = Transcript.from_response(
+            client=self._client,
+            response=api.create_transcript(
+                client=self._client.http_client,
+                request=transcript_request,
+            ),
+        )
 
         if poll:
             return transcript.wait_for_completion()
@@ -790,7 +798,8 @@ class _TranscriberImpl:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
-    ) -> TranscriptGroup:
+        return_failures: Optional[bool] = False,
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
         if config is None:
             config = self.config
 
@@ -812,14 +821,28 @@ class _TranscriberImpl:
         transcript_group = TranscriptGroup(
             client=self._client,
         )
+        failures = []
 
         for future in finished_futures:
-            transcript_group.add_transcript(future.result())
+            try:
+                transcript_group.add_transcript(future.result())
+            except types.TranscriptError as e:
+                failures.append(f"Error processing {future_transcripts[future]}: {e}")
 
-        if poll:
-            return transcript_group.wait_for_completion()
+        if poll and return_failures:
+            transcript_group, completion_failures = (
+                transcript_group.wait_for_completion(return_failures=return_failures)
+            )
+            failures.extend(completion_failures)
+        elif poll:
+            transcript_group = transcript_group.wait_for_completion(
+                return_failures=return_failures
+            )
 
-        return transcript_group
+        if return_failures:
+            return transcript_group, failures
+        else:
+            return transcript_group
 
     def list_transcripts(
         self,
@@ -945,7 +968,8 @@ class Transcriber:
         self,
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
-    ) -> TranscriptGroup:
+        return_failures: Optional[bool] = False,
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
         """
         Submits multiple transcription jobs without waiting for their completion.
 
@@ -953,11 +977,13 @@ class Transcriber:
             data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
+            return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
         """
         return self._impl.transcribe_group(
             data=data,
             config=config,
             poll=False,
+            return_failures=return_failures,
         )
 
     def transcribe(
@@ -1005,7 +1031,8 @@ class Transcriber:
         self,
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
-    ) -> TranscriptGroup:
+        return_failures: Optional[bool] = False,
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects).
 
@@ -1013,19 +1040,25 @@ class Transcriber:
             data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
+            return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
         """
 
         return self._impl.transcribe_group(
             data=data,
             config=config,
             poll=True,
+            return_failures=return_failures,
         )
 
     def transcribe_group_async(
         self,
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
-    ) -> concurrent.futures.Future[TranscriptGroup]:
+        return_failures: Optional[bool] = False,
+    ) -> Union[
+        concurrent.futures.Future[TranscriptGroup],
+        concurrent.futures.Future[Tuple[TranscriptGroup, List[str]]],
+    ]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
 
@@ -1033,6 +1066,7 @@ class Transcriber:
             data: A list of local paths, URLs, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
+            return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
         """
 
         return self._executor.submit(
@@ -1040,6 +1074,7 @@ class Transcriber:
             data=data,
             config=config,
             poll=True,
+            return_failures=return_failures,
         )
 
     def list_transcripts(

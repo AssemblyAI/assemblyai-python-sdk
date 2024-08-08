@@ -196,7 +196,9 @@ def test_content_safety_with_confidence_threshold(httpx_mock: HTTPXMock):
     confidence = 40
     request, _ = unit_test_utils.submit_mock_transcription_request(
         httpx_mock,
-        mock_response={},  # Response doesn't matter here; we're just testing the request body
+        mock_response=factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )(),
         config=aai.TranscriptionConfig(
             content_safety=True, content_safety_confidence=confidence
         ),
