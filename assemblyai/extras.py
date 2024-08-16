@@ -25,14 +25,14 @@ class MicrophoneStream:
     def __init__(
         self,
         sample_rate: int = 44_100,
+        device_index: int = None
     ):
         """
         Creates a stream of audio from the microphone.
 
         Args:
-            chunk_size: The size of each chunk of audio to read from the microphone.
-            channels: The number of channels to record audio from.
             sample_rate: The sample rate to record audio at.
+            device_index: The index of the input device to use. If None, uses the default device.
         """
         try:
             import pyaudio
@@ -49,6 +49,7 @@ class MicrophoneStream:
             rate=sample_rate,
             input=True,
             frames_per_buffer=self._chunk_size,
+            input_device_index=device_index,
         )
 
         self._open = True
