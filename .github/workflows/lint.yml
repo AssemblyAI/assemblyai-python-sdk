@@ -20,36 +20,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Get changed Python files
+        id: changed-py-files
+        uses: tj-actions/changed-files@v23
+        with:
+          files: |
+            *.py
+            **/*.py
       - uses: chartboost/ruff-action@v1
+        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: 'format --check --config ./ruff.toml'
-          # Only run ruff on changed files
-          changed-files: 'true'
+          src: ${{ steps.changed-py-files.outputs.files }}
 
   ruff-isort:
     needs: [ ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Get changed Python files
+        id: changed-py-files
+        uses: tj-actions/changed-files@v23
+        with:
+          files: |
+            *.py
+            **/*.py
       - uses: chartboost/ruff-action@v1
+        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: '--select I --config ./ruff.toml'
-          # Only run ruff on changed files
-          changed-files: 'true'
+          src: ${{ steps.changed-py-files.outputs.files }}
 
   ruff:
     needs: []
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Get changed Python files
+        id: changed-py-files
+        uses: tj-actions/changed-files@v23
+        with:
+          files: |
+            *.py
+            **/*.py
       - uses: chartboost/ruff-action@v1
+        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: '--config ./ruff.toml'
-          # Only run ruff on changed files
-          changed-files: 'true'
+          src: ${{ steps.changed-py-files.outputs.files }}
 
   mypy:
     needs: []
@@ -60,7 +81,7 @@ jobs:
         with:
           python-version: '3.9'
       - run: pip install mypy==1.5.1
-      - name: Get Python changed files
+      - name: Get changed Python files
         id: changed-py-files
         uses: tj-actions/changed-files@v23
         with:
