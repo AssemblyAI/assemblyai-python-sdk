@@ -32,7 +32,7 @@ jobs:
         with:
           version: 0.3.5
           args: 'format --check --config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.files }}
+          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   ruff-isort:
     needs: [ ]
@@ -51,7 +51,7 @@ jobs:
         with:
           version: 0.3.5
           args: '--select I --config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.files }}
+          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   ruff:
     needs: []
@@ -70,7 +70,7 @@ jobs:
         with:
           version: 0.3.5
           args: '--config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.files }}
+          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   mypy:
     needs: []
