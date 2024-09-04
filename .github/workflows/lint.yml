@@ -23,7 +23,7 @@ jobs:
       - uses: chartboost/ruff-action@v1
         with:
           version: 0.3.5
-          args: 'format --check'
+          args: 'format --check --config ./ruff.toml'
 
   ruff-isort:
     needs: [ ]
@@ -33,7 +33,7 @@ jobs:
       - uses: chartboost/ruff-action@v1
         with:
           version: 0.3.5
-          args: '--select I'
+          args: '--select I --config ./ruff.toml'
 
   ruff:
     needs: []
@@ -43,6 +43,7 @@ jobs:
       - uses: chartboost/ruff-action@v1
         with:
           version: 0.3.5
+          args: '--config ./ruff.toml'
           # Only run ruff on changed files
           changed-files: 'true'
 
