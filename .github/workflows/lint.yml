@@ -20,59 +20,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Get changed Python files
-        id: changed-py-files
-        uses: tj-actions/changed-files@v23
-        with:
-          files: |
-            *.py
-            **/*.py
       - uses: chartboost/ruff-action@v1
-        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: 'format --check --config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   ruff-isort:
     needs: [ ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Get changed Python files
-        id: changed-py-files
-        uses: tj-actions/changed-files@v23
-        with:
-          files: |
-            *.py
-            **/*.py
       - uses: chartboost/ruff-action@v1
-        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: '--select I --config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   ruff:
     needs: []
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Get changed Python files
-        id: changed-py-files
-        uses: tj-actions/changed-files@v23
-        with:
-          files: |
-            *.py
-            **/*.py
       - uses: chartboost/ruff-action@v1
-        if: steps.changed-py-files.outputs.any_changed == 'true'
         with:
           version: 0.3.5
           args: '--config ./ruff.toml'
-          src: ${{ steps.changed-py-files.outputs.all_changed_files }}
 
   mypy:
+      needs: []
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: actions/setup-python@v4
+          with:
+            python-version: '3.9'
+        - run: pip install mypy==1.5.1
+        - run: mypy
+
+  pre-commit:
     needs: []
     runs-on: ubuntu-latest
     steps:
@@ -80,14 +64,7 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - run: pip install mypy==1.5.1
-      - name: Get changed Python files
-        id: changed-py-files
-        uses: tj-actions/changed-files@v23
-        with:
-          files: |
-            *.py
-            **/*.py
-      - name: Run if any of the listed files above is changed
-        if: steps.changed-py-files.outputs.any_changed == 'true'
-        run: mypy ${{ steps.changed-py-files.outputs.all_changed_files }}
+      - uses: pre-commit/action@v3.0.0
+        name: pre-commit
+        env:
+          SKIP: ruff,ruff-format,ruff-isort
