@@ -1,0 +1,58 @@
+name: Code Quality
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+    # Cancel previous actions from the same PR or branch except 'master' branch.
+    # See https://docs.github.com/en/actions/using-jobs/using-concurrency and https://docs.github.com/en/actions/learn-github-actions/contexts for more info.
+    group: concurrency-group::${{ github.workflow }}::${{ github.event.pull_request.number > 0 && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}${{ github.ref_name == 'master' && format('::{0}', github.run_id) || ''}}
+    cancel-in-progress: ${{ github.ref_name != 'master' }}
+
+jobs:
+  ruff-format:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: chartboost/ruff-action@v1
+        with:
+          version: 0.3.5
+          args: 'format --check'
+
+  ruff-isort:
+    needs: [ ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: chartboost/ruff-action@v1
+        with:
+          version: 0.3.5
+          args: '--select I'
+
+  ruff:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: chartboost/ruff-action@v1
+        with:
+          version: 0.3.5
+          # Only run ruff on changed files
+          changed-files: 'true'
+
+  mypy:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install mypy==1.5.1
+      - run: mypy
