@@ -32,7 +32,7 @@ jobs:
               - added|modified: 'assemblyai/**/*.py'
         # Get count of filtered files.
       - run: |
-          if [ ${{ steps.filter.outputs.python_files }} != '' ]; then
+          if [ '${{ steps.filter.outputs.python_files }}' != '' ]; then
             echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
           else
             echo count=0 >> "$GITHUB_OUTPUT"
@@ -80,7 +80,7 @@ jobs:
               - added|modified: 'assemblyai/**/*.py'
         # Get count of filtered files.
       - run: |
-          if [ ${{ steps.filter.outputs.python_files }} != '' ]; then
+          if [ '${{ steps.filter.outputs.python_files }}' != '' ]; then
             echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
           else
             echo count=0 >> "$GITHUB_OUTPUT"
