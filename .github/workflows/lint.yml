@@ -30,18 +30,6 @@ jobs:
           filters: |
             python:
               - added|modified: 'assemblyai/**/*.py'
-        # Filter files to ignore certain subdirectories.
-      - run: echo ${{ steps.filter.outputs.python_files }}
-        name: Echo 1
-      - run: echo ${{ steps.filter.outputs.files }}
-        name: Echo 2
-      - run: echo ${{ steps.filter.outputs.python }}
-        name: Echo 3
-      - run: echo files=$(ls ${{ steps.filter.outputs.python_files }} | grep -vE "assemblyai/third_party|assemblyai/experimental|assemblyai/research/projects/transducer_inference|_pb2.py|_pb2.pyi|_pb2_grpc.py") >> "$GITHUB_OUTPUT"
-        id: filtered
-        if: ${{ steps.filter.outputs.python == 'true' }}
-        shell: bash
-        name: Run filter files
         # Get count of filtered files.
       - run: |
           if [ ${{ steps.filter.outputs.python_files }} != '' ]; then
@@ -53,25 +41,59 @@ jobs:
         if: ${{ steps.filter.outputs.python == 'true' }}
         shell: bash
         name: Run count files
-        # Run ruff on filtered files if there are any.
-      - run: echo ${{ steps.counter.outputs.count }}
-        name: Echo 4
-      - run: echo ${{ steps.filtered.outputs.files }}
-        name: Echo 5
+      # Run ruff on filtered files if there are any.
       - uses: chartboost/ruff-action@v1
+        name: Run 'ruff format --check'
+        if: ${{ steps.counter.outputs.count > 0 }}
+        with:
+          version: 0.3.5
+          args: 'format --check --config ./ruff.toml'
+          src: ${{ steps.filter.outputs.python_files }}
+      - uses: chartboost/ruff-action@v1
+        name: Run 'ruff --select I'
+        if: ${{ steps.counter.outputs.count > 0 }}
+        with:
+          version: 0.3.5
+          args: '--select I --config ./ruff.toml'
+          src: ${{ steps.filter.outputs.python_files }}
+      - uses: chartboost/ruff-action@v1
+        name: Run 'ruff --config ./ruff.toml'
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
           version: 0.3.5
           args: '--config ./ruff.toml'
-          src: ${{ steps.filtered.outputs.files }}
+          src: ${{ steps.filter.outputs.python_files }}
 
   mypy:
     needs: []
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      # Get all changed and modified files.
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          list-files: shell
+          filters: |
+            python:
+              - added|modified: 'assemblyai/**/*.py'
+        # Get count of filtered files.
+      - run: |
+          if [ ${{ steps.filter.outputs.python_files }} != '' ]; then
+            echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
+          else
+            echo count=0 >> "$GITHUB_OUTPUT"
+          fi
+        id: counter
+        if: ${{ steps.filter.outputs.python == 'true' }}
+        shell: bash
+        name: Run count files
+        # Run mypy on filtered files if there are any.
       - uses: actions/setup-python@v4
+        if: ${{ steps.counter.outputs.count > 0 }}
         with:
           python-version: '3.9'
       - run: pip install mypy==1.5.1
-      - run: mypy
+        if: ${{ steps.counter.outputs.count > 0 }}
+      - run: mypy ${{ steps.filter.outputs.python_files }} --follow-imports=silent --ignore-missing-imports
+        if: ${{ steps.counter.outputs.count > 0 }}
