@@ -5,8 +5,6 @@ from warnings import warn
 from . import api
 from .client import Client
 
-import os
-
 
 class AssemblyAIExtrasNotInstalledError(ImportError):
     def __init__(
