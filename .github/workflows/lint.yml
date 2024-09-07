@@ -57,7 +57,7 @@ jobs:
           args: '--select I --config ./ruff.toml'
           src: ${{ steps.filter.outputs.python_files }}
       - uses: chartboost/ruff-action@v1
-        name: Run 'ruff --config ./ruff.toml'
+        name: Run 'ruff'
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
           version: 0.3.5
