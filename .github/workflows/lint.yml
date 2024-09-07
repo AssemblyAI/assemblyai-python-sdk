@@ -1,0 +1,69 @@
+name: Code Quality
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "master" branch
+  push:
+    branches: ["master"]
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+    # Cancel previous actions from the same PR or branch except 'master' branch.
+    # See https://docs.github.com/en/actions/using-jobs/using-concurrency and https://docs.github.com/en/actions/learn-github-actions/contexts for more info.
+    group: concurrency-group::${{ github.workflow }}::${{ github.event.pull_request.number > 0 && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}${{ github.ref_name == 'master' && format('::{0}', github.run_id) || ''}}
+    cancel-in-progress: ${{ github.ref_name != 'master' }}
+
+jobs:
+  ruff:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        # Get all changed and modified files.
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          list-files: shell
+          filters: |
+            python:
+              - added|modified: 'assemblyai/**/*.py'
+        # Filter files to ignore certain subdirectories.
+      - run: echo ${{ steps.filter.outputs.python_files }}
+        name: Echo 1
+      - run: echo files=$(ls ${{ steps.filter.outputs.python_files }} | grep -vE "assemblyai/third_party|assemblyai/experimental|assemblyai/research/projects/transducer_inference|_pb2.py|_pb2.pyi|_pb2_grpc.py") >> "$GITHUB_OUTPUT"
+        id: filtered
+        if: ${{ steps.filter.outputs.python == 'true' }}
+        shell: bash
+        name: Run filter files
+        # Get count of filtered files.
+      - run: |
+          if [ ${{ steps.filtered.outputs.files }} != '' ]; then
+            echo count=$(ls ${{ steps.filtered.outputs.files }} | wc -l) >> "$GITHUB_OUTPUT"
+          else
+            echo count=0 >> "$GITHUB_OUTPUT"
+          fi
+        id: counter
+        if: ${{ steps.filter.outputs.python == 'true' }}
+        shell: bash
+        name: Run count files
+        # Run ruff on filtered files if there are any.
+      - uses: chartboost/ruff-action@v1
+        if: ${{ steps.counter.outputs.count > 0 }}
+        with:
+          version: 0.3.5
+          args: '--config ./pyproject.toml'
+          src: ${{ steps.filtered.outputs.files }}
+
+  mypy:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install mypy==1.5.1
+      - run: mypy
