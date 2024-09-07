@@ -4,7 +4,7 @@ name: Code Quality
 on:
   # Triggers the workflow on push or pull request events but only for the "master" branch
   push:
-    branches: ["master"]
+    branches: ["ploeber/tests", "ploeber/tests2"]
   pull_request:
 
   # Allows you to run this workflow manually from the Actions tab
@@ -33,6 +33,10 @@ jobs:
         # Filter files to ignore certain subdirectories.
       - run: echo ${{ steps.filter.outputs.python_files }}
         name: Echo 1
+      - run: echo ${{ steps.filter.outputs.files }}
+        name: Echo 2
+      - run: echo ${{ steps.filter.outputs.python }}
+        name: Echo 3
       - run: echo files=$(ls ${{ steps.filter.outputs.python_files }} | grep -vE "assemblyai/third_party|assemblyai/experimental|assemblyai/research/projects/transducer_inference|_pb2.py|_pb2.pyi|_pb2_grpc.py") >> "$GITHUB_OUTPUT"
         id: filtered
         if: ${{ steps.filter.outputs.python == 'true' }}
@@ -40,8 +44,8 @@ jobs:
         name: Run filter files
         # Get count of filtered files.
       - run: |
-          if [ ${{ steps.filtered.outputs.files }} != '' ]; then
-            echo count=$(ls ${{ steps.filtered.outputs.files }} | wc -l) >> "$GITHUB_OUTPUT"
+          if [ ${{ steps.filter.outputs.python_files }} != '' ]; then
+            echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
           else
             echo count=0 >> "$GITHUB_OUTPUT"
           fi
@@ -54,7 +58,7 @@ jobs:
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
           version: 0.3.5
-          args: '--config ./pyproject.toml'
+          args: '--config ./ruff.toml'
           src: ${{ steps.filtered.outputs.files }}
 
   mypy:
