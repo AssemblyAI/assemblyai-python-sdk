@@ -5,7 +5,7 @@ import httpx
 
 from . import types
 
-ENDPOINT_TRANSCRIPT = "/v2/transcript"
+ENDPOINT_TRANSCRIPT = "/v2/transcripttest"
 ENDPOINT_UPLOAD = "/v2/upload"
 ENDPOINT_LEMUR_BASE = "/lemur/v3"
 ENDPOINT_LEMUR = f"{ENDPOINT_LEMUR_BASE}/generate"
