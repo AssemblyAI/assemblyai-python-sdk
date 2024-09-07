@@ -115,6 +115,7 @@ def stream_file(
             yield data
 
             time.sleep(chunk_duration)
+
 def file_from_stream(data: BinaryIO) -> str:
     """
     DeprecationWarning: `file_from_stream()` is deprecated and will be removed in 1.0.0. Use `Transcriber.upload_file()` instead.
