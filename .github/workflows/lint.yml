@@ -54,6 +54,10 @@ jobs:
         shell: bash
         name: Run count files
         # Run ruff on filtered files if there are any.
+      - run: echo ${{ steps.counter.outputs.count }}
+        name: Echo 4
+      - run: echo ${{ steps.filtered.outputs.files }}
+        name: Echo 5
       - uses: chartboost/ruff-action@v1
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
