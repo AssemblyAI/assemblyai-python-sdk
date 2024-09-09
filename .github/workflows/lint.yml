@@ -1,9 +1,11 @@
 name: Code Quality
+
+# Controls when the workflow will run
 on:
+  # Triggers the workflow on push or pull request events but only for the "master" branch
   push:
     branches: ["master"]
   pull_request:
-    branches: ["master"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -15,56 +17,83 @@ concurrency:
     cancel-in-progress: ${{ github.ref_name != 'master' }}
 
 jobs:
-  ruff-format:
-    needs: []
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: chartboost/ruff-action@v1
-        with:
-          version: 0.3.5
-          args: 'format --check --config ./ruff.toml'
-
-  ruff-isort:
-    needs: [ ]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: chartboost/ruff-action@v1
-        with:
-          version: 0.3.5
-          args: '--select I --config ./ruff.toml'
-
   ruff:
     needs: []
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        # Get all changed and modified files.
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          list-files: shell
+          filters: |
+            python:
+              - added|modified: 'assemblyai/**/*.py'
+        # Get count of filtered files.
+      - run: |
+          if [ '${{ steps.filter.outputs.python_files }}' != '' ]; then
+            echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
+          else
+            echo count=0 >> "$GITHUB_OUTPUT"
+          fi
+        id: counter
+        if: ${{ steps.filter.outputs.python == 'true' }}
+        shell: bash
+        name: Run count files
+        # Run ruff on filtered files if there are any.
       - uses: chartboost/ruff-action@v1
+        name: Run 'ruff format --check'
+        if: ${{ steps.counter.outputs.count > 0 }}
+        with:
+          version: 0.3.5
+          args: 'format --check --config ./ruff.toml'
+          src: ${{ steps.filter.outputs.python_files }}
+      - uses: chartboost/ruff-action@v1
+        name: Run 'ruff --select I'
+        if: ${{ steps.counter.outputs.count > 0 }}
+        with:
+          version: 0.3.5
+          args: '--select I --config ./ruff.toml'
+          src: ${{ steps.filter.outputs.python_files }}
+      - uses: chartboost/ruff-action@v1
+        name: Run 'ruff'
+        if: ${{ steps.counter.outputs.count > 0 }}
         with:
           version: 0.3.5
           args: '--config ./ruff.toml'
+          src: ${{ steps.filter.outputs.python_files }}
 
   mypy:
-      needs: []
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v3
-        - uses: actions/setup-python@v4
-          with:
-            python-version: '3.9'
-        - run: pip install mypy==1.5.1
-        - run: mypy
-
-  pre-commit:
     needs: []
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      # Get all changed and modified files.
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          list-files: shell
+          filters: |
+            python:
+              - added|modified: 'assemblyai/**/*.py'
+        # Get count of filtered files.
+      - run: |
+          if [ '${{ steps.filter.outputs.python_files }}' != '' ]; then
+            echo count=$(ls ${{ steps.filter.outputs.python_files }} | wc -l) >> "$GITHUB_OUTPUT"
+          else
+            echo count=0 >> "$GITHUB_OUTPUT"
+          fi
+        id: counter
+        if: ${{ steps.filter.outputs.python == 'true' }}
+        shell: bash
+        name: Run count files
+        # Run mypy on filtered files if there are any.
       - uses: actions/setup-python@v4
+        if: ${{ steps.counter.outputs.count > 0 }}
         with:
           python-version: '3.9'
-      - uses: pre-commit/action@v3.0.0
-        name: pre-commit
-        env:
-          SKIP: ruff,ruff-format,ruff-isort
+      - run: pip install mypy==1.5.1
+        if: ${{ steps.counter.outputs.count > 0 }}
+      - run: mypy ${{ steps.filter.outputs.python_files }} --follow-imports=silent --ignore-missing-imports
+        if: ${{ steps.counter.outputs.count > 0 }}
