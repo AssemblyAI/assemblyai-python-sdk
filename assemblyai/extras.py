@@ -22,11 +22,7 @@ class AssemblyAIExtrasNotInstalledError(ImportError):
 
 
 class MicrophoneStream:
-    def __init__(
-        self,
-        sample_rate: int = 44_100,
-        device_index: int = None
-    ):
+    def __init__(self, sample_rate: int = 44_100, device_index: int = None):
         """
         Creates a stream of audio from the microphone.
 
