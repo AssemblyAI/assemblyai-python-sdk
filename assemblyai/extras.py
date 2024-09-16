@@ -1,5 +1,5 @@
 import time
-from typing import BinaryIO, Generator
+from typing import BinaryIO, Generator, Optional
 from warnings import warn
 
 from . import api
@@ -22,7 +22,7 @@ class AssemblyAIExtrasNotInstalledError(ImportError):
 
 
 class MicrophoneStream:
-    def __init__(self, sample_rate: int = 44_100, device_index: int = None):
+    def __init__(self, sample_rate: int = 44_100, device_index: Optional[int] = None):
         """
         Creates a stream of audio from the microphone.
 
