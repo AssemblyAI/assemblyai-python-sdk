@@ -1,0 +1,9 @@
+[lint]
+# Enable default rules plus I (isort) and S101 (check for asserts).
+select = ["I", "E4", "E7", "E9", "F", "S101"]
+
+[lint.per-file-ignores]
+# Ignore import violations in all init files.
+"__init__.py" = ["E402"]
+# Ignore assert checks in all test files.
+"**/*test*.py" = ["S101"]

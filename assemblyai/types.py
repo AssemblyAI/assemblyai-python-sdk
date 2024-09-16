@@ -550,19 +550,17 @@ class RawTranscriptionConfig(BaseModel):
     """
     Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
-    Automatic Language Detection is supported for the following languages:
+    See the docs for supported languages: https://www.assemblyai.com/docs/getting-started/supported-languages
+    """
 
-        - English
-        - Spanish
-        - French
-        - German
-        - Italian
-        - Portuguese
-        - Dutch
+    language_confidence_threshold: Optional[float]
+    """
+    The confidence threshold that must be reached if `language_detection` is enabled. An error will be returned
+    if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
     """
 
     speech_threshold: Optional[float]
-    "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
+    "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive."
 
     speech_model: Optional[SpeechModel]
     """
@@ -608,6 +606,7 @@ class TranscriptionConfig:
         summary_type: Optional[SummarizationType] = None,
         auto_highlights: Optional[bool] = None,
         language_detection: Optional[bool] = None,
+        language_confidence_threshold: Optional[float] = None,
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
@@ -644,8 +643,10 @@ class TranscriptionConfig:
             summary_model: The summarization model to use in case `summarization` is enabled
             summary_type: The summarization type to use in case `summarization` is enabled
             auto_highlights: Detect important phrases and words in your transcription text.
-            language_detection: Identify the dominant language that’s spoken in an audio file, and route the file to the appropriate model for the detected language.
-            speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive
+            language_detection: Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
+            language_confidence_threshold: The confidence threshold that must be reached if `language_detection` is enabled.
+                An error will be returned if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
+            speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
         """
         self._raw_transcription_config = raw_transcription_config
@@ -691,6 +692,7 @@ class TranscriptionConfig:
         )
         self.auto_highlights = auto_highlights
         self.language_detection = language_detection
+        self.language_confidence_threshold = language_confidence_threshold
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
 
@@ -1021,18 +1023,25 @@ class TranscriptionConfig:
         """
         Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
-        Automatic Language Detection is supported for the following languages:
-
-            - English
-            - Spanish
-            - French
-            - German
-            - Italian
-            - Portuguese
-            - Dutch
+        See the docs for supported languages: https://www.assemblyai.com/docs/getting-started/supported-languages
         """
 
         self._raw_transcription_config.language_detection = enable
+
+    @property
+    def language_confidence_threshold(self) -> Optional[float]:
+        "Returns the confidence threshold that must be reached for automatic language detection."
+
+        return self._raw_transcription_config.language_confidence_threshold
+
+    @language_confidence_threshold.setter
+    def language_confidence_threshold(self, threshold: Optional[float]) -> None:
+        """
+        Set the confidence threshold that must be reached if `language_detection` is enabled. An error will be returned
+        if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
+        """
+
+        self._raw_transcription_config.language_confidence_threshold = threshold
 
     @property
     def speech_threshold(self) -> Optional[float]:
@@ -1042,10 +1051,7 @@ class TranscriptionConfig:
 
     @speech_threshold.setter
     def speech_threshold(self, threshold: Optional[float]) -> None:
-        "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
-
-        if threshold is not None and (threshold < 0 or threshold > 1):
-            raise ValueError("speech_threshold must be between 0 and 1 (inclusive).")
+        "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive."
 
         self._raw_transcription_config.speech_threshold = threshold
 
@@ -1638,16 +1644,14 @@ class BaseTranscript(BaseModel):
     """
     Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
-    Automatic Language Detection is supported for the following languages:
-
-        - English
-        - Spanish
-        - French
-        - German
-        - Italian
-        - Portuguese
-        - Dutch
+    See the docs for supported languages: https://www.assemblyai.com/docs/getting-started/supported-languages
     """
+
+    language_confidence_threshold: Optional[float]
+    "The confidence threshold that must be reached if `language_detection` is enabled."
+
+    language_confidence: Optional[float]
+    "The confidence score for the detected language, between 0.0 (low confidence) and 1.0 (high confidence)."
 
     speech_threshold: Optional[float]
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"

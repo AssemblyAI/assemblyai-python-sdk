@@ -18,14 +18,3 @@ def test_configuration_are_none_by_default():
             pytest.fail(
                 f"Configuration field {name} is {value} and not None by default."
             )
-
-
-def test_speech_threshold_fails_if_outside_range():
-    """
-    Tests that an exception is raised if the value for speech_threshold is outside the range of [0, 1].
-    """
-
-    with pytest.raises(ValueError, match="speech_threshold"):
-        aai.TranscriptionConfig(speech_threshold=1.5)
-    with pytest.raises(ValueError, match="speech_threshold"):
-        aai.TranscriptionConfig(speech_threshold=-0.5)
