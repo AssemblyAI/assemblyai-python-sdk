@@ -43,18 +43,11 @@ jobs:
         name: Run count files
         # Run ruff on filtered files if there are any.
       - uses: chartboost/ruff-action@v1
-        name: Run 'ruff format --check'
+        name: Run 'ruff format --check --config ./ruff.toml'
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
           version: 0.3.5
           args: 'format --check --config ./ruff.toml'
-          src: ${{ steps.filter.outputs.python_files }}
-      - uses: chartboost/ruff-action@v1
-        name: Run 'ruff --select I'
-        if: ${{ steps.counter.outputs.count > 0 }}
-        with:
-          version: 0.3.5
-          args: '--select I --config ./ruff.toml'
           src: ${{ steps.filter.outputs.python_files }}
       - uses: chartboost/ruff-action@v1
         name: Run 'ruff'
