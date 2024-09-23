@@ -244,7 +244,7 @@ class Transcript(types.Sourcable):
         return cls(transcript_id=transcript_id).wait_for_completion()
 
     @classmethod
-    def get_by_id_async(cls, transcript_id: str) -> Self:
+    async def get_by_id_async(cls, transcript_id: str) -> Self:
         """Fetch an existing transcript asynchronously.
 
         Args:
@@ -253,7 +253,7 @@ class Transcript(types.Sourcable):
         Returns:
             A future that will resolve to the transcript object identified by the given id.
         """
-        return cls(transcript_id=transcript_id).wait_for_completion_async()
+        return await cls(transcript_id=transcript_id).wait_for_completion_async()
 
     @classmethod
     def delete_by_id(cls, transcript_id: str) -> types.Transcript:
