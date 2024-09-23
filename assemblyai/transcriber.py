@@ -592,7 +592,7 @@ class TranscriptGroup:
             transcript_ids=transcript_ids,
             client=self._client,
         )
-        self._executor = concurrent.futures.ThreadPoolExecutor()
+        self._loop = asyncio.get_event_loop()
 
     @property
     def transcripts(self) -> List[Transcript]:
