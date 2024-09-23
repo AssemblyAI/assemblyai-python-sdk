@@ -564,15 +564,13 @@ class Lemur:
         """
         return self._impl.get_response_data(request_id=request_id, timeout=timeout)
 
-    def get_response_data_async(
+    async def get_response_data_async(
         self,
         request_id: str,
         timeout: Optional[float] = None,
-    ) -> concurrent.futures.Future[
-        Union[
-            types.LemurStringResponse,
-            types.LemurQuestionResponse,
-        ]
+    ) -> Union[
+        types.LemurStringResponse,
+        types.LemurQuestionResponse,
     ]:
         """
         Retrieve a LeMUR response that was previously generated.
@@ -583,7 +581,7 @@ class Lemur:
 
         Returns: A LeMUR response that was previously generated.
         """
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.get_response_data,
             request_id=request_id,
             timeout=timeout,
