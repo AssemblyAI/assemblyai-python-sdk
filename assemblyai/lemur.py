@@ -471,7 +471,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def task_async(
+    async def task_async(
         self,
         prompt: str,
         final_model: Optional[types.LemurModel] = None,
@@ -479,7 +479,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurTaskResponse]:
+    ) -> types.LemurTaskResponse:
         """
         Task feature allows you to submit a custom prompt to the model.
 
@@ -496,7 +496,7 @@ class Lemur:
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
 
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.task,
             prompt=prompt,
             final_model=final_model,
