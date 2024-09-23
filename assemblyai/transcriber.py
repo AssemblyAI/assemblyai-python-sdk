@@ -267,9 +267,9 @@ class Transcript(types.Sourcable):
         return _TranscriptImpl.delete_by_id(transcript_id)
 
     @classmethod
-    def delete_by_id_async(
-        cls, transcript_id: str
-    ) -> concurrent.futures.Future[types.Transcript]:
+    async def delete_by_id_async(
+        cls, transcript_id: str, self
+    ) -> types.Transcript:
         """Delete an existing transcript asynchronously.
 
         Args:
