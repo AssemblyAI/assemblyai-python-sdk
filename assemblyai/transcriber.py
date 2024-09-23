@@ -554,7 +554,7 @@ class _TranscriptGroupImpl:
         transcripts: List[Transcript] = []
         failures: List[str] = []
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        tasks: Dict[asyncio.Task[Transcript], str] = {}
 
         for transcript in self.transcripts:
             future = transcript.wait_for_completion_async()
