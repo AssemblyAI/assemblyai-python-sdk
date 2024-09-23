@@ -798,18 +798,18 @@ class _TranscriberImpl:
             return await self.transcribe(data=d, config=config, poll=False)
 
         coroutines = [transcribe_async(d) for d in data]
-        finished_futures = await asyncio.gather(*coroutines, return_exceptions=True)
+        finished_tasks = await asyncio.gather(*coroutines, return_exceptions=True)
 
         transcript_group = TranscriptGroup(
             client=self._client,
         )
         failures = []
 
-        for future in finished_futures:
+        for task in finished_tasks:
             try:
-                transcript_group.add_transcript(future.result())
+                transcript_group.add_transcript(task)
             except types.TranscriptError as e:
-                failures.append(f"Error processing {future_transcripts[future]}: {e}")
+                failures.append(f"Error processing transcript: {e}")
 
         if poll and return_failures:
             transcript_group, completion_failures = (
