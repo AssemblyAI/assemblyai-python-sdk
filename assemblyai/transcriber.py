@@ -550,7 +550,7 @@ class _TranscriptGroupImpl:
 
         return self
 
-    def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
+    async def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
         transcripts: List[Transcript] = []
         failures: List[str] = []
 
@@ -616,7 +616,7 @@ class TranscriptGroup:
     @classmethod
     def get_by_ids_async(
         cls, transcript_ids: List[str]
-    ) -> concurrent.futures.Future[Self]:
+    ) -> Self:
         return cls(transcript_ids=transcript_ids).wait_for_completion_async()
 
     @property
