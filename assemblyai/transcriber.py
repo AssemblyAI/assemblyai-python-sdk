@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
-import os
+import queue
+import threading
 from typing import (
     Any,
     BinaryIO,
@@ -782,7 +783,7 @@ class _TranscriberImpl:
             poll=poll,
         )
 
-    def transcribe_group(
+    async def transcribe_group(
         self,
         *,
         data: List[Union[str, BinaryIO]],
