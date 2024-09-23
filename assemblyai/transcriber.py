@@ -268,8 +268,9 @@ class Transcript(types.Sourcable):
         return _TranscriptImpl.delete_by_id(transcript_id)
 
     @classmethod
+    @classmethod
     async def delete_by_id_async(
-        cls, transcript_id: str, self
+        cls, transcript_id: str
     ) -> types.Transcript:
         """Delete an existing transcript asynchronously.
 
@@ -277,12 +278,10 @@ class Transcript(types.Sourcable):
             transcript_id: the id of the transcript to delete
 
         Returns:
-            A future that will resolve to a transcript object identified by the given id, with relevant fields/attributes cleared.
+            A transcript object identified by the given id, with relevant fields/attributes cleared.
         """
 
-        return await self._loop.run_in_executor(
-            None, _TranscriptImpl.delete_by_id, transcript_id
-        )
+        return await asyncio.to_thread(_TranscriptImpl.delete_by_id, transcript_id)
 
     @property
     def id(self) -> Optional[str]:
