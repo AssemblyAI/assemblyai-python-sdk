@@ -396,7 +396,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def action_items_async(
+    async def action_items_async(
         self,
         context: Optional[Union[str, Dict[str, Any]]] = None,
         answer_format: Optional[str] = None,
@@ -405,7 +405,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurActionItemsResponse]:
+    ) -> types.LemurActionItemsResponse:
         """
         Action Items allows you to generate action items from one or many transcripts.
 
@@ -426,7 +426,7 @@ class Lemur:
         Returns: The action items as a string.
         """
 
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.action_items,
             context=context,
             answer_format=answer_format,
