@@ -853,7 +853,6 @@ class Transcriber:
         *,
         client: Optional[_client.Client] = None,
         config: Optional[types.TranscriptionConfig] = None,
-        max_workers: Optional[int] = None,
     ) -> None:
         """
         Initializes the `Transcriber` with the given parameters.
@@ -863,8 +862,6 @@ class Transcriber:
                 default settings for the `Client` will be used.
             `config`: The default configuration for the `Transcriber`. If `None` is given,
                 the default configuration of a `TranscriptionConfig` will be used.
-            `max_workers`: The maximum number of parallel jobs when using the `_async`
-                methods on the `Transcriber`. By default it uses `os.cpu_count() - 1`
 
         Example:
             To use the `Transcriber` with the default settings, you can simply do:
@@ -885,9 +882,6 @@ class Transcriber:
             client=self._client,
             config=config or types.TranscriptionConfig(),
         )
-
-        if not max_workers:
-            max_workers = max(1, os.cpu_count() - 1)
 
         self._loop = asyncio.get_event_loop()
 
@@ -991,11 +985,11 @@ class Transcriber:
             poll=True,
         )
 
-    def transcribe_async(
+    async def transcribe_async(
         self,
         data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
-    ) -> concurrent.futures.Future[Transcript]:
+    ) -> Transcript:
         """
         Transcribes an audio file which can be specified as local path, URL, or binary object.
 
@@ -1005,11 +999,12 @@ class Transcriber:
                 default configuration will be used.
         """
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.transcribe,
-            data=data,
-            config=config,
-            poll=True,
+            data,
+            config,
+            True,
         )
 
     def transcribe_group(
@@ -1035,15 +1030,12 @@ class Transcriber:
             return_failures=return_failures,
         )
 
-    def transcribe_group_async(
+    async def transcribe_group_async(
         self,
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[TranscriptGroup],
-        concurrent.futures.Future[Tuple[TranscriptGroup, List[str]]],
-    ]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
 
@@ -1054,12 +1046,13 @@ class Transcriber:
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
         """
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.transcribe_group,
-            data=data,
-            config=config,
-            poll=True,
-            return_failures=return_failures,
+            data,
+            config,
+            True,
+            return_failures,
         )
 
     def list_transcripts(
@@ -1087,10 +1080,10 @@ class Transcriber:
         """
         return self._impl.list_transcripts(params=params)
 
-    def list_transcripts_async(
+    async def list_transcripts_async(
         self,
         params: Optional[types.ListTranscriptParameters] = None,
-    ) -> concurrent.futures.Future[types.ListTranscriptResponse]:
+    ) -> types.ListTranscriptResponse:
         """
         Retrieve a list of transcripts that were created. Transcripts are sorted from newest to oldest.
 
@@ -1099,7 +1092,11 @@ class Transcriber:
 
         Returns: A page with a list of transcripts along with page details.
         """
-        return self._executor.submit(self._impl.list_transcripts, params=params)
+        return await self._loop.run_in_executor(
+            None,
+            self._impl.list_transcripts,
+            params,
+        )
 
 
 class _RealtimeTranscriberImpl:
