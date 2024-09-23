@@ -793,20 +793,11 @@ class _TranscriberImpl:
         if config is None:
             config = self.config
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        async def transcribe_async(d):
+            return await self.transcribe(data=d, config=config, poll=False)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            for d in data:
-                transcript_future = executor.submit(
-                    self.transcribe,
-                    data=d,
-                    config=config,
-                    poll=False,
-                )
-
-                future_transcripts[transcript_future] = d
-
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        coroutines = [transcribe_async(d) for d in data]
+        finished_futures = await asyncio.gather(*coroutines, return_exceptions=True)
 
         transcript_group = TranscriptGroup(
             client=self._client,
