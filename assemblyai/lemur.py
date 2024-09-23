@@ -526,11 +526,11 @@ class Lemur:
         )
 
     @classmethod
-    def purge_request_data_async(
+    async def purge_request_data_async(
         cls,
         request_id: str,
         timeout: Optional[float] = None,
-    ) -> concurrent.futures.Future[types.LemurPurgeResponse]:
+    ) -> types.LemurPurgeResponse:
         """
         Purge sent LeMUR request data that was previously sent.
 
@@ -539,13 +539,11 @@ class Lemur:
 
         Returns: A response saying whether the LeMUR request data was successfully purged.
         """
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            response_future = executor.submit(
-                _LemurImpl.purge_request_data,
-                request_id=request_id,
-                timeout=timeout,
-            )
-        return response_future
+        return await asyncio.to_thread(
+            _LemurImpl.purge_request_data,
+            request_id=request_id,
+            timeout=timeout,
+        )
 
     def get_response_data(
         self,
