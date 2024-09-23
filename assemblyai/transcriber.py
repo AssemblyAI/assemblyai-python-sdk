@@ -557,16 +557,16 @@ class _TranscriptGroupImpl:
         tasks: Dict[asyncio.Task[Transcript], str] = {}
 
         for transcript in self.transcripts:
-            future = transcript.wait_for_completion_async()
-            future_transcripts[future] = transcript
+            task = asyncio.create_task(transcript.wait_for_completion_async())
+            tasks[task] = transcript
 
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        finished_tasks, _ = await asyncio.wait(tasks.keys())
 
-        for future in finished_futures:
+        for task in finished_tasks:
             try:
-                transcripts.append(future.result())
+                transcripts.append(await task)
             except types.TranscriptError as e:
-                failures.append(str(e))
+                failures.append(f"Error processing {tasks[task]}: {e}")
 
         self.transcripts = transcripts
 
