@@ -279,11 +279,9 @@ class Transcript(types.Sourcable):
             A future that will resolve to a transcript object identified by the given id, with relevant fields/attributes cleared.
         """
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future_transcript = executor.submit(
-                _TranscriptImpl.delete_by_id, transcript_id
-            )
-        return future_transcript
+        return await self._loop.run_in_executor(
+            None, _TranscriptImpl.delete_by_id, transcript_id
+        )
 
     @property
     def id(self) -> Optional[str]:
