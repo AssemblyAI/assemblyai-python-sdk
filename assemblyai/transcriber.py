@@ -85,7 +85,7 @@ class _TranscriptImpl:
             ):
                 break
 
-            time.sleep(self._client.settings.polling_interval)
+            asyncio.sleep(self._client.settings.polling_interval)
 
         return self
 
@@ -160,7 +160,7 @@ class _TranscriptImpl:
                     transcript_id=self.transcript_id,
                 ).redacted_audio_url
             except types.RedactedAudioIncompleteError:
-                time.sleep(self._client.settings.polling_interval)
+                asyncio.sleep(self._client.settings.polling_interval)
 
     def save_redacted_audio(self, filepath: str):
         """
@@ -243,7 +243,7 @@ class Transcript(types.Sourcable):
         return cls(transcript_id=transcript_id).wait_for_completion()
 
     @classmethod
-    def get_by_id_async(cls, transcript_id: str) -> concurrent.futures.Future[Self]:
+    def get_by_id_async(cls, transcript_id: str) -> Self:
         """Fetch an existing transcript asynchronously.
 
         Args:
