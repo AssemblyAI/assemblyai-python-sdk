@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import time
 import json
 import queue
 import threading
@@ -86,7 +87,7 @@ class _TranscriptImpl:
             ):
                 break
 
-            asyncio.sleep(self._client.settings.polling_interval)
+            time.sleep(self._client.settings.polling_interval)
 
         return self
 
