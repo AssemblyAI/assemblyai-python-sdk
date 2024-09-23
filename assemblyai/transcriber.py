@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 import functools
 import json
 import os
-import queue
-import threading
-import time
 from typing import (
     Any,
     BinaryIO,
@@ -205,17 +202,15 @@ class Transcript(types.Sourcable):
             client=self._client,
             transcript_id=transcript_id,
         )
-        self._executor = concurrent.futures.ThreadPoolExecutor()
+        self._loop = asyncio.get_event_loop()
 
     def wait_for_completion(self) -> Self:
         self._impl.wait_for_completion()
 
         return self
 
-    def wait_for_completion_async(
-        self,
-    ) -> concurrent.futures.Future[Self]:
-        return self._executor.submit(self.wait_for_completion)
+    async def wait_for_completion_async(self) -> Self:
+        return await self._loop.run_in_executor(None, self.wait_for_completion)
 
     @classmethod
     def from_response(
@@ -690,15 +685,12 @@ class TranscriptGroup:
 
         return self
 
-    def wait_for_completion_async(
+    async def wait_for_completion_async(
         self,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[Self],
-        concurrent.futures.Future[Tuple[Self, List[str]]],
-    ]:
-        return self._executor.submit(
-            self.wait_for_completion, return_failures=return_failures
+    ) -> Union[Self, Tuple[Self, List[str]]]:
+        return await self._loop.run_in_executor(
+            None, self.wait_for_completion, return_failures
         )
 
 
@@ -897,9 +889,7 @@ class Transcriber:
         if not max_workers:
             max_workers = max(1, os.cpu_count() - 1)
 
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers,
-        )
+        self._loop = asyncio.get_event_loop()
 
     @property
     def config(self) -> types.TranscriptionConfig:
@@ -929,9 +919,7 @@ class Transcriber:
         """
         return self._impl.upload_file(data=data)
 
-    def upload_file_async(
-        self, data: Union[str, BinaryIO]
-    ) -> concurrent.futures.Future[str]:
+    async def upload_file_async(self, data: Union[str, BinaryIO]) -> str:
         """
         Uploads an audio file which can be specified as local path or binary object.
 
@@ -940,10 +928,7 @@ class Transcriber:
 
         Returns: The URL of the uploaded audio file.
         """
-        return self._executor.submit(
-            self._impl.upload_file,
-            data=data,
-        )
+        return await self._loop.run_in_executor(None, self._impl.upload_file, data)
 
     def submit(
         self,
