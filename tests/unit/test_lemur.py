@@ -477,7 +477,9 @@ def test_lemur_task_succeeds_transcript(httpx_mock: HTTPXMock):
     lemur = aai.Lemur(
         sources=[aai.LemurSource(transcript)],
     )
-    result = lemur.task(prompt="Create action items of the meeting")
+    result = lemur.task(
+        prompt="Create action items of the meeting", context="An important meeting"
+    )
 
     # check the response
     assert isinstance(result, aai.LemurTaskResponse)
@@ -559,6 +561,7 @@ def test_lemur_task_succeeds(final_model, httpx_mock: HTTPXMock):
     result = lemur.task(
         final_model=final_model,
         prompt="Create action items of the meeting",
+        context="An important meeting",
         input_text="Test test",
     )
 

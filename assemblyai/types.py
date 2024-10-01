@@ -2068,6 +2068,7 @@ class LemurStringResponse(BaseLemurResponse):
 
 
 class LemurTaskRequest(BaseLemurRequest):
+    context: Optional[Union[str, Dict[str, Any]]]
     prompt: str
 
 
