@@ -103,6 +103,7 @@ class _LemurImpl:
     def task(
         self,
         prompt: str,
+        context: Optional[Union[str, Dict[str, Any]]],
         final_model: Optional[types.LemurModel],
         max_output_size: Optional[int],
         timeout: Optional[float],
@@ -114,6 +115,7 @@ class _LemurImpl:
             request=types.LemurTaskRequest(
                 sources=self._sources,
                 prompt=prompt,
+                context=context,
                 final_model=final_model,
                 max_output_size=max_output_size,
                 temperature=temperature,
@@ -438,6 +440,7 @@ class Lemur:
     def task(
         self,
         prompt: str,
+        context: Optional[Union[str, Dict[str, Any]]] = None,
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
@@ -451,6 +454,7 @@ class Lemur:
 
         Args:
             prompt: The prompt to use for this task.
+            context: An optional context on the transcript.
             final_model: The model that is used for the final prompt after compression is performed.
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
@@ -462,6 +466,7 @@ class Lemur:
 
         return self._impl.task(
             prompt=prompt,
+            context=context,
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
@@ -472,6 +477,7 @@ class Lemur:
     def task_async(
         self,
         prompt: str,
+        context: Optional[Union[str, Dict[str, Any]]] = None,
         final_model: Optional[types.LemurModel] = None,
         max_output_size: Optional[int] = None,
         timeout: Optional[float] = None,
@@ -485,6 +491,7 @@ class Lemur:
 
         Args:
             prompt: The prompt to use for this task.
+            context: An optional context on the transcript.
             final_model: The model that is used for the final prompt after compression is performed.
             max_output_size: Max output size in tokens
             timeout: The timeout in seconds to wait for the task.
@@ -497,6 +504,7 @@ class Lemur:
         return self._executor.submit(
             self._impl.task,
             prompt=prompt,
+            context=context,
             final_model=final_model,
             max_output_size=max_output_size,
             timeout=timeout,
