@@ -12,7 +12,7 @@ class _LemurImpl:
         self,
         *,
         client: _client.Client,
-        sources: List[types.LemurSource],
+        sources: Optional[List[types.LemurSource]],
     ) -> None:
         self._client = client
 

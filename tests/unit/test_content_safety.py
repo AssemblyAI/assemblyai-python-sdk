@@ -229,6 +229,3 @@ def test_content_safety_with_invalid_confidence_threshold(
 
     # Check that the error was raised before any requests were made
     assert len(httpx_mock.get_requests()) == 0
-
-    # Inform httpx_mock that it's okay we didn't make any requests
-    httpx_mock.reset(False)

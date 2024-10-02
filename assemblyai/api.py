@@ -41,7 +41,7 @@ def create_transcript(
             by_alias=True,
         ),
     )
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to transcribe url {request.audio_url}: {_get_error_message(response)}"
         )
@@ -57,7 +57,7 @@ def get_transcript(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to retrieve transcript {transcript_id}: {_get_error_message(response)}",
         )
@@ -73,7 +73,7 @@ def delete_transcript(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to delete transcript {transcript_id}: {_get_error_message(response)}",
         )
@@ -100,7 +100,7 @@ def upload_file(
         content=audio_file,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"Failed to upload audio file: {_get_error_message(response)}"
         )
@@ -125,7 +125,7 @@ def export_subtitles_srt(
         params=params,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to export SRT for transcript {transcript_id}: {_get_error_message(response)}"
         )
@@ -150,7 +150,7 @@ def export_subtitles_vtt(
         params=params,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to export VTT for transcript {transcript_id}: {_get_error_message(response)}"
         )
@@ -172,7 +172,7 @@ def word_search(
         ),
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to search words in transcript {transcript_id}: {_get_error_message(response)}"
         )
@@ -223,7 +223,7 @@ def get_sentences(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/sentences",
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to retrieve sentences for transcript {transcript_id}: {_get_error_message(response)}"
         )
@@ -239,7 +239,7 @@ def get_paragraphs(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/paragraphs",
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to retrieve paragraphs for transcript {transcript_id}: {_get_error_message(response)}"
         )
@@ -262,7 +262,7 @@ def list_transcripts(
         ),
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.AssemblyAIError(
             f"failed to retrieve transcripts: {_get_error_message(response)}"
         )
@@ -283,7 +283,7 @@ def lemur_question(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"failed to call Lemur questions: {_get_error_message(response)}"
         )
@@ -304,7 +304,7 @@ def lemur_summarize(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"failed to call Lemur summary: {_get_error_message(response)}"
         )
@@ -325,7 +325,7 @@ def lemur_action_items(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"failed to call Lemur action items: {_get_error_message(response)}"
         )
@@ -346,7 +346,7 @@ def lemur_task(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"failed to call Lemur task: {_get_error_message(response)}"
         )
@@ -358,13 +358,13 @@ def lemur_purge_request_data(
     client: httpx.Client,
     request: types.LemurPurgeRequest,
     http_timeout: Optional[float],
-) -> types.LemurPurgeRequest:
+) -> types.LemurPurgeResponse:
     response = client.delete(
         f"{ENDPOINT_LEMUR_BASE}/{request.request_id}",
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error: {_get_error_message(response)}"
         )
@@ -374,7 +374,7 @@ def lemur_purge_request_data(
 
 def lemur_get_response_data(
     client: httpx.Client,
-    request_id: int,
+    request_id: str,
     http_timeout: Optional[float],
 ) -> Union[
     types.LemurStringResponse,
@@ -385,7 +385,7 @@ def lemur_get_response_data(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.LemurError(
             f"Failed to get LeMUR response data for provided request ID: {request_id}. Error: {_get_error_message(response)}"
         )
@@ -409,7 +409,7 @@ def create_temporary_token(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.ok:
+    if response.status_code != httpx.codes.OK:
         raise types.AssemblyAIError(
             f"Failed to create temporary token: {_get_error_message(response)}"
         )

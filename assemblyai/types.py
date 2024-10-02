@@ -521,7 +521,7 @@ class RawTranscriptionConfig(BaseModel):
     iab_categories: Optional[bool]
     "Enable Topic Detection."
 
-    custom_spelling: Optional[List[Dict[str, List[str]]]]
+    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]]
     "Customize how words are spelled and formatted using to and from values"
 
     disfluencies: Optional[bool]
@@ -649,10 +649,11 @@ class TranscriptionConfig:
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
         """
-        self._raw_transcription_config = raw_transcription_config
-
-        if raw_transcription_config is None:
-            self._raw_transcription_config = RawTranscriptionConfig()
+        self._raw_transcription_config = (
+            raw_transcription_config
+            if raw_transcription_config is not None
+            else RawTranscriptionConfig()
+        )
 
         # explicit configurations have higher priority if `raw_transcription_config` has been passed as well
         self.language_code = language_code
@@ -914,7 +915,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.iab_categories = enable
 
     @property
-    def custom_spelling(self) -> Optional[Dict[str, List[str]]]:
+    def custom_spelling(self) -> Optional[Dict[str, Union[str, List[str]]]]:
         "Returns the current set custom spellings."
 
         if self._raw_transcription_config.custom_spelling is None:
@@ -922,9 +923,13 @@ class TranscriptionConfig:
 
         custom_spellings = {}
         for custom_spelling in self._raw_transcription_config.custom_spelling:
-            custom_spellings[custom_spelling["from"]] = custom_spelling["to"]
+            _from = custom_spelling["from"]
+            if isinstance(_from, str):
+                custom_spellings[_from] = custom_spelling["to"]
+            else:
+                raise ValueError("`from` argument must be a string!")
 
-        return custom_spellings
+        return custom_spellings if custom_spelling else None
 
     @property
     def disfluencies(self) -> Optional[bool]:
@@ -937,8 +942,6 @@ class TranscriptionConfig:
         "Transcribe filler words, like 'umm', in your media file."
 
         self._raw_transcription_config.disfluencies = enable
-
-        return self
 
     @property
     def sentiment_analysis(self) -> Optional[bool]:
@@ -953,7 +956,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.sentiment_analysis = enable
 
     @property
-    def auto_chapters(self) -> bool:
+    def auto_chapters(self) -> Optional[bool]:
         "Returns the status of the Auto Chapters feature."
 
         return self._raw_transcription_config.auto_chapters
@@ -971,7 +974,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.auto_chapters = enable
 
     @property
-    def entity_detection(self) -> bool:
+    def entity_detection(self) -> Optional[bool]:
         "Returns whether Entity Detection feature is enabled or not."
 
         return self._raw_transcription_config.entity_detection
@@ -1076,7 +1079,7 @@ class TranscriptionConfig:
 
     def set_speaker_diarization(
         self,
-        enable: bool = True,
+        enable: Optional[bool] = True,
         speakers_expected: Optional[int] = None,
     ) -> Self:
         """
@@ -1261,7 +1264,7 @@ class TranscriptionConfig:
 
     def set_summarize(
         self,
-        enable: bool = True,
+        enable: Optional[bool] = True,
         model: Optional[SummarizationModel] = None,
         type: Optional[SummarizationType] = None,
     ) -> Self:
@@ -1865,13 +1868,6 @@ class LemurSource:
         The source to process (e.g. a `Transcript`)
         """
         return self._source
-
-    @property
-    def context(self) -> Optional[Union[str, Dict[str, Any]]]:
-        """
-        An optional context on the source (can be a string or an arbitrary dictionary)
-        """
-        return self._context
 
     @property
     def type(self) -> LemurSourceType:
