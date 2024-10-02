@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 import functools
+import time
 import json
-import os
 import queue
 import threading
-import time
 from typing import (
     Any,
     BinaryIO,
@@ -163,7 +162,7 @@ class _TranscriptImpl:
                     transcript_id=self.transcript_id,
                 ).redacted_audio_url
             except types.RedactedAudioIncompleteError:
-                time.sleep(self._client.settings.polling_interval)
+                asyncio.sleep(self._client.settings.polling_interval)
 
     def save_redacted_audio(self, filepath: str):
         """
@@ -205,17 +204,15 @@ class Transcript(types.Sourcable):
             client=self._client,
             transcript_id=transcript_id,
         )
-        self._executor = concurrent.futures.ThreadPoolExecutor()
+        self._loop = asyncio.get_event_loop()
 
     def wait_for_completion(self) -> Self:
         self._impl.wait_for_completion()
 
         return self
 
-    def wait_for_completion_async(
-        self,
-    ) -> concurrent.futures.Future[Self]:
-        return self._executor.submit(self.wait_for_completion)
+    async def wait_for_completion_async(self) -> Self:
+        return await self._loop.run_in_executor(None, self.wait_for_completion)
 
     @classmethod
     def from_response(
@@ -248,7 +245,7 @@ class Transcript(types.Sourcable):
         return cls(transcript_id=transcript_id).wait_for_completion()
 
     @classmethod
-    def get_by_id_async(cls, transcript_id: str) -> concurrent.futures.Future[Self]:
+    async def get_by_id_async(cls, transcript_id: str) -> Self:
         """Fetch an existing transcript asynchronously.
 
         Args:
@@ -257,7 +254,7 @@ class Transcript(types.Sourcable):
         Returns:
             A future that will resolve to the transcript object identified by the given id.
         """
-        return cls(transcript_id=transcript_id).wait_for_completion_async()
+        return await cls(transcript_id=transcript_id).wait_for_completion_async()
 
     @classmethod
     def delete_by_id(cls, transcript_id: str) -> types.Transcript:
@@ -272,9 +269,9 @@ class Transcript(types.Sourcable):
         return _TranscriptImpl.delete_by_id(transcript_id)
 
     @classmethod
-    def delete_by_id_async(
+    async def delete_by_id_async(
         cls, transcript_id: str
-    ) -> concurrent.futures.Future[types.Transcript]:
+    ) -> types.Transcript:
         """Delete an existing transcript asynchronously.
 
         Args:
@@ -284,11 +281,7 @@ class Transcript(types.Sourcable):
             A future that will resolve to a transcript object identified by the given id, with relevant fields/attributes cleared.
         """
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future_transcript = executor.submit(
-                _TranscriptImpl.delete_by_id, transcript_id
-            )
-        return future_transcript
+        return await asyncio.to_thread(_TranscriptImpl.delete_by_id, transcript_id)
 
     @property
     def id(self) -> Optional[str]:
@@ -556,23 +549,23 @@ class _TranscriptGroupImpl:
 
         return self
 
-    def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
+    async def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
         transcripts: List[Transcript] = []
         failures: List[str] = []
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        tasks: Dict[asyncio.Task[Transcript], str] = {}
 
         for transcript in self.transcripts:
-            future = transcript.wait_for_completion_async()
-            future_transcripts[future] = transcript
+            task = asyncio.create_task(transcript.wait_for_completion_async())
+            tasks[task] = transcript
 
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        finished_tasks, _ = await asyncio.wait(tasks.keys())
 
-        for future in finished_futures:
+        for task in finished_tasks:
             try:
-                transcripts.append(future.result())
+                transcripts.append(await task)
             except types.TranscriptError as e:
-                failures.append(str(e))
+                failures.append(f"Error processing {tasks[task]}: {e}")
 
         self.transcripts = transcripts
 
@@ -598,7 +591,7 @@ class TranscriptGroup:
             transcript_ids=transcript_ids,
             client=self._client,
         )
-        self._executor = concurrent.futures.ThreadPoolExecutor()
+        self._loop = asyncio.get_event_loop()
 
     @property
     def transcripts(self) -> List[Transcript]:
@@ -622,7 +615,7 @@ class TranscriptGroup:
     @classmethod
     def get_by_ids_async(
         cls, transcript_ids: List[str]
-    ) -> concurrent.futures.Future[Self]:
+    ) -> Self:
         return cls(transcript_ids=transcript_ids).wait_for_completion_async()
 
     @property
@@ -690,15 +683,12 @@ class TranscriptGroup:
 
         return self
 
-    def wait_for_completion_async(
+    async def wait_for_completion_async(
         self,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[Self],
-        concurrent.futures.Future[Tuple[Self, List[str]]],
-    ]:
-        return self._executor.submit(
-            self.wait_for_completion, return_failures=return_failures
+    ) -> Union[Self, Tuple[Self, List[str]]]:
+        return await self._loop.run_in_executor(
+            None, self.wait_for_completion, return_failures
         )
 
 
@@ -792,7 +782,7 @@ class _TranscriberImpl:
             poll=poll,
         )
 
-    def transcribe_group(
+    async def transcribe_group(
         self,
         *,
         data: List[Union[str, BinaryIO]],
@@ -803,31 +793,22 @@ class _TranscriberImpl:
         if config is None:
             config = self.config
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        async def transcribe_async(d):
+            return await self.transcribe(data=d, config=config, poll=False)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            for d in data:
-                transcript_future = executor.submit(
-                    self.transcribe,
-                    data=d,
-                    config=config,
-                    poll=False,
-                )
-
-                future_transcripts[transcript_future] = d
-
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        coroutines = [transcribe_async(d) for d in data]
+        finished_tasks = await asyncio.gather(*coroutines, return_exceptions=True)
 
         transcript_group = TranscriptGroup(
             client=self._client,
         )
         failures = []
 
-        for future in finished_futures:
+        for task in finished_tasks:
             try:
-                transcript_group.add_transcript(future.result())
+                transcript_group.add_transcript(task)
             except types.TranscriptError as e:
-                failures.append(f"Error processing {future_transcripts[future]}: {e}")
+                failures.append(f"Error processing transcript: {e}")
 
         if poll and return_failures:
             transcript_group, completion_failures = (
@@ -861,7 +842,6 @@ class Transcriber:
         *,
         client: Optional[_client.Client] = None,
         config: Optional[types.TranscriptionConfig] = None,
-        max_workers: Optional[int] = None,
     ) -> None:
         """
         Initializes the `Transcriber` with the given parameters.
@@ -871,8 +851,6 @@ class Transcriber:
                 default settings for the `Client` will be used.
             `config`: The default configuration for the `Transcriber`. If `None` is given,
                 the default configuration of a `TranscriptionConfig` will be used.
-            `max_workers`: The maximum number of parallel jobs when using the `_async`
-                methods on the `Transcriber`. By default it uses `os.cpu_count() - 1`
 
         Example:
             To use the `Transcriber` with the default settings, you can simply do:
@@ -894,12 +872,7 @@ class Transcriber:
             config=config or types.TranscriptionConfig(),
         )
 
-        if not max_workers:
-            max_workers = max(1, os.cpu_count() - 1)
-
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers,
-        )
+        self._loop = asyncio.get_event_loop()
 
     @property
     def config(self) -> types.TranscriptionConfig:
@@ -929,9 +902,7 @@ class Transcriber:
         """
         return self._impl.upload_file(data=data)
 
-    def upload_file_async(
-        self, data: Union[str, BinaryIO]
-    ) -> concurrent.futures.Future[str]:
+    async def upload_file_async(self, data: Union[str, BinaryIO]) -> str:
         """
         Uploads an audio file which can be specified as local path or binary object.
 
@@ -940,10 +911,7 @@ class Transcriber:
 
         Returns: The URL of the uploaded audio file.
         """
-        return self._executor.submit(
-            self._impl.upload_file,
-            data=data,
-        )
+        return await self._loop.run_in_executor(None, self._impl.upload_file, data)
 
     def submit(
         self,
@@ -1006,11 +974,11 @@ class Transcriber:
             poll=True,
         )
 
-    def transcribe_async(
+    async def transcribe_async(
         self,
         data: Union[str, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
-    ) -> concurrent.futures.Future[Transcript]:
+    ) -> Transcript:
         """
         Transcribes an audio file which can be specified as local path, URL, or binary object.
 
@@ -1020,11 +988,12 @@ class Transcriber:
                 default configuration will be used.
         """
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.transcribe,
-            data=data,
-            config=config,
-            poll=True,
+            data,
+            config,
+            True,
         )
 
     def transcribe_group(
@@ -1050,15 +1019,12 @@ class Transcriber:
             return_failures=return_failures,
         )
 
-    def transcribe_group_async(
+    async def transcribe_group_async(
         self,
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[TranscriptGroup],
-        concurrent.futures.Future[Tuple[TranscriptGroup, List[str]]],
-    ]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
 
@@ -1069,12 +1035,13 @@ class Transcriber:
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
         """
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.transcribe_group,
-            data=data,
-            config=config,
-            poll=True,
-            return_failures=return_failures,
+            data,
+            config,
+            True,
+            return_failures,
         )
 
     def list_transcripts(
@@ -1102,10 +1069,10 @@ class Transcriber:
         """
         return self._impl.list_transcripts(params=params)
 
-    def list_transcripts_async(
+    async def list_transcripts_async(
         self,
         params: Optional[types.ListTranscriptParameters] = None,
-    ) -> concurrent.futures.Future[types.ListTranscriptResponse]:
+    ) -> types.ListTranscriptResponse:
         """
         Retrieve a list of transcripts that were created. Transcripts are sorted from newest to oldest.
 
@@ -1114,7 +1081,11 @@ class Transcriber:
 
         Returns: A page with a list of transcripts along with page details.
         """
-        return self._executor.submit(self._impl.list_transcripts, params=params)
+        return await self._loop.run_in_executor(
+            None,
+            self._impl.list_transcripts,
+            params,
+        )
 
 
 class _RealtimeTranscriberImpl:

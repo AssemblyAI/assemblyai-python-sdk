@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 from typing import Any, Dict, List, Optional, Union
 
 from . import api, types
@@ -186,7 +186,7 @@ class Lemur:
             client=self._client,
             sources=sources,
         )
-        self._executor = concurrent.futures.ThreadPoolExecutor()
+        self._loop = asyncio.get_event_loop()
 
     def question(
         self,
@@ -232,7 +232,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def question_async(
+    async def question_async(
         self,
         questions: Union[types.LemurQuestion, List[types.LemurQuestion]],
         context: Optional[Union[str, Dict[str, Any]]] = None,
@@ -241,7 +241,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurQuestionResponse]:
+    ) -> types.LemurQuestionResponse:
         """
         Question & Answer allows you to ask free form questions about one or many transcripts.
 
@@ -266,15 +266,16 @@ class Lemur:
         if not isinstance(questions, list):
             questions = [questions]
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.question,
-            questions=questions,
-            context=context,
-            final_model=final_model,
-            max_output_size=max_output_size,
-            timeout=timeout,
-            temperature=temperature,
-            input_text=input_text,
+            questions,
+            context,
+            final_model,
+            max_output_size,
+            timeout,
+            temperature,
+            input_text,
         )
 
     def summarize(
@@ -316,7 +317,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def summarize_async(
+    async def summarize_async(
         self,
         context: Optional[Union[str, Dict[str, Any]]] = None,
         answer_format: Optional[str] = None,
@@ -325,7 +326,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurSummaryResponse]:
+    ) -> types.LemurSummaryResponse:
         """
         Summary allows you to distill a piece of audio into a few impactful sentences.
         You can give the model context to get more pinpoint results while outputting the
@@ -345,15 +346,16 @@ class Lemur:
         Returns: The summary as a string.
         """
 
-        return self._executor.submit(
+        return await self._loop.run_in_executor(
+            None,
             self._impl.summarize,
-            context=context,
-            answer_format=answer_format,
-            final_model=final_model,
-            max_output_size=max_output_size,
-            timeout=timeout,
-            temperature=temperature,
-            input_text=input_text,
+            context,
+            answer_format,
+            final_model,
+            max_output_size,
+            timeout,
+            temperature,
+            input_text,
         )
 
     def action_items(
@@ -396,7 +398,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def action_items_async(
+    async def action_items_async(
         self,
         context: Optional[Union[str, Dict[str, Any]]] = None,
         answer_format: Optional[str] = None,
@@ -405,7 +407,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurActionItemsResponse]:
+    ) -> types.LemurActionItemsResponse:
         """
         Action Items allows you to generate action items from one or many transcripts.
 
@@ -426,7 +428,7 @@ class Lemur:
         Returns: The action items as a string.
         """
 
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.action_items,
             context=context,
             answer_format=answer_format,
@@ -474,7 +476,7 @@ class Lemur:
             input_text=input_text,
         )
 
-    def task_async(
+    async def task_async(
         self,
         prompt: str,
         context: Optional[Union[str, Dict[str, Any]]] = None,
@@ -483,7 +485,7 @@ class Lemur:
         timeout: Optional[float] = None,
         temperature: Optional[float] = None,
         input_text: Optional[str] = None,
-    ) -> concurrent.futures.Future[types.LemurTaskResponse]:
+    ) -> types.LemurTaskResponse:
         """
         Task feature allows you to submit a custom prompt to the model.
 
@@ -501,7 +503,7 @@ class Lemur:
         Returns: A response to a question or task submitted via custom prompt (with source transcripts or other sources taken into the context)
         """
 
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.task,
             prompt=prompt,
             context=context,
@@ -532,11 +534,11 @@ class Lemur:
         )
 
     @classmethod
-    def purge_request_data_async(
+    async def purge_request_data_async(
         cls,
         request_id: str,
         timeout: Optional[float] = None,
-    ) -> concurrent.futures.Future[types.LemurPurgeResponse]:
+    ) -> types.LemurPurgeResponse:
         """
         Purge sent LeMUR request data that was previously sent.
 
@@ -545,13 +547,11 @@ class Lemur:
 
         Returns: A response saying whether the LeMUR request data was successfully purged.
         """
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            response_future = executor.submit(
-                _LemurImpl.purge_request_data,
-                request_id=request_id,
-                timeout=timeout,
-            )
-        return response_future
+        return await asyncio.to_thread(
+            _LemurImpl.purge_request_data,
+            request_id=request_id,
+            timeout=timeout,
+        )
 
     def get_response_data(
         self,
@@ -572,15 +572,13 @@ class Lemur:
         """
         return self._impl.get_response_data(request_id=request_id, timeout=timeout)
 
-    def get_response_data_async(
+    async def get_response_data_async(
         self,
         request_id: str,
         timeout: Optional[float] = None,
-    ) -> concurrent.futures.Future[
-        Union[
-            types.LemurStringResponse,
-            types.LemurQuestionResponse,
-        ]
+    ) -> Union[
+        types.LemurStringResponse,
+        types.LemurQuestionResponse,
     ]:
         """
         Retrieve a LeMUR response that was previously generated.
@@ -591,7 +589,7 @@ class Lemur:
 
         Returns: A LeMUR response that was previously generated.
         """
-        return self._executor.submit(
+        return await asyncio.to_thread(
             self._impl.get_response_data,
             request_id=request_id,
             timeout=timeout,
