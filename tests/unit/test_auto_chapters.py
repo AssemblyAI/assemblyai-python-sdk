@@ -34,9 +34,6 @@ def test_auto_chapters_fails_without_punctuation(httpx_mock: HTTPXMock):
     # Check that the error was raised before any requests were made
     assert len(httpx_mock.get_requests()) == 0
 
-    # Inform httpx_mock that it's okay we didn't make any requests
-    httpx_mock.reset(False)
-
 
 def test_auto_chapters_disabled_by_default(httpx_mock: HTTPXMock):
     """

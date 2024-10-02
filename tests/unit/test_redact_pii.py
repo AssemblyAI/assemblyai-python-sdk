@@ -115,9 +115,6 @@ def test_redact_pii_fails_without_policies(httpx_mock: HTTPXMock):
     # Check that the error was raised before any requests were made
     assert len(httpx_mock.get_requests()) == 0
 
-    # Inform httpx_mock that it's okay we didn't make any requests
-    httpx_mock.reset(False)
-
 
 def test_redact_pii_params_excluded_when_disabled(httpx_mock: HTTPXMock):
     """
