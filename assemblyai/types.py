@@ -8,9 +8,11 @@ if TYPE_CHECKING:
     from .transcriber import Transcript
 
 try:
-    from pydantic import UUID4, BaseModel, BaseSettings, Extra, Field
+    from pydantic import UUID4, BaseModel, Field
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, Extra, Field
+    from pydantic.v1 import UUID4, BaseModel, BaseSettings, Field
+    from pydantic.v1 import ConfigDict as SettingsConfigDict
 
 from typing_extensions import Self
 
@@ -67,7 +69,7 @@ class Settings(BaseSettings):
     Settings for the AssemblyAI client
     """
 
-    api_key: Optional[str]
+    api_key: Optional[str] = None
     "The API key to authenticate with"
 
     http_timeout: float = 15.0
@@ -78,9 +80,7 @@ class Settings(BaseSettings):
 
     polling_interval: float = Field(default=3.0, gte=0.1)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
-
-    class Config:
-        env_prefix = "assemblyai_"
+    model_config = SettingsConfigDict(env_prefix="assemblyai_")
 
 
 class TranscriptStatus(str, Enum):
@@ -459,116 +459,114 @@ class SpeechModel(str, Enum):
 
 
 class RawTranscriptionConfig(BaseModel):
-    language_code: Optional[Union[str, LanguageCode]]
+    language_code: Optional[Union[str, LanguageCode]] = None
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
     The default value is "en_us".
     """
 
-    punctuate: Optional[bool]
+    punctuate: Optional[bool] = None
     "Enable Automatic Punctuation"
 
-    format_text: Optional[bool]
+    format_text: Optional[bool] = None
     "Enable Text Formatting"
 
-    dual_channel: Optional[bool]
+    dual_channel: Optional[bool] = None
     "Enable Dual Channel transcription"
 
-    webhook_url: Optional[str]
+    webhook_url: Optional[str] = None
     "The URL we should send webhooks to when your transcript is complete."
-    webhook_auth_header_name: Optional[str]
+    webhook_auth_header_name: Optional[str] = None
     "The name of the header that is sent when the `webhook_url` is being called."
-    webhook_auth_header_value: Optional[str]
+    webhook_auth_header_value: Optional[str] = None
     "The value of the `webhook_auth_header_name` that is sent when the `webhook_url` is being called."
 
-    audio_start_from: Optional[int]
+    audio_start_from: Optional[int] = None
     "The point in time, in milliseconds, to begin transcription from in your media file."
-    audio_end_at: Optional[int]
+    audio_end_at: Optional[int] = None
     "The point in time, in milliseconds, to stop transcribing in your media file."
 
-    word_boost: Optional[List[str]]
+    word_boost: Optional[List[str]] = None
     "A list of custom vocabulary to boost accuracy for."
-    boost_param: Optional[WordBoost]
+    boost_param: Optional[WordBoost] = None
     "The weight to apply to words/phrases in the word_boost array."
 
-    filter_profanity: Optional[bool]
+    filter_profanity: Optional[bool] = None
     "Filter profanity from the transcribed text."
 
-    redact_pii: Optional[bool]
+    redact_pii: Optional[bool] = None
     "Redact PII from the transcribed text."
-    redact_pii_audio: Optional[bool]
+    redact_pii_audio: Optional[bool] = None
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality]
+    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality] = None
     "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
-    redact_pii_policies: Optional[List[PIIRedactionPolicy]]
+    redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None
     "The list of PII Redaction policies to enable."
-    redact_pii_sub: Optional[PIISubstitutionPolicy]
+    redact_pii_sub: Optional[PIISubstitutionPolicy] = None
     "The replacement logic for detected PII."
 
-    speaker_labels: Optional[bool]
+    speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
 
-    speakers_expected: Optional[int]
+    speakers_expected: Optional[int] = None
     "The number of speakers you expect to be in your audio file."
 
-    content_safety: Optional[bool]
+    content_safety: Optional[bool] = None
     "Enable Content Safety Detection."
 
-    content_safety_confidence: Optional[int]
+    content_safety_confidence: Optional[int] = None
     "The minimum confidence level for a content safety label to be produced."
 
-    iab_categories: Optional[bool]
+    iab_categories: Optional[bool] = None
     "Enable Topic Detection."
 
-    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]]
+    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]] = None
     "Customize how words are spelled and formatted using to and from values"
 
-    disfluencies: Optional[bool]
+    disfluencies: Optional[bool] = None
     "Transcribe Filler Words, like 'umm', in your media file."
 
-    sentiment_analysis: Optional[bool]
+    sentiment_analysis: Optional[bool] = None
     "Enable Sentiment Analysis."
 
-    auto_chapters: Optional[bool]
+    auto_chapters: Optional[bool] = None
     "Enable Auto Chapters."
 
-    entity_detection: Optional[bool]
+    entity_detection: Optional[bool] = None
     "Enable Entity Detection."
 
-    summarization: Optional[bool]
+    summarization: Optional[bool] = None
     "Enable Summarization"
-    summary_model: Optional[SummarizationModel]
+    summary_model: Optional[SummarizationModel] = None
     "The summarization model to use in case `summarization` is enabled"
-    summary_type: Optional[SummarizationType]
+    summary_type: Optional[SummarizationType] = None
     "The summarization type to use in case `summarization` is enabled"
 
-    auto_highlights: Optional[bool]
+    auto_highlights: Optional[bool] = None
     "Detect important phrases and words in your transcription text."
 
-    language_detection: Optional[bool]
+    language_detection: Optional[bool] = None
     """
     Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
     See the docs for supported languages: https://www.assemblyai.com/docs/getting-started/supported-languages
     """
 
-    language_confidence_threshold: Optional[float]
+    language_confidence_threshold: Optional[float] = None
     """
     The confidence threshold that must be reached if `language_detection` is enabled. An error will be returned
     if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
     """
 
-    speech_threshold: Optional[float]
+    speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive."
 
-    speech_model: Optional[SpeechModel]
+    speech_model: Optional[SpeechModel] = None
     """
     The speech model to use for the transcription.
     """
-
-    class Config:
-        extra = Extra.allow
+    model_config = SettingsConfigDict(extra="allow")
 
 
 class TranscriptionConfig:
@@ -1386,12 +1384,12 @@ class Word(BaseModel):
     start: int
     end: int
     confidence: float
-    speaker: Optional[str]
+    speaker: Optional[str] = None
 
 
 class UtteranceWord(Word):
-    channel: Optional[str]
-    speaker: Optional[str]
+    channel: Optional[str] = None
+    speaker: Optional[str] = None
 
 
 class Utterance(UtteranceWord):
@@ -1431,13 +1429,13 @@ class AutohighlightResult(BaseModel):
 
 class AutohighlightResponse(BaseModel):
     status: StatusResult
-    results: Optional[List[AutohighlightResult]]
+    results: Optional[List[AutohighlightResult]] = None
 
 
 class ContentSafetyLabelResult(BaseModel):
     label: ContentSafetyLabel
     confidence: float
-    severity: Optional[float]
+    severity: Optional[float] = None
 
 
 class ContentSafetySeverityScore(BaseModel):
@@ -1454,11 +1452,11 @@ class ContentSafetyResult(BaseModel):
 
 class ContentSafetyResponse(BaseModel):
     status: StatusResult
-    results: Optional[List[ContentSafetyResult]]
-    summary: Optional[Dict[ContentSafetyLabel, float]]
+    results: Optional[List[ContentSafetyResult]] = None
+    summary: Optional[Dict[ContentSafetyLabel, float]] = None
     severity_score_summary: Optional[
         Dict[ContentSafetyLabel, ContentSafetySeverityScore]
-    ]
+    ] = None
 
 
 class IABLabelResult(BaseModel):
@@ -1474,13 +1472,13 @@ class IABResult(BaseModel):
 
 class IABResponse(BaseModel):
     status: StatusResult
-    results: Optional[List[IABResult]]
-    summary: Optional[Dict[str, float]]
+    results: Optional[List[IABResult]] = None
+    summary: Optional[Dict[str, float]] = None
 
 
 class Sentiment(Word):
     sentiment: SentimentType
-    speaker: Optional[str]
+    speaker: Optional[str] = None
 
 
 class Entity(BaseModel):
@@ -1525,7 +1523,7 @@ class Sentence(Word):
     start: int
     end: int
     confidence: float
-    speaker: Optional[str]
+    speaker: Optional[str] = None
 
 
 class SentencesResponse(BaseModel):
@@ -1553,7 +1551,7 @@ class BaseTranscript(BaseModel):
     Available transcription features
     """
 
-    language_code: Optional[Union[str, LanguageCode]]
+    language_code: Optional[Union[str, LanguageCode]] = None
     """
     The language of your audio file. Possible values are found in Supported Languages.
 
@@ -1563,103 +1561,103 @@ class BaseTranscript(BaseModel):
     audio_url: str
     "The URL of your media file to transcribe."
 
-    punctuate: Optional[bool]
+    punctuate: Optional[bool] = None
     "Enable Automatic Punctuation"
 
-    format_text: Optional[bool]
+    format_text: Optional[bool] = None
     "Enable Text Formatting"
 
-    dual_channel: Optional[bool]
+    dual_channel: Optional[bool] = None
     "Enable Dual Channel transcription"
 
-    webhook_url: Optional[str]
+    webhook_url: Optional[str] = None
     "The URL we should send webhooks to when your transcript is complete."
-    webhook_auth_header_name: Optional[str]
+    webhook_auth_header_name: Optional[str] = None
     "The name of the header that is sent when the `webhook_url` is being called."
-    webhook_auth_header_value: Optional[str]
+    webhook_auth_header_value: Optional[str] = None
     "The value of the `webhook_auth_header_name` that is sent when the `webhook_url` is being called."
 
-    audio_start_from: Optional[int]
+    audio_start_from: Optional[int] = None
     "The point in time, in milliseconds, to begin transcription from in your media file."
-    audio_end_at: Optional[int]
+    audio_end_at: Optional[int] = None
     "The point in time, in milliseconds, to stop transcribing in your media file."
 
-    word_boost: Optional[List[str]]
+    word_boost: Optional[List[str]] = None
     "A list of custom vocabulary to boost accuracy for."
-    boost_param: Optional[WordBoost]
+    boost_param: Optional[WordBoost] = None
     "The weight to apply to words/phrases in the word_boost array."
 
-    filter_profanity: Optional[bool]
+    filter_profanity: Optional[bool] = None
     "Filter profanity from the transcribed text."
 
-    redact_pii: Optional[bool]
+    redact_pii: Optional[bool] = None
     "Redact PII from the transcribed text."
-    redact_pii_audio: Optional[bool]
+    redact_pii_audio: Optional[bool] = None
     "Generate a copy of the original media file with spoken PII 'beeped' out."
-    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality]
+    redact_pii_audio_quality: Optional[PIIRedactedAudioQuality] = None
     "The quality of the redacted audio file in case `redact_pii_audio` is enabled."
-    redact_pii_policies: Optional[List[PIIRedactionPolicy]]
+    redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None
     "The list of PII Redaction policies to enable."
-    redact_pii_sub: Optional[PIISubstitutionPolicy]
+    redact_pii_sub: Optional[PIISubstitutionPolicy] = None
     "The replacement logic for detected PII."
 
-    speaker_labels: Optional[bool]
+    speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
 
-    speakers_expected: Optional[int]
+    speakers_expected: Optional[int] = None
     "The number of speakers you expect to be in your audio file."
 
-    content_safety: Optional[bool]
+    content_safety: Optional[bool] = None
     "Enable Content Safety Detection."
 
-    content_safety_confidence: Optional[int]
+    content_safety_confidence: Optional[int] = None
     "The minimum confidence level for a content safety label to be produced."
 
-    iab_categories: Optional[bool]
+    iab_categories: Optional[bool] = None
     "Enable Topic Detection."
 
-    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]]
+    custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]] = None
     "Customize how words are spelled and formatted using to and from values"
 
-    disfluencies: Optional[bool]
+    disfluencies: Optional[bool] = None
     "Transcribe Filler Words, like 'umm', in your media file."
 
-    sentiment_analysis: Optional[bool]
+    sentiment_analysis: Optional[bool] = None
     "Enable Sentiment Analysis."
 
-    auto_chapters: Optional[bool]
+    auto_chapters: Optional[bool] = None
     "Enable Auto Chapters."
 
-    entity_detection: Optional[bool]
+    entity_detection: Optional[bool] = None
     "Enable Entity Detection."
 
-    summarization: Optional[bool]
+    summarization: Optional[bool] = None
     "Enable Summarization"
-    summary_model: Optional[SummarizationModel]
+    summary_model: Optional[SummarizationModel] = None
     "The summarization model to use in case `summarization` is enabled"
-    summary_type: Optional[SummarizationType]
+    summary_type: Optional[SummarizationType] = None
     "The summarization type to use in case `summarization` is enabled"
 
-    auto_highlights: Optional[bool]
+    auto_highlights: Optional[bool] = None
     "Detect important phrases and words in your transcription text."
 
-    language_detection: Optional[bool]
+    language_detection: Optional[bool] = None
     """
     Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
 
     See the docs for supported languages: https://www.assemblyai.com/docs/getting-started/supported-languages
     """
 
-    language_confidence_threshold: Optional[float]
+    language_confidence_threshold: Optional[float] = None
     "The confidence threshold that must be reached if `language_detection` is enabled."
 
-    language_confidence: Optional[float]
+    language_confidence: Optional[float] = None
     "The confidence score for the detected language, between 0.0 (low confidence) and 1.0 (high confidence)."
 
-    speech_threshold: Optional[float]
+    speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
 
-    speech_model: Optional[SpeechModel]
+    speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
 
@@ -1674,57 +1672,57 @@ class TranscriptResponse(BaseTranscript):
     Transcript response schema
     """
 
-    id: Optional[str]
+    id: Optional[str] = None
     "The unique identifier of your transcription"
 
     status: TranscriptStatus
     "The status of your transcription. queued, processing, completed, or error"
 
-    error: Optional[str]
+    error: Optional[str] = None
     "The error message in case the transcription fails"
 
-    text: Optional[str]
+    text: Optional[str] = None
     "The text transcription of your media file"
 
-    words: Optional[List[Word]]
+    words: Optional[List[Word]] = None
     "A list of all the individual words transcribed"
 
-    utterances: Optional[List[Utterance]]
+    utterances: Optional[List[Utterance]] = None
     "When `dual_channel` or `speaker_labels` is enabled, a list of turn-by-turn utterances"
 
-    confidence: Optional[float]
+    confidence: Optional[float] = None
     "The confidence our model has in the transcribed text, between 0.0 and 1.0"
 
-    audio_duration: Optional[int]
+    audio_duration: Optional[int] = None
     "The duration of your media file, in seconds"
 
-    webhook_status_code: Optional[int]
+    webhook_status_code: Optional[int] = None
     "The status code we received from your server when delivering your webhook"
-    webhook_auth: Optional[bool]
+    webhook_auth: Optional[bool] = None
     "Whether the webhook was sent with an HTTP authentication header"
 
-    summary: Optional[str]
+    summary: Optional[str] = None
     "The summarization of the transcript"
 
-    auto_highlights_result: Optional[AutohighlightResponse]
+    auto_highlights_result: Optional[AutohighlightResponse] = None
     "The list of results when enabling Automatic Transcript Highlights"
 
-    content_safety_labels: Optional[ContentSafetyResponse]
+    content_safety_labels: Optional[ContentSafetyResponse] = None
     "The list of results when Content Safety is enabled"
 
-    iab_categories_result: Optional[IABResponse]
+    iab_categories_result: Optional[IABResponse] = None
     "The list of results when Topic Detection is enabled"
 
-    chapters: Optional[List[Chapter]]
+    chapters: Optional[List[Chapter]] = None
     "When Auto Chapters is enabled, the list of Auto Chapters results"
 
-    sentiment_analysis_results: Optional[List[Sentiment]]
+    sentiment_analysis_results: Optional[List[Sentiment]] = None
     "When Sentiment Analysis is enabled, the list of Sentiment Analysis results"
 
-    entities: Optional[List[Entity]]
+    entities: Optional[List[Entity]] = None
     "When Entity Detection is enabled, the list of detected Entities"
 
-    speech_model: Optional[SpeechModel]
+    speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
 
     def __init__(self, **data: Any):
@@ -1749,26 +1747,24 @@ class ListTranscriptParameters(BaseModel):
     The query parameters when listing transcripts.
     """
 
-    after_id: Optional[str]
+    after_id: Optional[str] = None
     "Get transcripts that were created after this transcript ID"
 
-    before_id: Optional[str]
+    before_id: Optional[str] = None
     "Get transcripts that were created before this transcript ID"
 
-    created_on: Optional[str]
+    created_on: Optional[str] = None
     "Get only transcripts created on this date"
 
-    limit: Optional[int]
+    limit: Optional[int] = None
     "Maximum amount of transcripts to retrieve. Default is 10"
 
-    status: Optional[TranscriptStatus]
+    status: Optional[TranscriptStatus] = None
     "Filter by transcript status"
 
-    throttled_only: Optional[bool]
+    throttled_only: Optional[bool] = None
     "Get only throttled transcripts, overrides the status filter"
-
-    class Config:
-        use_enum_values = True  # Populate the enum value for the query parameters
+    model_config = SettingsConfigDict(use_enum_values=True)
 
 
 class PageDetails(BaseModel):
@@ -1782,10 +1778,10 @@ class PageDetails(BaseModel):
     limit: int
     "The number of results this page is limited to"
 
-    next_url: Optional[str]
+    next_url: Optional[str] = None
     "The URL to the next page of transcripts. The next URL always points to a page with newer transcripts."
 
-    prev_url: Optional[str]
+    prev_url: Optional[str] = None
     "The URL to the next page of transcripts. The previous URL always points to a page with older transcripts."
 
     result_count: int
@@ -1806,9 +1802,9 @@ class PageDetails(BaseModel):
 
 class TranscriptItem(BaseModel):
     audio_url: str
-    completed: Optional[str]
+    completed: Optional[str] = None
     created: str
-    error: Optional[str]
+    error: Optional[str] = None
     id: str
     resource_url: str
     status: TranscriptStatus
@@ -1903,7 +1899,7 @@ class LemurTranscriptSource(LemurSource):
 
 
 class LemurSourceRequest(BaseModel):
-    id: Optional[str]
+    id: Optional[str] = None
     "The unique identifier of your source - only relevant for transcript sources"
 
     type: LemurSourceType
@@ -1999,10 +1995,10 @@ class LemurQuestion(BaseModel):
     question: str
     "The question you wish to ask"
 
-    context: Optional[Union[str, Dict[str, Any]]]
+    context: Optional[Union[str, Dict[str, Any]]] = None
     "Context to provide the model - this can be a string or an arbitrary dictionary"
 
-    answer_format: Optional[str]
+    answer_format: Optional[str] = None
     """
     How you want the answer to be returned. This can be any text.
     Cannot be used with answer_options.
@@ -2013,7 +2009,7 @@ class LemurQuestion(BaseModel):
         - "bullet points"
     """
 
-    answer_options: Optional[List[str]]
+    answer_options: Optional[List[str]] = None
     """
     What discrete options to return. Useful for precise responses.
 
@@ -2028,10 +2024,10 @@ class LemurQuestion(BaseModel):
 
 class BaseLemurRequest(BaseModel):
     sources: List[LemurSourceRequest]
-    final_model: Optional[LemurModel]
-    max_output_size: Optional[int]
-    temperature: Optional[float]
-    input_text: Optional[str]
+    final_model: Optional[LemurModel] = None
+    max_output_size: Optional[int] = None
+    temperature: Optional[float] = None
+    input_text: Optional[str] = None
 
 
 class LemurUsage(BaseModel):
@@ -2064,7 +2060,7 @@ class LemurStringResponse(BaseLemurResponse):
 
 
 class LemurTaskRequest(BaseLemurRequest):
-    context: Optional[Union[str, Dict[str, Any]]]
+    context: Optional[Union[str, Dict[str, Any]]] = None
     prompt: str
 
 
@@ -2075,7 +2071,7 @@ class LemurTaskResponse(LemurStringResponse):
 
 
 class LemurQuestionRequest(BaseLemurRequest):
-    context: Optional[Union[str, Dict[str, Any]]]
+    context: Optional[Union[str, Dict[str, Any]]] = None
     questions: List[LemurQuestion]
 
 
@@ -2089,8 +2085,8 @@ class LemurQuestionResponse(BaseLemurResponse):
 
 
 class LemurSummaryRequest(BaseLemurRequest):
-    context: Optional[Union[str, Dict[str, Any]]]
-    answer_format: Optional[str]
+    context: Optional[Union[str, Dict[str, Any]]] = None
+    answer_format: Optional[str] = None
 
 
 class LemurSummaryResponse(LemurStringResponse):
@@ -2100,8 +2096,8 @@ class LemurSummaryResponse(LemurStringResponse):
 
 
 class LemurActionItemsRequest(BaseLemurRequest):
-    context: Optional[Union[str, Dict[str, Any]]]
-    answer_format: Optional[str]
+    context: Optional[Union[str, Dict[str, Any]]] = None
+    answer_format: Optional[str] = None
 
 
 class LemurActionItemsResponse(LemurStringResponse):
