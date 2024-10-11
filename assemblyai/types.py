@@ -8,11 +8,13 @@ if TYPE_CHECKING:
     from .transcriber import Transcript
 
 try:
+    # pydantic v2 import
     from pydantic import UUID4, BaseModel, Field
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, Field
-    from pydantic.v1 import ConfigDict as SettingsConfigDict
+    # pydantic v1 import
+    from pydantic import UUID4, BaseModel, BaseSettings, Field
+    from pydantic import ConfigDict as SettingsConfigDict
 
 from typing_extensions import Self
 
