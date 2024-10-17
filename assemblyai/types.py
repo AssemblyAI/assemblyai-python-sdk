@@ -524,7 +524,7 @@ class RawTranscriptionConfig(BaseModel):
     "Enable Topic Detection."
 
     custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]] = None
-    "Customize how words are spelled and formatted using to and from values"
+    "Customize how words are spelled and formatted using to and from values."
 
     disfluencies: Optional[bool] = None
     "Transcribe Filler Words, like 'umm', in your media file."
@@ -916,18 +916,21 @@ class TranscriptionConfig:
 
     @property
     def custom_spelling(self) -> Optional[Dict[str, Union[str, List[str]]]]:
-        "Returns the current set custom spellings."
+        """
+        Returns the current set of custom spellings. For each key-value pair in the dictionary,
+        the key is the 'to' field, and the value is the 'from' field.
+        """
 
         if self._raw_transcription_config.custom_spelling is None:
             return None
 
         custom_spellings = {}
         for custom_spelling in self._raw_transcription_config.custom_spelling:
-            _from = custom_spelling["from"]
-            if isinstance(_from, str):
-                custom_spellings[_from] = custom_spelling["to"]
-            else:
-                raise ValueError("`from` argument must be a string!")
+            _to = custom_spelling["to"]
+            if not isinstance(_to, str):
+                raise ValueError("`to` argument must be a string!")
+
+            custom_spellings[_to] = custom_spelling["from"]
 
         return custom_spellings if custom_spelling else None
 
@@ -1231,13 +1234,14 @@ class TranscriptionConfig:
         Customize how given words are being spelled or formatted in the transcription's text.
 
         Args:
-            replacement: A dictionary that contains the replacement object (see below example)
+            replacement: A dictionary that contains the replacement object (see below example).
+                For each key-value pair, the key is the 'to' field, and the value is the 'from' field.
             override: If `True` `replacement` gets overriden with the given `replacement` argument, otherwise merged.
 
         Example:
             ```
             config.custom_spelling({
-                "AssemblyAI": "AssemblyAI",
+                "AssemblyAI": "assemblyAI",
                 "Kubernetes": ["k8s", "kubernetes"]
             })
             ```
@@ -1619,7 +1623,7 @@ class BaseTranscript(BaseModel):
     "Enable Topic Detection."
 
     custom_spelling: Optional[List[Dict[str, Union[str, List[str]]]]] = None
-    "Customize how words are spelled and formatted using to and from values"
+    "Customize how words are spelled and formatted using to and from values."
 
     disfluencies: Optional[bool] = None
     "Transcribe Filler Words, like 'umm', in your media file."
