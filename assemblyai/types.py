@@ -477,6 +477,9 @@ class RawTranscriptionConfig(BaseModel):
     dual_channel: Optional[bool] = None
     "Enable Dual Channel transcription"
 
+    multichannel: Optional[bool] = None
+    "Enable Multichannel transcription"
+
     webhook_url: Optional[str] = None
     "The URL we should send webhooks to when your transcript is complete."
     webhook_auth_header_name: Optional[str] = None
@@ -578,6 +581,7 @@ class TranscriptionConfig:
         punctuate: Optional[bool] = None,
         format_text: Optional[bool] = None,
         dual_channel: Optional[bool] = None,
+        multichannel: Optional[bool] = None,
         webhook_url: Optional[str] = None,
         webhook_auth_header_name: Optional[str] = None,
         webhook_auth_header_value: Optional[str] = None,
@@ -617,6 +621,7 @@ class TranscriptionConfig:
             punctuate: Enable Automatic Punctuation
             format_text: Enable Text Formatting
             dual_channel: Enable Dual Channel transcription
+            multichannel: Enable Multichannel transcription
             webhoook_url: The URL we should send webhooks to when your transcript is complete.
             webhook_auth_header_name: The name of the header that is sent when the `webhook_url` is being called.
             webhook_auth_header_value: The value of the `webhook_auth_header_name` that is sent when the `webhoook_url` is being called.
@@ -660,6 +665,7 @@ class TranscriptionConfig:
         self.punctuate = punctuate
         self.format_text = format_text
         self.dual_channel = dual_channel
+        self.multichannel = multichannel
         self.set_webhook(
             webhook_url,
             webhook_auth_header_name,
@@ -759,6 +765,18 @@ class TranscriptionConfig:
         "Enable Dual Channel transcription"
 
         self._raw_transcription_config.dual_channel = enable
+
+    @property
+    def multichannel(self) -> Optional[bool]:
+        "Returns the status of the Multichannel transcription feature"
+
+        return self._raw_transcription_config.multichannel
+
+    @multichannel.setter
+    def multichannel(self, enable: Optional[bool]) -> None:
+        "Enable Multichannel transcription"
+
+        self._raw_transcription_config.multichannel = enable
 
     @property
     def webhook_url(self) -> Optional[str]:
@@ -1391,6 +1409,7 @@ class Word(BaseModel):
     end: int
     confidence: float
     speaker: Optional[str] = None
+    channel: Optional[str] = None
 
 
 class UtteranceWord(Word):
@@ -1485,6 +1504,7 @@ class IABResponse(BaseModel):
 class Sentiment(Word):
     sentiment: SentimentType
     speaker: Optional[str] = None
+    channel: Optional[str] = None
 
 
 class Entity(BaseModel):
@@ -1530,6 +1550,7 @@ class Sentence(Word):
     end: int
     confidence: float
     speaker: Optional[str] = None
+    channel: Optional[str] = None
 
 
 class SentencesResponse(BaseModel):
@@ -1575,6 +1596,11 @@ class BaseTranscript(BaseModel):
 
     dual_channel: Optional[bool] = None
     "Enable Dual Channel transcription"
+
+    multichannel: Optional[bool] = None
+    "Enable Multichannel transcription"
+    audio_channels: Optional[int] = None
+    "The number of audio channels in the media file"
 
     webhook_url: Optional[str] = None
     "The URL we should send webhooks to when your transcript is complete."
@@ -1694,7 +1720,7 @@ class TranscriptResponse(BaseTranscript):
     "A list of all the individual words transcribed"
 
     utterances: Optional[List[Utterance]] = None
-    "When `dual_channel` or `speaker_labels` is enabled, a list of turn-by-turn utterances"
+    "When `dual_channel`, `multichannel`,  or `speaker_labels` is enabled, a list of turn-by-turn utterances"
 
     confidence: Optional[float] = None
     "The confidence our model has in the transcribed text, between 0.0 and 1.0"
