@@ -60,7 +60,8 @@ def test_lemur_single_question_succeeds_transcript(httpx_mock: HTTPXMock):
     assert answers[0].question == mock_lemur_answer["response"][0]["question"]
     assert answers[0].answer == mock_lemur_answer["response"][0]["answer"]
 
-    assert result.usage == mock_lemur_answer["usage"]
+    assert result.usage.input_tokens == mock_lemur_answer["usage"]["input_tokens"]
+    assert result.usage.output_tokens == mock_lemur_answer["usage"]["output_tokens"]
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -282,7 +283,8 @@ def test_lemur_summarize_succeeds_transcript(httpx_mock: HTTPXMock):
     # check the response
     assert summary == mock_lemur_summary["response"]
 
-    assert result.usage == mock_lemur_summary["usage"]
+    assert result.usage.input_tokens == mock_lemur_summary["usage"]["input_tokens"]
+    assert result.usage.output_tokens == mock_lemur_summary["usage"]["output_tokens"]
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -382,7 +384,10 @@ def test_lemur_action_items_succeeds_transcript(httpx_mock: HTTPXMock):
     # check the response
     assert action_items == mock_lemur_action_items["response"]
 
-    assert result.usage == mock_lemur_action_items["usage"]
+    assert result.usage.input_tokens == mock_lemur_action_items["usage"]["input_tokens"]
+    assert (
+        result.usage.output_tokens == mock_lemur_action_items["usage"]["output_tokens"]
+    )
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -486,7 +491,12 @@ def test_lemur_task_succeeds_transcript(httpx_mock: HTTPXMock):
 
     assert result.response == mock_lemur_task_response["response"]
 
-    assert result.usage == mock_lemur_task_response["usage"]
+    assert (
+        result.usage.input_tokens == mock_lemur_task_response["usage"]["input_tokens"]
+    )
+    assert (
+        result.usage.output_tokens == mock_lemur_task_response["usage"]["output_tokens"]
+    )
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -888,7 +898,6 @@ def test_lemur_usage_data(httpx_mock: HTTPXMock):
     # check the response
     assert isinstance(result, aai.LemurTaskResponse)
 
-    assert result.usage == mock_lemur_task_response["usage"]
     assert (
         result.usage.input_tokens == mock_lemur_task_response["usage"]["input_tokens"]
     )

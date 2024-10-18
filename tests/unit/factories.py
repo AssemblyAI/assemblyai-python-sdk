@@ -30,13 +30,16 @@ class WordFactory(factory.Factory):
     start = factory.Faker("pyint")
     end = factory.Faker("pyint")
     confidence = factory.Faker("pyfloat", min_value=0.0, max_value=1.0)
+    speaker = "1"
+    channel = "1"
 
 
 class UtteranceWordFactory(WordFactory):
     class Meta:
         model = aai.UtteranceWord
 
-    speaker = factory.Faker("name")
+    speaker = "1"
+    channel = "1"
 
 
 class UtteranceFactory(UtteranceWordFactory):
@@ -65,7 +68,8 @@ class BaseTranscriptFactory(factory.Factory):
     audio_url = factory.Faker("url")
     punctuate = True
     format_text = True
-    dual_channel = True
+    multichannel = None
+    dual_channel = None
     webhook_url = None
     webhook_auth_header_name = None
     audio_start_from = None
@@ -119,6 +123,7 @@ class TranscriptDeletedResponseFactory(BaseTranscriptResponseFactory):
     punctuate = None
     format_text = None
     dual_channel = None
+    multichannel = None
     webhook_url = "http://deleted_by_user"
     webhook_status_code = None
     webhook_auth = False
