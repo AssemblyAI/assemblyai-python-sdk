@@ -1991,16 +1991,6 @@ class LemurModel(str, Enum):
     Legacy model. The same as `claude2_0`.
     """
 
-    claude_instant1_2 = "anthropic/claude-instant-1-2"
-    """
-    Claude Instant is a legacy model that is optimized for speed and cost. Claude Instant can complete requests up to 20% faster than Claude 2.0.
-    """
-
-    basic = "basic"
-    """
-    Legacy model. The same as `claude_instant1_2`.
-    """
-
     mistral7b = "assemblyai/mistral-7b"
     """
     Mistral 7B is an open source model that works well for summarization and answering questions.

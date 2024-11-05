@@ -544,8 +544,6 @@ def test_lemur_task_succeeds_input_text(httpx_mock: HTTPXMock):
         aai.LemurModel.claude2_1,
         aai.LemurModel.claude2_0,
         aai.LemurModel.default,
-        aai.LemurModel.claude_instant1_2,
-        aai.LemurModel.basic,
         aai.LemurModel.mistral7b,
     ),
 )
