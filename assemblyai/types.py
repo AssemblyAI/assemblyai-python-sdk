@@ -9,12 +9,15 @@ if TYPE_CHECKING:
 
 try:
     # pydantic v2 import
-    from pydantic import UUID4, BaseModel, Field
+    from pydantic import UUID4, BaseModel, ConfigDict, Field
     from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    pydantic_v2 = True
 except ImportError:
     # pydantic v1 import
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, Field
-    from pydantic.v1 import ConfigDict as SettingsConfigDict
+    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field
+
+    pydantic_v2 = False
 
 from typing_extensions import Self
 
@@ -80,9 +83,15 @@ class Settings(BaseSettings):
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
 
-    polling_interval: float = Field(default=3.0, gte=0.1)
+    polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
-    model_config = SettingsConfigDict(env_prefix="assemblyai_")
+
+    if pydantic_v2:
+        model_config = SettingsConfigDict(env_prefix="assemblyai_")
+    else:
+
+        class Config:
+            env_prefix = "assemblyai_"
 
 
 class TranscriptStatus(str, Enum):
@@ -571,7 +580,7 @@ class RawTranscriptionConfig(BaseModel):
     """
     The speech model to use for the transcription.
     """
-    model_config = SettingsConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow")
 
 
 class TranscriptionConfig:
@@ -1796,7 +1805,7 @@ class ListTranscriptParameters(BaseModel):
 
     throttled_only: Optional[bool] = None
     "Get only throttled transcripts, overrides the status filter"
-    model_config = SettingsConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class PageDetails(BaseModel):
