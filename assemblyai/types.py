@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     api_key: Optional[str] = None
     "The API key to authenticate with"
 
-    http_timeout: float = 15.0
+    http_timeout: float = 30.0
     "The default HTTP timeout for general requests"
 
     base_url: str = "https://api.assemblyai.com"
