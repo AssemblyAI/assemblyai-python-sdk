@@ -70,7 +70,7 @@ aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 ### **Core Examples**
 
 <details>
-  <summary>Transcribe a Local Audio File</summary>
+  <summary>Transcribe a local audio file</summary>
 
 ```python
 import assemblyai as aai
@@ -116,7 +116,7 @@ transcript = transcriber.transcribe(upload_url)
 </details>
 
 <details>
-  <summary>Export Subtitles of an Audio File</summary>
+  <summary>Export subtitles of an audio file</summary>
 
 ```python
 import assemblyai as aai
@@ -134,7 +134,7 @@ print(transcript.export_subtitles_vtt())
 </details>
 
 <details>
-  <summary>List all Sentences and Paragraphs</summary>
+  <summary>List all sentences and paragraphs</summary>
 
 ```python
 import assemblyai as aai
@@ -154,7 +154,7 @@ for paragraph in paragraphs:
 </details>
 
 <details>
-  <summary>Search for Words in a Transcript</summary>
+  <summary>Search for words in a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -171,7 +171,7 @@ for match in matches:
 </details>
 
 <details>
-  <summary>Add Custom Spellings on a Transcript</summary>
+  <summary>Add custom spellings on a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -265,22 +265,37 @@ while page.page_details.before_id_of_prev_url is not None:
 ### **LeMUR Examples**
 
 <details>
-  <summary>Use LeMUR to Summarize Multiple Transcripts</summary>
+  <summary>Use LeMUR to summarize an audio file</summary>
 
 ```python
 import assemblyai as aai
 
+audio_file = "https://assembly.ai/sports_injuries.mp3"
+
 transcriber = aai.Transcriber()
-transcript_group = transcriber.transcribe_group(
-    [
-        "https://example.org/customer1.mp3",
-        "https://example.org/customer2.mp3",
-    ],
+transcript = transcriber.transcribe(audio_file)
+
+prompt = "Provide a brief summary of the transcript."
+
+result = transcript.lemur.task(
+    prompt, final_model=aai.LemurModel.claude3_5_sonnet
 )
 
-result = transcript_group.lemur.summarize(
-  context="Customers asking for cars",
-  answer_format="TLDR"
+print(result.response)
+```
+
+Or use the specialized Summarization endpoint that requires no prompt engineering and facilitates more deterministic and structured outputs:
+
+```python
+import assemblyai as aai
+
+audio_url = "https://assembly.ai/meeting.mp4"
+transcript = aai.Transcriber().transcribe(audio_url)
+
+result = transcript.lemur.summarize(
+    final_model=aai.LemurModel.claude3_5_sonnet,
+    context="A GitLab meeting to discuss logistics",
+    answer_format="TLDR"
 )
 
 print(result.response)
@@ -289,7 +304,26 @@ print(result.response)
 </details>
 
 <details>
-  <summary>Use LeMUR to Ask Questions on a Single Transcript</summary>
+  <summary>Use LeMUR to ask questions about your audio data</summary>
+
+```python
+import assemblyai as aai
+
+audio_file = "https://assembly.ai/sports_injuries.mp3"
+
+transcriber = aai.Transcriber()
+transcript = transcriber.transcribe(audio_file)
+
+prompt = "What is a runner's knee?"
+
+result = transcript.lemur.task(
+    prompt, final_model=aai.LemurModel.claude3_5_sonnet
+)
+
+print(result.response)
+```
+
+Or use the specialized Q&A endpoint that requires no prompt engineering and facilitates more deterministic and structured outputs:
 
 ```python
 import assemblyai as aai
@@ -303,7 +337,9 @@ questions = [
     aai.LemurQuestion(question="What price range is the customer looking for?"),
 ]
 
-result = transcript.lemur.question(questions)
+result = transcript.lemur.question(
+  final_model=aai.LemurModel.claude3_5_sonnet,
+  questions=questions)
 
 for q in result.response:
     print(f"Question: {q.question}")
@@ -313,48 +349,7 @@ for q in result.response:
 </details>
 
 <details>
-  <summary>Use LeMUR to Ask for Action Items from a Single Transcript</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/customer.mp3")
-
-result = transcript.lemur.action_items(
-    context="Customers asking for help with resolving their problem",
-    answer_format="Three bullet points",
-)
-
-print(result.response)
-```
-
-
-</details>
-
-<details>
-  <summary>Use LeMUR to Ask Anything with a Custom Prompt</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/customer.mp3")
-
-result = transcript.lemur.task(
-  "You are a helpful coach. Provide an analysis of the transcript "
-  "and offer areas to improve with exact quotes. Include no preamble. "
-  "Start with an overall summary then get into the examples with feedback.",
-)
-
-print(result.response)
-```
-
-</details>
-
-
-<details>
-  <summary>Use LeMUR to with Input Text</summary>
+  <summary>Use LeMUR with customized input text</summary>
 
 ```python
 import assemblyai as aai
@@ -375,7 +370,32 @@ result = aai.Lemur().task(
   "You are a helpful coach. Provide an analysis of the transcript "
   "and offer areas to improve with exact quotes. Include no preamble. "
   "Start with an overall summary then get into the examples with feedback.",
-  input_text=text
+  input_text=text,
+  final_model=aai.LemurModel.claude3_5_sonnet
+)
+
+print(result.response)
+```
+
+</details>
+
+<details>
+  <summary>Apply LeMUR to multiple transcripts</summary>
+
+```python
+import assemblyai as aai
+
+transcriber = aai.Transcriber()
+transcript_group = transcriber.transcribe_group(
+    [
+        "https://example.org/customer1.mp3",
+        "https://example.org/customer2.mp3",
+    ],
+)
+
+result = transcript_group.lemur.task(
+  context="These are calls of customers asking for cars. Summarize all calls and create a TLDR.",
+  final_model=aai.LemurModel.claude3_5_sonnet
 )
 
 print(result.response)
@@ -417,7 +437,7 @@ print(deletion_result)
 ### **Audio Intelligence Examples**
 
 <details>
-  <summary>PII Redact a Transcript</summary>
+  <summary>PII Redact a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -514,7 +534,7 @@ config=aai.TranscriptionConfig(
 
 </details>
 <details>
-  <summary>Detect Sensitive Content in a Transcript</summary>
+  <summary>Detect sensitive content in a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -562,7 +582,7 @@ config=aai.TranscriptionConfig(
 
 </details>
 <details>
-  <summary>Analyze the Sentiment of Sentences in a Transcript</summary>
+  <summary>Analyze the sentiment of sentences in a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -597,7 +617,7 @@ for sentiment_result in transcript.sentiment_analysis:
 
 </details>
 <details>
-  <summary>Identify Entities in a Transcript</summary>
+  <summary>Identify entities in a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -618,7 +638,7 @@ for entity in transcript.entities:
 
 </details>
 <details>
-  <summary>Detect Topics in a Transcript (IAB Classification)</summary>
+  <summary>Detect topics in a transcript (IAB Classification)</summary>
 
 ```python
 import assemblyai as aai
@@ -646,7 +666,7 @@ for label, relevance in transcript.iab_categories.summary.items():
 
 </details>
 <details>
-  <summary>Identify Important Words and Phrases in a Transcript</summary>
+  <summary>Identify important words and phrases in a transcript</summary>
 
 ```python
 import assemblyai as aai
@@ -677,7 +697,7 @@ for result in transcript.auto_highlights.results:
 [Read more about our Real-Time service.](https://www.assemblyai.com/docs/Guides/real-time_streaming_transcription)
 
 <details>
-  <summary>Stream your Microphone in Real-Time</summary>
+  <summary>Stream your microphone in real-time</summary>
 
 ```python
 import assemblyai as aai
@@ -733,7 +753,7 @@ transcriber.close()
 </details>
 
 <details>
-  <summary>Transcribe a Local Audio File in Real-Time</summary>
+  <summary>Transcribe a local audio file in real-time</summary>
 
 ```python
 import assemblyai as aai
@@ -835,12 +855,32 @@ transcriber = aai.RealtimeTranscriber(
 
 ---
 
-## Playgrounds
+### **Change the default settings**
 
-Visit one of our Playgrounds:
+You'll find the `Settings` class with all default values in [types.py](./assemblyai/types.py).
 
-- [LeMUR Playground](https://www.assemblyai.com/playground/v2/source)
-- [Transcription Playground](https://www.assemblyai.com/playground)
+<details>
+  <summary>Change the default timeout and polling interval</summary>
+
+```python
+import assemblyai as aai
+
+# The HTTP timeout in seconds for general requests, default is 30.0
+aai.settings.http_timeout = 60.0
+
+# The polling interval in seconds for long-running requests, default is 3.0
+aai.settings.polling_interval = 10.0
+```
+
+</details>
+
+---
+
+## Playground
+
+Visit our Playground to try our all of our Speech AI models and LeMUR for free:
+
+- [Playground](https://www.assemblyai.com/playground)
 
 # Advanced
 
