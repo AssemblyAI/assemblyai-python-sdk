@@ -27,6 +27,10 @@ class AssemblyAIError(Exception):
     Base exception for all AssemblyAI errors
     """
 
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class TranscriptError(AssemblyAIError):
     """
@@ -77,7 +81,7 @@ class Settings(BaseSettings):
     api_key: Optional[str] = None
     "The API key to authenticate with"
 
-    http_timeout: float = 15.0
+    http_timeout: float = 30.0
     "The default HTTP timeout for general requests"
 
     base_url: str = "https://api.assemblyai.com"
