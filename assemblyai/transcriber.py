@@ -49,7 +49,9 @@ class _TranscriptImpl:
     def config(self) -> types.TranscriptionConfig:
         "Returns the configuration from the internal Transcript object"
         if self.transcript is None:
-            raise ValueError("Canot access the configuration. The internal Transcript object is None.")
+            raise ValueError(
+                "Canot access the configuration. The internal Transcript object is None."
+            )
 
         return types.TranscriptionConfig(
             **self.transcript.dict(
@@ -78,7 +80,9 @@ class _TranscriptImpl:
         polls the given transcript until we have a status other than `processing` or `queued`
         """
         if not self.transcript_id:
-            raise ValueError("Cannot wait for completion. The internal transcript ID is None.")
+            raise ValueError(
+                "Cannot wait for completion. The internal transcript ID is None."
+            )
 
         while True:
             # No try-except - if there is an HTTP error then surface it to user
@@ -103,7 +107,9 @@ class _TranscriptImpl:
         chars_per_caption: Optional[int],
     ) -> str:
         if not self.transcript or not self.transcript.id:
-            raise ValueError("Cannot export subtitles. The internal Transcript object is None.")
+            raise ValueError(
+                "Cannot export subtitles. The internal Transcript object is None."
+            )
 
         return api.export_subtitles_srt(
             client=self._client.http_client,
@@ -117,7 +123,9 @@ class _TranscriptImpl:
         chars_per_caption: Optional[int],
     ) -> str:
         if not self.transcript or not self.transcript.id:
-            raise ValueError("Cannot export subtitles. The internal Transcript object is None.")
+            raise ValueError(
+                "Cannot export subtitles. The internal Transcript object is None."
+            )
 
         return api.export_subtitles_vtt(
             client=self._client.http_client,
@@ -131,7 +139,9 @@ class _TranscriptImpl:
         words: List[str],
     ) -> List[types.WordSearchMatch]:
         if not self.transcript or not self.transcript.id:
-            raise ValueError("Cannot perform word search. The internal Transcript object is None.")
+            raise ValueError(
+                "Cannot perform word search. The internal Transcript object is None."
+            )
 
         response = api.word_search(
             client=self._client.http_client,
@@ -143,7 +153,9 @@ class _TranscriptImpl:
 
     def get_sentences(self) -> List[types.Sentence]:
         if not self.transcript or not self.transcript.id:
-            raise ValueError("Cannot get sentences. The internal Transcript object is None.")
+            raise ValueError(
+                "Cannot get sentences. The internal Transcript object is None."
+            )
 
         response = api.get_sentences(
             client=self._client.http_client,
@@ -154,7 +166,9 @@ class _TranscriptImpl:
 
     def get_paragraphs(self) -> List[types.Paragraph]:
         if not self.transcript or not self.transcript.id:
-            raise ValueError("Cannot get paragraphs. The internal Transcript object is None.")
+            raise ValueError(
+                "Cannot get paragraphs. The internal Transcript object is None."
+            )
 
         response = api.get_paragraphs(
             client=self._client.http_client,
@@ -177,7 +191,9 @@ class _TranscriptImpl:
             )
 
         if not self.transcript_id:
-            raise ValueError("Cannot get redacted audio url. The internal transcript ID is None.")
+            raise ValueError(
+                "Cannot get redacted audio url. The internal transcript ID is None."
+            )
 
         while True:
             try:
@@ -208,7 +224,9 @@ class _TranscriptImpl:
     @classmethod
     def delete_by_id(cls, transcript_id: str) -> types.Transcript:
         client = _client.Client.get_default()
-        response = api.delete_transcript(client=client.http_client, transcript_id=transcript_id)
+        response = api.delete_transcript(
+            client=client.http_client, transcript_id=transcript_id
+        )
 
         return Transcript.from_response(client=client, response=response)
 
@@ -370,7 +388,7 @@ class Transcript(types.Sourcable):
     def chapters(self) -> Optional[List[types.Chapter]]:
         "The list of auto-chapters results"
         if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")   
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.chapters
 
@@ -604,7 +622,9 @@ class _TranscriptGroupImpl:
     def transcript_ids(self) -> List[str]:
         if any(t.id is None for t in self.transcripts):
             raise ValueError("All transcripts must have a transcript ID.")
-        return [t.id for t in self.transcripts if t.id]  # include the if check for mypy type checker
+        return [
+            t.id for t in self.transcripts if t.id
+        ]  # include the if check for mypy type checker
 
     def add_transcript(self, transcript: Union[Transcript, str]) -> None:
         if isinstance(transcript, Transcript):
@@ -681,13 +701,17 @@ class TranscriptGroup:
         return iter(self.transcripts)
 
     @classmethod
-    def get_by_ids(cls, transcript_ids: List[str]) -> Union[Self, Tuple[Self, List[types.AssemblyAIError]]]:
+    def get_by_ids(
+        cls, transcript_ids: List[str]
+    ) -> Union[Self, Tuple[Self, List[types.AssemblyAIError]]]:
         return cls(transcript_ids=transcript_ids).wait_for_completion()
 
     @classmethod
     def get_by_ids_async(
         cls, transcript_ids: List[str]
-    ) -> concurrent.futures.Future[Union[Self, Tuple[Self, List[types.AssemblyAIError]]]]:
+    ) -> concurrent.futures.Future[
+        Union[Self, Tuple[Self, List[types.AssemblyAIError]]]
+    ]:
         return cls(transcript_ids=transcript_ids).wait_for_completion_async()
 
     @property
@@ -762,7 +786,8 @@ class TranscriptGroup:
     def wait_for_completion_async(
         self,
         return_failures: Optional[bool] = False,
-    ) -> concurrent.futures.Future[Union[Self,  Tuple[Self, List[types.AssemblyAIError]]],
+    ) -> concurrent.futures.Future[
+        Union[Self, Tuple[Self, List[types.AssemblyAIError]]],
     ]:
         return self._executor.submit(
             self.wait_for_completion, return_failures=return_failures
