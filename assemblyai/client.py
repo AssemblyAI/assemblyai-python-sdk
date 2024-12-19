@@ -41,7 +41,7 @@ class Client:
 
         headers = {"user-agent": user_agent}
         if self._settings.api_key:
-            headers["authorization"] = self.settings.api_key
+            headers["authorization"] = self._settings.api_key
 
         self._last_response: Optional[httpx.Response] = None
 
