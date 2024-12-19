@@ -43,11 +43,27 @@ class Client:
         if self._settings.api_key:
             headers["authorization"] = self.settings.api_key
 
+        self._last_response: Optional[httpx.Response] = None
+
+        def _store_response(response):
+            self._last_response = response
+
         self._http_client = httpx.Client(
             base_url=self.settings.base_url,
             headers=headers,
             timeout=self.settings.http_timeout,
+            event_hooks={"response": [_store_response]},
         )
+
+    @property
+    def last_response(self) -> Optional[httpx.Response]:
+        """
+        Get the last HTTP response, corresponding to the last request sent from this client.
+
+        Returns:
+            The last HTTP response.
+        """
+        return self._last_response
 
     @property
     def settings(self) -> types.Settings:

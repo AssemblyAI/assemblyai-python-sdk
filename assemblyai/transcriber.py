@@ -175,7 +175,8 @@ class _TranscriptImpl:
         with httpx.stream(method="GET", url=self.get_redacted_audio_url()) as response:
             if response.status_code not in (httpx.codes.OK, httpx.codes.NOT_MODIFIED):
                 raise types.RedactedAudioUnavailableError(
-                    f"Fetching redacted audio failed with status code {response.status_code}"
+                    f"Fetching redacted audio failed with status code {response.status_code}",
+                    response.status_code,
                 )
             with open(filepath, "wb") as f:
                 for chunk in response.iter_bytes():
@@ -556,7 +557,9 @@ class _TranscriptGroupImpl:
 
         return self
 
-    def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
+    def wait_for_completion(
+        self, return_failures
+    ) -> Union[None, List[types.AssemblyAIError]]:
         transcripts: List[Transcript] = []
         failures: List[str] = []
 
@@ -572,7 +575,7 @@ class _TranscriptGroupImpl:
             try:
                 transcripts.append(future.result())
             except types.TranscriptError as e:
-                failures.append(str(e))
+                failures.append(e)
 
         self.transcripts = transcripts
 
@@ -672,7 +675,7 @@ class TranscriptGroup:
     def wait_for_completion(
         self,
         return_failures: Optional[bool] = False,
-    ) -> Union[Self, Tuple[Self, List[str]]]:
+    ) -> Union[Self, Tuple[Self, List[types.AssemblyAIError]]]:
         """
         Polls each transcript within the `TranscriptGroup`.
 
@@ -695,7 +698,7 @@ class TranscriptGroup:
         return_failures: Optional[bool] = False,
     ) -> Union[
         concurrent.futures.Future[Self],
-        concurrent.futures.Future[Tuple[Self, List[str]]],
+        concurrent.futures.Future[Tuple[Self, List[types.AssemblyAIError]]],
     ]:
         return self._executor.submit(
             self.wait_for_completion, return_failures=return_failures
@@ -799,7 +802,7 @@ class _TranscriberImpl:
         config: Optional[types.TranscriptionConfig],
         poll: bool,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         if config is None:
             config = self.config
 
@@ -827,7 +830,7 @@ class _TranscriberImpl:
             try:
                 transcript_group.add_transcript(future.result())
             except types.TranscriptError as e:
-                failures.append(f"Error processing {future_transcripts[future]}: {e}")
+                failures.append(e)
 
         if poll and return_failures:
             transcript_group, completion_failures = (
@@ -969,7 +972,7 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         """
         Submits multiple transcription jobs without waiting for their completion.
 
@@ -1032,7 +1035,7 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects).
 
@@ -1057,7 +1060,7 @@ class Transcriber:
         return_failures: Optional[bool] = False,
     ) -> Union[
         concurrent.futures.Future[TranscriptGroup],
-        concurrent.futures.Future[Tuple[TranscriptGroup, List[str]]],
+        concurrent.futures.Future[Tuple[TranscriptGroup, List[types.AssemblyAIError]]],
     ]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
@@ -1358,7 +1361,7 @@ class _RealtimeTranscriberImpl:
             error_message = error.reason
 
         if error.code != 1000:
-            self._on_error(types.RealtimeError(error_message))
+            self._on_error(types.RealtimeError(error_message, error.code))
 
         self.close()
 

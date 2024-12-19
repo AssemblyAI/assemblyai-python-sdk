@@ -27,11 +27,18 @@ class AssemblyAIError(Exception):
     Base exception for all AssemblyAI errors
     """
 
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class TranscriptError(AssemblyAIError):
     """
     Error class when a transcription fails
     """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
 
 
 class RedactedAudioIncompleteError(AssemblyAIError):
@@ -40,12 +47,18 @@ class RedactedAudioIncompleteError(AssemblyAIError):
     before the file has finished processing
     """
 
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
+
 
 class RedactedAudioExpiredError(AssemblyAIError):
     """
     Error class when a PII-redacted audio URL is requested
     but the file has expired and is no longer available
     """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
 
 
 class RedactedAudioUnavailableError(AssemblyAIError):
@@ -54,11 +67,17 @@ class RedactedAudioUnavailableError(AssemblyAIError):
     but it is not available at the given URL
     """
 
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
+
 
 class LemurError(AssemblyAIError):
     """
     Error class when a Lemur request fails
     """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
 
 
 class Sourcable:
@@ -2290,6 +2309,9 @@ class RealtimeError(AssemblyAIError):
     """
     Real-time error message
     """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message, status_code)
 
 
 RealtimeErrorMapping = {
