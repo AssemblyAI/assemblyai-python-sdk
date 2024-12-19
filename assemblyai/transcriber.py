@@ -661,7 +661,7 @@ class _TranscriptGroupImpl:
 
         self.transcripts = transcripts
 
-        if return_failures:
+        if return_failures is True:
             return failures
         return None
 
@@ -774,9 +774,9 @@ class TranscriptGroup:
         Args:
             return_failures: Whether to return a list of errors for transcripts that failed due to HTTP errors.
         """
-        if return_failures:
+        if return_failures is True:
             failures = self._impl.wait_for_completion(return_failures=return_failures)
-            if not failures:
+            if failures is None:
                 raise ValueError("return_failures was set but failures object is None")
             return self, failures
 
@@ -922,11 +922,11 @@ class _TranscriberImpl:
             except types.TranscriptError as e:
                 failures.append(e)
 
-        if poll and return_failures:
+        if poll is True and return_failures is True:
             res = transcript_group.wait_for_completion(return_failures=return_failures)
             if not isinstance(res, tuple):
                 raise ValueError(
-                    "return_failures is set but did not receive failures object"
+                    "return_failures was set but did not receive failures object"
                 )
             transcript_group, completion_failures = res
             failures.extend(completion_failures)
@@ -934,11 +934,11 @@ class _TranscriberImpl:
             res = transcript_group.wait_for_completion(return_failures=return_failures)
             if not isinstance(res, TranscriptGroup):
                 raise ValueError(
-                    "return_failures is not set but did receive failures object"
+                    "return_failures was not set but did receive failures object"
                 )
             transcript_group = res
 
-        if return_failures:
+        if return_failures is True:
             return transcript_group, failures
         else:
             return transcript_group
