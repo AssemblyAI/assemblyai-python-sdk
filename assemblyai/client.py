@@ -3,7 +3,6 @@ import threading
 from typing import ClassVar, Optional
 
 import httpx
-from typing_extensions import Self
 
 from . import types
 from .__version__ import __version__
