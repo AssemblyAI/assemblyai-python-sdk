@@ -17,6 +17,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Set,
     Tuple,
     Union,
 )
@@ -47,6 +48,10 @@ class _TranscriptImpl:
     @property
     def config(self) -> types.TranscriptionConfig:
         "Returns the configuration from the internal Transcript object"
+        if self.transcript is None:
+            raise ValueError(
+                "Canot access the configuration. The internal Transcript object is None."
+            )
 
         return types.TranscriptionConfig(
             **self.transcript.dict(
@@ -74,6 +79,10 @@ class _TranscriptImpl:
         """
         polls the given transcript until we have a status other than `processing` or `queued`
         """
+        if not self.transcript_id:
+            raise ValueError(
+                "Cannot wait for completion. The internal transcript ID is None."
+            )
 
         while True:
             # No try-except - if there is an HTTP error then surface it to user
@@ -97,6 +106,11 @@ class _TranscriptImpl:
         *,
         chars_per_caption: Optional[int],
     ) -> str:
+        if not self.transcript or not self.transcript.id:
+            raise ValueError(
+                "Cannot export subtitles. The internal Transcript object is None."
+            )
+
         return api.export_subtitles_srt(
             client=self._client.http_client,
             transcript_id=self.transcript.id,
@@ -108,6 +122,11 @@ class _TranscriptImpl:
         *,
         chars_per_caption: Optional[int],
     ) -> str:
+        if not self.transcript or not self.transcript.id:
+            raise ValueError(
+                "Cannot export subtitles. The internal Transcript object is None."
+            )
+
         return api.export_subtitles_vtt(
             client=self._client.http_client,
             transcript_id=self.transcript.id,
@@ -119,6 +138,11 @@ class _TranscriptImpl:
         *,
         words: List[str],
     ) -> List[types.WordSearchMatch]:
+        if not self.transcript or not self.transcript.id:
+            raise ValueError(
+                "Cannot perform word search. The internal Transcript object is None."
+            )
+
         response = api.word_search(
             client=self._client.http_client,
             transcript_id=self.transcript.id,
@@ -128,6 +152,11 @@ class _TranscriptImpl:
         return response.matches
 
     def get_sentences(self) -> List[types.Sentence]:
+        if not self.transcript or not self.transcript.id:
+            raise ValueError(
+                "Cannot get sentences. The internal Transcript object is None."
+            )
+
         response = api.get_sentences(
             client=self._client.http_client,
             transcript_id=self.transcript.id,
@@ -136,6 +165,11 @@ class _TranscriptImpl:
         return response.sentences
 
     def get_paragraphs(self) -> List[types.Paragraph]:
+        if not self.transcript or not self.transcript.id:
+            raise ValueError(
+                "Cannot get paragraphs. The internal Transcript object is None."
+            )
+
         response = api.get_paragraphs(
             client=self._client.http_client,
             transcript_id=self.transcript.id,
@@ -154,6 +188,11 @@ class _TranscriptImpl:
         if not self.config.redact_pii or not self.config.redact_pii_audio:
             raise ValueError(
                 "Redacted audio is only available when `redact_pii` and `redact_pii_audio` are set to `True`."
+            )
+
+        if not self.transcript_id:
+            raise ValueError(
+                "Cannot get redacted audio url. The internal transcript ID is None."
             )
 
         while True:
@@ -175,7 +214,8 @@ class _TranscriptImpl:
         with httpx.stream(method="GET", url=self.get_redacted_audio_url()) as response:
             if response.status_code not in (httpx.codes.OK, httpx.codes.NOT_MODIFIED):
                 raise types.RedactedAudioUnavailableError(
-                    f"Fetching redacted audio failed with status code {response.status_code}"
+                    f"Fetching redacted audio failed with status code {response.status_code}",
+                    response.status_code,
                 )
             with open(filepath, "wb") as f:
                 for chunk in response.iter_bytes():
@@ -183,8 +223,10 @@ class _TranscriptImpl:
 
     @classmethod
     def delete_by_id(cls, transcript_id: str) -> types.Transcript:
-        client = _client.Client.get_default().http_client
-        response = api.delete_transcript(client=client, transcript_id=transcript_id)
+        client = _client.Client.get_default()
+        response = api.delete_transcript(
+            client=client.http_client, transcript_id=transcript_id
+        )
 
         return Transcript.from_response(client=client, response=response)
 
@@ -305,83 +347,112 @@ class Transcript(types.Sourcable):
     @property
     def json_response(self) -> Optional[dict]:
         "The full JSON response associated with the transcript."
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.dict()
 
     @property
     def audio_url(self) -> str:
         "The corresponding audio url"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.audio_url
 
     @property
     def speech_model(self) -> Optional[str]:
         "The speech model used for the transcription"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
         return self._impl.transcript.speech_model
 
     @property
     def text(self) -> Optional[str]:
         "The text transcription of your media file"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.text
 
     @property
     def summary(self) -> Optional[str]:
         "The summarization of the transcript"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.summary
 
     @property
     def chapters(self) -> Optional[List[types.Chapter]]:
         "The list of auto-chapters results"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.chapters
 
     @property
     def content_safety(self) -> Optional[types.ContentSafetyResponse]:
         "The results from the content safety analysis"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.content_safety_labels
 
     @property
     def sentiment_analysis(self) -> Optional[List[types.Sentiment]]:
         "The list of sentiment analysis results"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.sentiment_analysis_results
 
     @property
     def entities(self) -> Optional[List[types.Entity]]:
         "The list of entity detection results"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.entities
 
     @property
     def iab_categories(self) -> Optional[types.IABResponse]:
         "The results from the IAB category detection"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.iab_categories_result
 
     @property
     def auto_highlights(self) -> Optional[types.AutohighlightResponse]:
         "The results from the auto-highlights model"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.auto_highlights_result
 
     @property
     def status(self) -> types.TranscriptStatus:
         "The current status of the transcript"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.status
 
     @property
     def error(self) -> Optional[str]:
         "The error message in case the transcription fails"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.error
 
     @property
     def words(self) -> Optional[List[types.Word]]:
         "The list of words in the transcript"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.words
 
@@ -391,30 +462,40 @@ class Transcript(types.Sourcable):
         When `dual_channel` or `speaker_labels` is enabled,
         a list of utterances in the transcript.
         """
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.utterances
 
     @property
     def confidence(self) -> Optional[float]:
         "The confidence our model has in the transcribed text, between 0 and 1"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.confidence
 
     @property
     def audio_duration(self) -> Optional[int]:
         "The duration of the audio in seconds"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.audio_duration
 
     @property
     def webhook_status_code(self) -> Optional[int]:
         "The status code we received from your server when delivering your webhook"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.webhook_status_code
 
     @property
     def webhook_auth(self) -> Optional[bool]:
         "Whether the webhook was sent with an HTTP authentication header"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
 
         return self._impl.transcript.webhook_auth
 
@@ -539,7 +620,11 @@ class _TranscriptGroupImpl:
 
     @property
     def transcript_ids(self) -> List[str]:
-        return [t.id for t in self.transcripts]
+        if any(t.id is None for t in self.transcripts):
+            raise ValueError("All transcripts must have a transcript ID.")
+        return [
+            t.id for t in self.transcripts if t.id
+        ]  # include the if check for mypy type checker
 
     def add_transcript(self, transcript: Union[Transcript, str]) -> None:
         if isinstance(transcript, Transcript):
@@ -554,17 +639,17 @@ class _TranscriptGroupImpl:
         else:
             raise TypeError("Unsupported type for `transcript`")
 
-        return self
-
-    def wait_for_completion(self, return_failures) -> Union[None, List[str]]:
+    def wait_for_completion(
+        self, return_failures
+    ) -> Union[None, List[types.AssemblyAIError]]:
         transcripts: List[Transcript] = []
-        failures: List[str] = []
+        failures: List[types.AssemblyAIError] = []
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        future_transcripts: Set[concurrent.futures.Future[Transcript]] = set()
 
         for transcript in self.transcripts:
             future = transcript.wait_for_completion_async()
-            future_transcripts[future] = transcript
+            future_transcripts.add(future)
 
         finished_futures, _ = concurrent.futures.wait(future_transcripts)
 
@@ -572,12 +657,13 @@ class _TranscriptGroupImpl:
             try:
                 transcripts.append(future.result())
             except types.TranscriptError as e:
-                failures.append(str(e))
+                failures.append(e)
 
         self.transcripts = transcripts
 
-        if return_failures:
+        if return_failures is True:
             return failures
+        return None
 
 
 class TranscriptGroup:
@@ -616,13 +702,17 @@ class TranscriptGroup:
         return iter(self.transcripts)
 
     @classmethod
-    def get_by_ids(cls, transcript_ids: List[str]) -> Self:
+    def get_by_ids(
+        cls, transcript_ids: List[str]
+    ) -> Union[Self, Tuple[Self, List[types.AssemblyAIError]]]:
         return cls(transcript_ids=transcript_ids).wait_for_completion()
 
     @classmethod
     def get_by_ids_async(
         cls, transcript_ids: List[str]
-    ) -> concurrent.futures.Future[Self]:
+    ) -> concurrent.futures.Future[
+        Union[Self, Tuple[Self, List[types.AssemblyAIError]]]
+    ]:
         return cls(transcript_ids=transcript_ids).wait_for_completion_async()
 
     @property
@@ -643,6 +733,8 @@ class TranscriptGroup:
             return types.TranscriptStatus.processing
         elif all(s == types.TranscriptStatus.completed for s in all_status):
             return types.TranscriptStatus.completed
+        else:
+            raise ValueError(f"Unexpected status type: {all_status}")
 
     @property
     def lemur(self) -> lemur.Lemur:
@@ -672,7 +764,7 @@ class TranscriptGroup:
     def wait_for_completion(
         self,
         return_failures: Optional[bool] = False,
-    ) -> Union[Self, Tuple[Self, List[str]]]:
+    ) -> Union[Self, Tuple[Self, List[types.AssemblyAIError]]]:
         """
         Polls each transcript within the `TranscriptGroup`.
 
@@ -682,8 +774,10 @@ class TranscriptGroup:
         Args:
             return_failures: Whether to return a list of errors for transcripts that failed due to HTTP errors.
         """
-        if return_failures:
+        if return_failures is True:
             failures = self._impl.wait_for_completion(return_failures=return_failures)
+            if failures is None:
+                raise ValueError("return_failures was set but failures object is None")
             return self, failures
 
         self._impl.wait_for_completion(return_failures=return_failures)
@@ -693,9 +787,8 @@ class TranscriptGroup:
     def wait_for_completion_async(
         self,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[Self],
-        concurrent.futures.Future[Tuple[Self, List[str]]],
+    ) -> concurrent.futures.Future[
+        Union[Self, Tuple[Self, List[types.AssemblyAIError]]],
     ]:
         return self._executor.submit(
             self.wait_for_completion, return_failures=return_failures
@@ -799,11 +892,11 @@ class _TranscriberImpl:
         config: Optional[types.TranscriptionConfig],
         poll: bool,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         if config is None:
             config = self.config
 
-        future_transcripts: Dict[concurrent.futures.Future[Transcript], str] = {}
+        future_transcripts: Set[concurrent.futures.Future[Transcript]] = set()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             for d in data:
@@ -814,32 +907,38 @@ class _TranscriberImpl:
                     poll=False,
                 )
 
-                future_transcripts[transcript_future] = d
+                future_transcripts.add(transcript_future)
 
         finished_futures, _ = concurrent.futures.wait(future_transcripts)
 
         transcript_group = TranscriptGroup(
             client=self._client,
         )
-        failures = []
+        failures: List[types.AssemblyAIError] = []
 
         for future in finished_futures:
             try:
                 transcript_group.add_transcript(future.result())
             except types.TranscriptError as e:
-                failures.append(f"Error processing {future_transcripts[future]}: {e}")
+                failures.append(e)
 
-        if poll and return_failures:
-            transcript_group, completion_failures = (
-                transcript_group.wait_for_completion(return_failures=return_failures)
-            )
+        if poll is True and return_failures is True:
+            res = transcript_group.wait_for_completion(return_failures=return_failures)
+            if not isinstance(res, tuple):
+                raise ValueError(
+                    "return_failures was set but did not receive failures object"
+                )
+            transcript_group, completion_failures = res
             failures.extend(completion_failures)
         elif poll:
-            transcript_group = transcript_group.wait_for_completion(
-                return_failures=return_failures
-            )
+            res = transcript_group.wait_for_completion(return_failures=return_failures)
+            if not isinstance(res, TranscriptGroup):
+                raise ValueError(
+                    "return_failures was not set but did receive failures object"
+                )
+            transcript_group = res
 
-        if return_failures:
+        if return_failures is True:
             return transcript_group, failures
         else:
             return transcript_group
@@ -895,7 +994,11 @@ class Transcriber:
         )
 
         if not max_workers:
-            max_workers = max(1, os.cpu_count() - 1)
+            cpu_count = os.cpu_count()
+            if not cpu_count:
+                max_workers = 1
+            else:
+                max_workers = max(1, cpu_count - 1)
 
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
@@ -969,7 +1072,7 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         """
         Submits multiple transcription jobs without waiting for their completion.
 
@@ -1032,7 +1135,7 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[str]]]:
+    ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects).
 
@@ -1055,9 +1158,8 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[TranscriptGroup],
-        concurrent.futures.Future[Tuple[TranscriptGroup, List[str]]],
+    ) -> concurrent.futures.Future[
+        Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]
     ]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
@@ -1247,7 +1349,8 @@ class _RealtimeTranscriberImpl:
         try:
             self._read_thread.join()
             self._write_thread.join()
-            self._websocket.close()
+            if self._websocket:
+                self._websocket.close()
         except Exception:
             pass
 
@@ -1262,15 +1365,18 @@ class _RealtimeTranscriberImpl:
         """
 
         while not self._stop_event.is_set():
+            if not self._websocket:
+                raise ValueError("Websocket is None")
+
             try:
-                message = self._websocket.recv(timeout=1)
+                recv_message = self._websocket.recv(timeout=1)
             except TimeoutError:
                 continue
             except websockets.exceptions.ConnectionClosed as exc:
                 return self._handle_error(exc)
 
             try:
-                message = json.loads(message)
+                message = json.loads(recv_message)
             except json.JSONDecodeError as exc:
                 self._on_error(
                     types.RealtimeError(
@@ -1295,7 +1401,9 @@ class _RealtimeTranscriberImpl:
                 continue
 
             try:
-                if isinstance(data, dict):
+                if not self._websocket:
+                    raise ValueError("websocket is None")
+                elif isinstance(data, dict):
                     self._websocket.send(json.dumps(data))
                 elif isinstance(data, bytes):
                     self._websocket.send(data)
@@ -1333,9 +1441,10 @@ class _RealtimeTranscriberImpl:
                 message["message_type"]
                 == types.RealtimeMessageTypes.session_information
             ):
-                self._on_extra_session_information(
-                    types.RealtimeSessionInformation(**message)
-                )
+                if self._on_extra_session_information is not None:
+                    self._on_extra_session_information(
+                        types.RealtimeSessionInformation(**message)
+                    )
         elif "error" in message:
             self._on_error(types.RealtimeError(message["error"]))
 
@@ -1358,7 +1467,7 @@ class _RealtimeTranscriberImpl:
             error_message = error.reason
 
         if error.code != 1000:
-            self._on_error(types.RealtimeError(error_message))
+            self._on_error(types.RealtimeError(error_message, error.code))
 
         self.close()
 

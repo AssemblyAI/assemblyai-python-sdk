@@ -937,6 +937,32 @@ The asynchronous approach allows the application to continue running while the t
 
 You can identify those two approaches by the `_async` suffix in the `Transcriber`'s method name (e.g. `transcribe` vs `transcribe_async`).
 
+## Getting the HTTP status code
+
+There are two ways of accessing the HTTP status code:
+
+- All custom AssemblyAI Error classes have a `status_code` attribute.
+- The latest HTTP response is stored in `aai.Client.get_default().latest_response` after every API call. This approach works also if no Exception is thrown.
+
+```python
+transcriber = aai.Transcriber()
+
+# Option 1: Catch the error
+try:
+    transcript = transcriber.submit("./example.mp3")
+except aai.AssemblyAIError as e:
+    print(e.status_code)
+
+# Option 2: Access the latest response through the client
+client = aai.Client.get_default()
+
+try:
+    transcript = transcriber.submit("./example.mp3")
+except:
+    print(client.last_response)
+    print(client.last_response.status_code)
+```
+
 ## Polling Intervals
 
 By default we poll the `Transcript`'s status each `3s`. In case you would like to adjust that interval:
