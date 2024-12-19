@@ -88,7 +88,7 @@ class Client:
         return self._http_client
 
     @classmethod
-    def get_default(cls, api_key_required: bool = True) -> Self:
+    def get_default(cls, api_key_required: bool = True):
         """
         Return the default client.
 

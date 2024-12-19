@@ -663,6 +663,7 @@ class _TranscriptGroupImpl:
 
         if return_failures:
             return failures
+        return None
 
 
 class TranscriptGroup:
@@ -913,7 +914,7 @@ class _TranscriberImpl:
         transcript_group = TranscriptGroup(
             client=self._client,
         )
-        failures = []
+        failures: List[types.AssemblyAIError] = []
 
         for future in finished_futures:
             try:
@@ -922,14 +923,20 @@ class _TranscriberImpl:
                 failures.append(e)
 
         if poll and return_failures:
-            transcript_group, completion_failures = (
-                transcript_group.wait_for_completion(return_failures=return_failures)
-            )
+            res = transcript_group.wait_for_completion(return_failures=return_failures)
+            if not isinstance(res, tuple):
+                raise ValueError(
+                    "return_failures is set but did not receive failures object"
+                )
+            transcript_group, completion_failures = res
             failures.extend(completion_failures)
         elif poll:
-            transcript_group = transcript_group.wait_for_completion(
-                return_failures=return_failures
-            )
+            res = transcript_group.wait_for_completion(return_failures=return_failures)
+            if not isinstance(res, TranscriptGroup):
+                raise ValueError(
+                    "return_failures is not set but did receive failures object"
+                )
+            transcript_group = res
 
         if return_failures:
             return transcript_group, failures
@@ -987,7 +994,11 @@ class Transcriber:
         )
 
         if not max_workers:
-            max_workers = max(1, os.cpu_count() - 1)
+            cpu_count = os.cpu_count()
+            if not cpu_count:
+                max_workers = 1
+            else:
+                max_workers = max(1, cpu_count - 1)
 
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
@@ -1147,9 +1158,8 @@ class Transcriber:
         data: List[Union[str, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
-    ) -> Union[
-        concurrent.futures.Future[TranscriptGroup],
-        concurrent.futures.Future[Tuple[TranscriptGroup, List[types.AssemblyAIError]]],
+    ) -> concurrent.futures.Future[
+        Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]
     ]:
         """
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
@@ -1339,7 +1349,8 @@ class _RealtimeTranscriberImpl:
         try:
             self._read_thread.join()
             self._write_thread.join()
-            self._websocket.close()
+            if self._websocket:
+                self._websocket.close()
         except Exception:
             pass
 
@@ -1354,15 +1365,18 @@ class _RealtimeTranscriberImpl:
         """
 
         while not self._stop_event.is_set():
+            if not self._websocket:
+                raise ValueError("Websocket is None")
+
             try:
-                message = self._websocket.recv(timeout=1)
+                recv_message = self._websocket.recv(timeout=1)
             except TimeoutError:
                 continue
             except websockets.exceptions.ConnectionClosed as exc:
                 return self._handle_error(exc)
 
             try:
-                message = json.loads(message)
+                message = json.loads(recv_message)
             except json.JSONDecodeError as exc:
                 self._on_error(
                     types.RealtimeError(
@@ -1387,7 +1401,9 @@ class _RealtimeTranscriberImpl:
                 continue
 
             try:
-                if isinstance(data, dict):
+                if not self._websocket:
+                    raise ValueError("websocket is None")
+                elif isinstance(data, dict):
                     self._websocket.send(json.dumps(data))
                 elif isinstance(data, bytes):
                     self._websocket.send(data)
@@ -1425,9 +1441,10 @@ class _RealtimeTranscriberImpl:
                 message["message_type"]
                 == types.RealtimeMessageTypes.session_information
             ):
-                self._on_extra_session_information(
-                    types.RealtimeSessionInformation(**message)
-                )
+                if self._on_extra_session_information is not None:
+                    self._on_extra_session_information(
+                        types.RealtimeSessionInformation(**message)
+                    )
         elif "error" in message:
             self._on_error(types.RealtimeError(message["error"]))
 
