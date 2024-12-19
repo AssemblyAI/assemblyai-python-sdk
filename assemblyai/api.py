@@ -43,7 +43,8 @@ def create_transcript(
     )
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to transcribe url {request.audio_url}: {_get_error_message(response)}"
+            f"failed to transcribe url {request.audio_url}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.TranscriptResponse.parse_obj(response.json())
@@ -60,6 +61,7 @@ def get_transcript(
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to retrieve transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.TranscriptResponse.parse_obj(response.json())
@@ -76,6 +78,7 @@ def delete_transcript(
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
             f"failed to delete transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.TranscriptResponse.parse_obj(response.json())
@@ -102,7 +105,8 @@ def upload_file(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"Failed to upload audio file: {_get_error_message(response)}"
+            f"Failed to upload audio file: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return response.json()["upload_url"]
@@ -127,7 +131,8 @@ def export_subtitles_srt(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to export SRT for transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to export SRT for transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return response.text
@@ -152,7 +157,8 @@ def export_subtitles_vtt(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to export VTT for transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to export VTT for transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return response.text
@@ -174,7 +180,8 @@ def word_search(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to search words in transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to search words in transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.WordSearchMatchResponse.parse_obj(response.json())
@@ -199,17 +206,20 @@ def get_redacted_audio(
 
     if response.status_code == httpx.codes.ACCEPTED:
         raise types.RedactedAudioIncompleteError(
-            f"redacted audio for transcript {transcript_id} is not ready yet"
+            f"redacted audio for transcript {transcript_id} is not ready yet",
+            response.status_code,
         )
 
     if response.status_code == httpx.codes.BAD_REQUEST:
         raise types.RedactedAudioExpiredError(
-            f"redacted audio for transcript {transcript_id} is no longer available"
+            f"redacted audio for transcript {transcript_id} is no longer available",
+            response.status_code,
         )
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to retrieve redacted audio for transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to retrieve redacted audio for transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.RedactedAudioResponse.parse_obj(response.json())
@@ -225,7 +235,8 @@ def get_sentences(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to retrieve sentences for transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to retrieve sentences for transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.SentencesResponse.parse_obj(response.json())
@@ -241,7 +252,8 @@ def get_paragraphs(
 
     if response.status_code != httpx.codes.OK:
         raise types.TranscriptError(
-            f"failed to retrieve paragraphs for transcript {transcript_id}: {_get_error_message(response)}"
+            f"failed to retrieve paragraphs for transcript {transcript_id}: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.ParagraphsResponse.parse_obj(response.json())
@@ -264,7 +276,8 @@ def list_transcripts(
 
     if response.status_code != httpx.codes.OK:
         raise types.AssemblyAIError(
-            f"failed to retrieve transcripts: {_get_error_message(response)}"
+            f"failed to retrieve transcripts: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.ListTranscriptResponse.parse_obj(response.json())
@@ -285,7 +298,8 @@ def lemur_question(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"failed to call Lemur questions: {_get_error_message(response)}"
+            f"failed to call Lemur questions: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.LemurQuestionResponse.parse_obj(response.json())
@@ -306,7 +320,8 @@ def lemur_summarize(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"failed to call Lemur summary: {_get_error_message(response)}"
+            f"failed to call Lemur summary: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.LemurSummaryResponse.parse_obj(response.json())
@@ -327,7 +342,8 @@ def lemur_action_items(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"failed to call Lemur action items: {_get_error_message(response)}"
+            f"failed to call Lemur action items: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.LemurActionItemsResponse.parse_obj(response.json())
@@ -348,7 +364,8 @@ def lemur_task(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"failed to call Lemur task: {_get_error_message(response)}"
+            f"failed to call Lemur task: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.LemurTaskResponse.parse_obj(response.json())
@@ -366,7 +383,8 @@ def lemur_purge_request_data(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error: {_get_error_message(response)}"
+            f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error: {_get_error_message(response)}",
+            response.status_code,
         )
 
     return types.LemurPurgeResponse.parse_obj(response.json())
@@ -387,7 +405,8 @@ def lemur_get_response_data(
 
     if response.status_code != httpx.codes.OK:
         raise types.LemurError(
-            f"Failed to get LeMUR response data for provided request ID: {request_id}. Error: {_get_error_message(response)}"
+            f"Failed to get LeMUR response data for provided request ID: {request_id}. Error: {_get_error_message(response)}",
+            response.status_code,
         )
 
     json_data = response.json()
@@ -411,7 +430,8 @@ def create_temporary_token(
 
     if response.status_code != httpx.codes.OK:
         raise types.AssemblyAIError(
-            f"Failed to create temporary token: {_get_error_message(response)}"
+            f"Failed to create temporary token: {_get_error_message(response)}",
+            response.status_code,
         )
 
     data = types.RealtimeCreateTemporaryTokenResponse.parse_obj(response.json())

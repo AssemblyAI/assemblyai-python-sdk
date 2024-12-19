@@ -70,6 +70,7 @@ def test_upload_file_fails(httpx_mock: HTTPXMock):
 
     # check wheter the TranscriptError contains the specified error message
     assert returned_error_message in str(excinfo.value)
+    assert httpx.codes.INTERNAL_SERVER_ERROR == excinfo.value.status_code
 
 
 def test_submit_url_succeeds(httpx_mock: HTTPXMock):
@@ -120,6 +121,7 @@ def test_submit_url_fails(httpx_mock: HTTPXMock):
         transcriber.submit("https://example.org/audio.wav")
 
     assert "something went wrong" in str(excinfo)
+    assert httpx.codes.INTERNAL_SERVER_ERROR == excinfo.value.status_code
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -148,6 +150,7 @@ def test_submit_file_fails_due_api_error(httpx_mock: HTTPXMock):
 
     # check wheter the Exception contains the specified error message
     assert "something went wrong" in str(excinfo.value)
+    assert httpx.codes.INTERNAL_SERVER_ERROR == excinfo.value.status_code
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
@@ -430,7 +433,8 @@ def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
     assert len(failures) == 1
 
     # Check whether the error message corresponds to the raised TranscriptError message
-    assert f"Error processing {expect_failed_audio_url}" in failures[0]
+    assert "failed to transcribe url" in str(failures[0])
+    assert failures[0].status_code == httpx.codes.INTERNAL_SERVER_ERROR
 
 
 def test_transcribe_group_urls_fails_during_polling(httpx_mock: HTTPXMock):
@@ -501,7 +505,8 @@ def test_transcribe_group_urls_fails_during_polling(httpx_mock: HTTPXMock):
     assert len(failures) == 1
 
     # Check whether the error message is correct
-    assert "failed to retrieve transcript" in failures[0]
+    assert "failed to retrieve transcript" in str(failures[0])
+    assert failures[0].status_code == httpx.codes.INTERNAL_SERVER_ERROR
 
 
 def test_transcribe_async_url_succeeds(httpx_mock: HTTPXMock):
