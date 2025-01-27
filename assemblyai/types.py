@@ -1,16 +1,6 @@
 from datetime import datetime
 from enum import Enum, EnumMeta
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 from warnings import warn
 
@@ -482,9 +472,6 @@ class SpeechModel(str, Enum):
     nano = "nano"
     "A lightweight, lower cost model for a wide range of languages."
 
-    slam_1 = "slam-1"
-    "A Speech Language Model optimized explicitly for speech-to-text tasks"
-
 
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[Union[str, LanguageCode]] = None
@@ -597,13 +584,6 @@ class RawTranscriptionConfig(BaseModel):
     """
     The speech model to use for the transcription.
     """
-
-    prompt: Optional[str] = None
-    "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
-
-    keyterms_prompt: Optional[List[str]] = None
-    "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
-
     model_config = ConfigDict(extra="allow")
 
 
@@ -647,8 +627,6 @@ class TranscriptionConfig:
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
-        prompt: Optional[str] = None,
-        keyterms_prompt: Optional[List[str]] = None,
     ) -> None:
         """
         Args:
@@ -737,8 +715,6 @@ class TranscriptionConfig:
         self.language_confidence_threshold = language_confidence_threshold
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
-        self.prompt = prompt
-        self.keyterms_prompt = keyterms_prompt
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -766,26 +742,6 @@ class TranscriptionConfig:
     def speech_model(self, speech_model: Optional[SpeechModel]) -> None:
         "Sets the speech model to use for the transcription."
         self._raw_transcription_config.speech_model = speech_model
-
-    @property
-    def prompt(self) -> Optional[str]:
-        "The prompt to use for the transcription."
-        return self._raw_transcription_config.prompt
-
-    @prompt.setter
-    def prompt(self, prompt: Optional[str]) -> None:
-        "Sets the prompt to use for the transcription."
-        self._raw_transcription_config.prompt = prompt
-
-    @property
-    def keyterms_prompt(self) -> Optional[List[str]]:
-        "The keyterms_prompt to use for the transcription."
-        return self._raw_transcription_config.keyterms_prompt
-
-    @keyterms_prompt.setter
-    def keyterms_prompt(self, keyterms_prompt: Optional[List[str]]) -> None:
-        "Sets the prompt to use for the transcription."
-        self._raw_transcription_config.keyterms_prompt = keyterms_prompt
 
     @property
     def punctuate(self) -> Optional[bool]:
@@ -1749,12 +1705,6 @@ class BaseTranscript(BaseModel):
     speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
-    prompt: Optional[str] = None
-    "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
-
-    keyterms_prompt: Optional[List[str]] = None
-    "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
-
 
 class TranscriptRequest(BaseTranscript):
     """
@@ -1820,12 +1770,6 @@ class TranscriptResponse(BaseTranscript):
     speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
 
-    prompt: Optional[str] = None
-    "When Slam-1 is enabled, the prompt used to generate the transcript"
-
-    keyterms_prompt: Optional[List[str]] = None
-    "When Slam-1 is enabled, the list of key terms used to generate the transcript"
-
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
         if not data.get("iab_categories_result") or (
@@ -1863,14 +1807,8 @@ class ListTranscriptParameters(BaseModel):
     status: Optional[TranscriptStatus] = None
     "Filter by transcript status"
 
-    throttled_only: Annotated[
-        Optional[bool],
-        Field(
-            deprecated="`throttled_only` is deprecated and will be removed in a future release.",
-        ),
-    ] = None
+    throttled_only: Optional[bool] = None
     "Get only throttled transcripts, overrides the status filter"
-
     model_config = ConfigDict(use_enum_values=True)
 
 
