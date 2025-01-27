@@ -1,16 +1,6 @@
 from datetime import datetime
 from enum import Enum, EnumMeta
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 from warnings import warn
 
@@ -481,9 +471,6 @@ class SpeechModel(str, Enum):
 
     nano = "nano"
     "A lightweight, lower cost model for a wide range of languages."
-
-    slam_1 = "slam-1"
-    "A Speech Language Model optimized explicitly for speech-to-text tasks"
 
 
 class RawTranscriptionConfig(BaseModel):
@@ -1718,12 +1705,6 @@ class BaseTranscript(BaseModel):
     speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
-    prompt: Optional[str] = None
-    "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
-
-    keyterms_prompt: Optional[List[str]] = None
-    "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
-
 
 class TranscriptRequest(BaseTranscript):
     """
@@ -1789,12 +1770,6 @@ class TranscriptResponse(BaseTranscript):
     speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
 
-    prompt: Optional[str] = None
-    "When Slam-1 is enabled, the prompt used to generate the transcript"
-
-    keyterms_prompt: Optional[List[str]] = None
-    "When Slam-1 is enabled, the list of key terms used to generate the transcript"
-
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
         if not data.get("iab_categories_result") or (
@@ -1832,14 +1807,8 @@ class ListTranscriptParameters(BaseModel):
     status: Optional[TranscriptStatus] = None
     "Filter by transcript status"
 
-    throttled_only: Annotated[
-        Optional[bool],
-        Field(
-            deprecated="`throttled_only` is deprecated and will be removed in a future release.",
-        ),
-    ] = None
+    throttled_only: Optional[bool] = None
     "Get only throttled transcripts, overrides the status filter"
-
     model_config = ConfigDict(use_enum_values=True)
 
 
