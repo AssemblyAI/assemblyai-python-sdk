@@ -1991,17 +1991,17 @@ class LemurModel(str, Enum):
 
     claude2_1 = "anthropic/claude-2-1"
     """
-    Claude 2.1 is a legacy model similar to Claude 2.0. The key difference is that it minimizes model hallucination and system prompts, has a larger context window, and performs better in citations.
+    Deprecated: Claude 2.1 is deprecated and will stop working on Feb 6th, 2025.
     """
 
     claude2_0 = "anthropic/claude-2"
     """
-    Claude 2.0 is a legacy model that has good complex reasoning. It offers more nuanced responses and improved contextual comprehension.
+    Deprecated: Claude 2.0 is deprecated and will stop working on Feb 6th, 2025.
     """
 
     default = "default"
     """
-    Legacy model. The same as `claude2_0`.
+    Deprecated: Legacy model. The same as `claude2_0` and will stop working on Feb 6th, 2025.
     """
 
     mistral7b = "assemblyai/mistral-7b"
