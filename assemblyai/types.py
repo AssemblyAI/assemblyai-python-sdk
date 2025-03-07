@@ -472,6 +472,9 @@ class SpeechModel(str, Enum):
     nano = "nano"
     "A lightweight, lower cost model for a wide range of languages."
 
+    slam_1 = "slam-1"
+    "A Speech Language Model optimized explicitly for speech-to-text tasks"
+
 
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[Union[str, LanguageCode]] = None
