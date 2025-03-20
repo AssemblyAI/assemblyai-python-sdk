@@ -1823,10 +1823,9 @@ class ListTranscriptParameters(BaseModel):
     throttled_only: Annotated[
         Optional[bool],
         Field(
-            default=None,
             deprecated="`throttled_only` is deprecated and will be removed in a future release.",
         ),
-    ]
+    ] = None
     "Get only throttled transcripts, overrides the status filter"
 
     model_config = ConfigDict(use_enum_values=True)
