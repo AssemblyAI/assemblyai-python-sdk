@@ -1718,6 +1718,12 @@ class BaseTranscript(BaseModel):
     speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
+    prompt: Optional[str] = None
+    "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
+
+    keyterms_prompt: Optional[List[str]] = None
+    "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
+
 
 class TranscriptRequest(BaseTranscript):
     """
@@ -1782,6 +1788,12 @@ class TranscriptResponse(BaseTranscript):
 
     speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
+
+    prompt: Optional[str] = None
+    "When Slam-1 is enabled, the prompt used to generate the transcript"
+
+    keyterms_prompt: Optional[List[str]] = None
+    "When Slam-1 is enabled, the list of key terms used to generate the transcript"
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
