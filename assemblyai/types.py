@@ -597,6 +597,13 @@ class RawTranscriptionConfig(BaseModel):
     """
     The speech model to use for the transcription.
     """
+
+    prompt: Optional[str] = None
+    "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
+
+    keyterms_prompt: Optional[List[str]] = None
+    "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -640,6 +647,8 @@ class TranscriptionConfig:
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
+        prompt: Optional[str] = None,
+        keyterms_prompt: Optional[List[str]] = None,
     ) -> None:
         """
         Args:
@@ -728,6 +737,8 @@ class TranscriptionConfig:
         self.language_confidence_threshold = language_confidence_threshold
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
+        self.prompt = prompt
+        self.keyterms_prompt = keyterms_prompt
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -755,6 +766,26 @@ class TranscriptionConfig:
     def speech_model(self, speech_model: Optional[SpeechModel]) -> None:
         "Sets the speech model to use for the transcription."
         self._raw_transcription_config.speech_model = speech_model
+
+    @property
+    def prompt(self) -> Optional[str]:
+        "The prompt to use for the transcription."
+        return self._raw_transcription_config.prompt
+
+    @prompt.setter
+    def prompt(self, prompt: Optional[str]) -> None:
+        "Sets the prompt to use for the transcription."
+        self._raw_transcription_config.prompt = prompt
+
+    @property
+    def keyterms_prompt(self) -> Optional[List[str]]:
+        "The keyterms_prompt to use for the transcription."
+        return self._raw_transcription_config.keyterms_prompt
+
+    @keyterms_prompt.setter
+    def keyterms_prompt(self, keyterms_prompt: Optional[List[str]]) -> None:
+        "Sets the prompt to use for the transcription."
+        self._raw_transcription_config.keyterms_prompt = keyterms_prompt
 
     @property
     def punctuate(self) -> Optional[bool]:
