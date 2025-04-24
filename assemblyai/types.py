@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 
 try:
     # pydantic v2 import
-    from pydantic import UUID4, BaseModel, ConfigDict, Field
+    from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
     pydantic_v2 = True
 except ImportError:
     # pydantic v1 import
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field
+    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field, validator
 
     pydantic_v2 = False
 
@@ -1467,6 +1467,19 @@ class Word(BaseModel):
     confidence: float
     speaker: Optional[str] = None
     channel: Optional[str] = None
+
+    # This is a workaround to address an issue where sentiment_analysis_results
+    # may return contains sentiments where `start` is null.
+    if pydantic_v2:
+
+        @field_validator("start", mode="before")
+        def set_start_default(cls, v):
+            return 0 if v is None else v
+    else:
+
+        @validator("start", pre=True)
+        def set_start_default(cls, v):
+            return 0 if v is None else v
 
 
 class UtteranceWord(Word):
