@@ -485,6 +485,9 @@ class SpeechModel(str, Enum):
     slam_1 = "slam-1"
     "A Speech Language Model optimized explicitly for speech-to-text tasks"
 
+    universal = "universal"
+    "The model optimized for accuracy, low latency, ease of use, and multi-language support"
+
 
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[Union[str, LanguageCode]] = None
