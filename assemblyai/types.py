@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 
 try:
     # pydantic v2 import
-    from pydantic import UUID4, BaseModel, ConfigDict, Field
+    from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
     pydantic_v2 = True
 except ImportError:
     # pydantic v1 import
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field
+    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field, validator
 
     pydantic_v2 = False
 
@@ -1468,6 +1468,19 @@ class Word(BaseModel):
     speaker: Optional[str] = None
     channel: Optional[str] = None
 
+    # This is a workaround to address an issue where sentiment_analysis_results
+    # may return contains sentiments where `start` is null.
+    if pydantic_v2:
+
+        @field_validator("start", mode="before")
+        def set_start_default(cls, v):
+            return 0 if v is None else v
+    else:
+
+        @validator("start", pre=True)
+        def set_start_default(cls, v):
+            return 0 if v is None else v
+
 
 class UtteranceWord(Word):
     channel: Optional[str] = None
@@ -2031,9 +2044,14 @@ class LemurModel(str, Enum):
     LeMUR features different model modes that allow you to configure your request to suit your needs.
     """
 
+    claude3_7_sonnet_20250219 = "anthropic/claude-3-7-sonnet"
+    """
+    Claude 3.7 Sonnet is the most intelligent model to date, providing the highest level of intelligence and capability with toggleable extended thinking.
+    """
+
     claude3_5_sonnet = "anthropic/claude-3-5-sonnet"
     """
-    Claude 3.5 Sonnet is the most intelligent model to date, outperforming Claude 3 Opus on a wide range of evaluations, with the speed and cost of Claude 3 Sonnet.
+    Claude 3.5 Sonnet is the previous most intelligent model to date, providing high level of intelligence and capability.
     """
 
     claude3_opus = "anthropic/claude-3-opus"
@@ -2041,9 +2059,14 @@ class LemurModel(str, Enum):
     Claude 3 Opus is good at handling complex analysis, longer tasks with many steps, and higher-order math and coding tasks.
     """
 
+    claude3_5_haiku_20241022 = "anthropic/claude-3-5-haiku"
+    """
+    Claude 3.5 Haiku is the fastest model, providing intelligence at blazing speeds.
+    """
+
     claude3_haiku = "anthropic/claude-3-haiku"
     """
-    Claude 3 Haiku is the fastest model that can execute lightweight actions.
+    Claude 3 Haiku is the fastest and most compact model for near-instant responsiveness.
     """
 
     claude3_sonnet = "anthropic/claude-3-sonnet"
