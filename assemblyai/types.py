@@ -2044,7 +2044,7 @@ class LemurModel(str, Enum):
     LeMUR features different model modes that allow you to configure your request to suit your needs.
     """
 
-    claude3_7_sonnet_20250219 = "anthropic/claude-3-7-sonnet"
+    claude3_7_sonnet_20250219 = "anthropic/claude-3-7-sonnet-20250219"
     """
     Claude 3.7 Sonnet is the most intelligent model to date, providing the highest level of intelligence and capability with toggleable extended thinking.
     """
@@ -2059,7 +2059,7 @@ class LemurModel(str, Enum):
     Claude 3 Opus is good at handling complex analysis, longer tasks with many steps, and higher-order math and coding tasks.
     """
 
-    claude3_5_haiku_20241022 = "anthropic/claude-3-5-haiku"
+    claude3_5_haiku_20241022 = "anthropic/claude-3-5-haiku-20241022"
     """
     Claude 3.5 Haiku is the fastest model, providing intelligence at blazing speeds.
     """
