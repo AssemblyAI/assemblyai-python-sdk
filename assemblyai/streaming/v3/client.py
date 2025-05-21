@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 import httpx
 import websockets
+from pydantic import BaseModel
 from websockets.sync.client import connect as websocket_connect
 
 from assemblyai import __version__
@@ -32,6 +33,14 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _user_agent() -> str:
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+    return (
+        f"AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
+    )
+
+
 class StreamingClient:
     def __init__(self, options: StreamingClientOptions):
         self._options = options
@@ -53,7 +62,7 @@ class StreamingClient:
         uri = f"wss://{self._options.api_host}/v3/ws?{params_encoded}"
         headers = {
             "Authorization": self._options.api_key,
-            "User-Agent": self._user_agent(),
+            "User-Agent": _user_agent(),
             "AssemblyAI-Version": "2025-05-12",
         }
 
@@ -71,9 +80,6 @@ class StreamingClient:
         self._read_thread.start()
 
         logger.debug("Connected to WebSocket server")
-
-    def create_temporary_token() -> str:
-        return "temporary_token"
 
     def disconnect(self, terminate: bool = False) -> None:
         if terminate and not self._stop_event.is_set():
@@ -119,7 +125,7 @@ class StreamingClient:
             try:
                 if isinstance(data, bytes):
                     self._websocket.send(data)
-                elif isinstance(data, OperationMessage):
+                elif isinstance(data, BaseModel):
                     message = data.model_dump_json(exclude_none=True)
                     self._websocket.send(message)
                 else:
@@ -182,8 +188,13 @@ class StreamingClient:
         elif "error" in data:
             return ErrorEvent.model_validate(data)
 
+        return None
+
     @staticmethod
-    def _parse_event_type(message_type: str) -> Optional[StreamingEvents]:
+    def _parse_event_type(message_type: Optional[Any]) -> Optional[StreamingEvents]:
+        if not isinstance(message_type, str):
+            return None
+
         try:
             return StreamingEvents[message_type]
         except KeyError:
@@ -227,22 +238,16 @@ class StreamingClient:
             if error.code != 1000:
                 return StreamingError(message=error_message, code=error.code)
 
-        else:
-            return StreamingError(
-                message=f"Unknown error: {error}",
-            )
-
-    def _user_agent(self) -> str:
-        vi = sys.version_info
-        python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
-        return f"AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
+        return StreamingError(
+            message=f"Unknown error: {error}",
+        )
 
 
 class HTTPClient:
     def __init__(self, options: StreamingClientOptions):
         headers = {
-            "Authorization": self._options.api_key,
-            "User-Agent": self._user_agent(),
+            "Authorization": options.api_key,
+            "User-Agent": _user_agent(),
         }
 
         base_url = f"https://{options.api_host}"
