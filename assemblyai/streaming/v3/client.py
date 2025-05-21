@@ -47,6 +47,12 @@ def _dump_model(model: BaseModel):
     return model.dict(exclude_none=True)
 
 
+def _dump_model_json(model: BaseModel):
+    if hasattr(model, "model_dump_json"):
+        return model.model_dump_json(exclude_none=True)
+    return model.json(exclude_none=True)
+
+
 class StreamingClient:
     def __init__(self, options: StreamingClientOptions):
         self._options = options
@@ -132,7 +138,7 @@ class StreamingClient:
                 if isinstance(data, bytes):
                     self._websocket.send(data)
                 elif isinstance(data, BaseModel):
-                    self._websocket.send(json.dumps(data))
+                    self._websocket.send(_dump_model_json(data))
                 else:
                     raise ValueError(f"Attempted to send invalid message: {type(data)}")
             except websockets.exceptions.ConnectionClosed as exc:
