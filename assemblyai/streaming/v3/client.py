@@ -33,6 +33,18 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _dump_model(model: BaseModel):
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_none=True)
+    return model.dict(exclude_none=True)
+
+
+def _dump_model_json(model: BaseModel):
+    if hasattr(model, "model_dump_json"):
+        return model.model_dump_json(exclude_none=True)
+    return model.json(exclude_none=True)
+
+
 def _user_agent() -> str:
     vi = sys.version_info
     python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
@@ -56,7 +68,7 @@ class StreamingClient:
         self._stop_event = threading.Event()
 
     def connect(self, params: StreamingParameters) -> None:
-        params_dict = params.model_dump(exclude_none=True)
+        params_dict = _dump_model(params)
         params_encoded = urlencode(params_dict)
 
         uri = f"wss://{self._options.api_host}/v3/ws?{params_encoded}"
@@ -105,7 +117,7 @@ class StreamingClient:
             self._write_queue.put(chunk)
 
     def set_params(self, params: StreamingSessionParameters):
-        message = UpdateConfiguration(**params.model_dump())
+        message = UpdateConfiguration(**_dump_model(params))
         self._write_queue.put(message)
 
     def on(self, event: StreamingEvents, handler: Callable) -> None:
@@ -126,8 +138,7 @@ class StreamingClient:
                 if isinstance(data, bytes):
                     self._websocket.send(data)
                 elif isinstance(data, BaseModel):
-                    message = data.model_dump_json(exclude_none=True)
-                    self._websocket.send(message)
+                    self._websocket.send(_dump_model_json(data))
                 else:
                     raise ValueError(f"Attempted to send invalid message: {type(data)}")
             except websockets.exceptions.ConnectionClosed as exc:
