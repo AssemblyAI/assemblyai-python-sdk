@@ -73,7 +73,9 @@ class StreamingClient:
 
         uri = f"wss://{self._options.api_host}/v3/ws?{params_encoded}"
         headers = {
-            "Authorization": self._options.api_key,
+            "Authorization": self._options.token
+            if self._options.token
+            else self._options.api_key,
             "User-Agent": _user_agent(),
             "AssemblyAI-Version": "2025-05-12",
         }

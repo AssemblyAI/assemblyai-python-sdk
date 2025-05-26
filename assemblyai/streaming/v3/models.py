@@ -65,7 +65,6 @@ class StreamingSessionParameters(BaseModel):
 
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
-    token: Optional[str] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
@@ -81,8 +80,9 @@ OperationMessage = Union[
 
 
 class StreamingClientOptions(BaseModel):
-    api_key: Optional[str] = None
     api_host: str
+    api_key: Optional[str] = None
+    token: Optional[str] = None
 
 
 class StreamingError(Exception):
