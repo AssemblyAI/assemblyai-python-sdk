@@ -80,7 +80,7 @@ OperationMessage = Union[
 
 
 class StreamingClientOptions(BaseModel):
-    api_host: str
+    api_host: str = "streaming.assemblyai.com"
     api_key: Optional[str] = None
     token: Optional[str] = None
 

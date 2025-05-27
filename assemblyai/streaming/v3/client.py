@@ -6,7 +6,6 @@ import threading
 from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Union
 from urllib.parse import urlencode
 
-import httpx
 import websockets
 from pydantic import BaseModel
 from websockets.sync.client import connect as websocket_connect
@@ -254,15 +253,3 @@ class StreamingClient:
         return StreamingError(
             message=f"Unknown error: {error}",
         )
-
-
-class HTTPClient:
-    def __init__(self, options: StreamingClientOptions):
-        headers = {
-            "Authorization": options.api_key,
-            "User-Agent": _user_agent(),
-        }
-
-        base_url = f"https://{options.api_host}"
-
-        self._http_client = httpx.Client(base_url=base_url, headers=headers, timeout=30)
