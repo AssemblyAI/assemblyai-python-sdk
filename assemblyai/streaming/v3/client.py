@@ -33,14 +33,6 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-def _user_agent() -> str:
-    vi = sys.version_info
-    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
-    return (
-        f"AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
-    )
-
-
 def _dump_model(model: BaseModel):
     if hasattr(model, "model_dump"):
         return model.model_dump(exclude_none=True)
@@ -53,9 +45,19 @@ def _dump_model_json(model: BaseModel):
     return model.json(exclude_none=True)
 
 
+def _user_agent() -> str:
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+    return (
+        f"AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
+    )
+
+
 class StreamingClient:
     def __init__(self, options: StreamingClientOptions):
         self._options = options
+
+        self._client = _HTTPClient(api_host=options.api_host, api_key=options.api_key)
 
         self._handlers: Dict[StreamingEvents, List[Callable]] = {}
 
@@ -73,7 +75,9 @@ class StreamingClient:
 
         uri = f"wss://{self._options.api_host}/v3/ws?{params_encoded}"
         headers = {
-            "Authorization": self._options.api_key,
+            "Authorization": self._options.token
+            if self._options.token
+            else self._options.api_key,
             "User-Agent": _user_agent(),
             "AssemblyAI-Version": "2025-05-12",
         }
@@ -253,14 +257,44 @@ class StreamingClient:
             message=f"Unknown error: {error}",
         )
 
+    def create_temporary_token(
+        self,
+        expires_in_seconds: int,
+        max_session_duration_seconds: int,
+    ) -> str:
+        return self._client.create_temporary_token(
+            expires_in_seconds=expires_in_seconds,
+            max_session_duration_seconds=max_session_duration_seconds,
+        )
 
-class HTTPClient:
-    def __init__(self, options: StreamingClientOptions):
-        headers = {
-            "Authorization": options.api_key,
-            "User-Agent": _user_agent(),
-        }
 
-        base_url = f"https://{options.api_host}"
+class _HTTPClient:
+    def __init__(self, api_host: str, api_key: Optional[str] = None):
+        vi = sys.version_info
+        python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+        user_agent = f"{httpx._client.USER_AGENT} AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
 
-        self._http_client = httpx.Client(base_url=base_url, headers=headers, timeout=30)
+        headers = {"User-Agent": user_agent}
+
+        if api_key:
+            headers["Authorization"] = api_key
+
+        self._http_client = httpx.Client(
+            base_url="https://" + api_host,
+            headers=headers,
+        )
+
+    def create_temporary_token(
+        self,
+        expires_in_seconds: int,
+        max_session_duration_seconds: int,
+    ) -> str:
+        response = self._http_client.get(
+            "/v3/token",
+            params={
+                "expires_in": expires_in_seconds,
+                "max_session_duration": max_session_duration_seconds,
+            },
+        )
+        response.raise_for_status()
+        return response.json()["token"]
