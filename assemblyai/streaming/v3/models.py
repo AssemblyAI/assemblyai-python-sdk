@@ -56,16 +56,14 @@ class ForceEndpoint(BaseModel):
 
 
 class StreamingSessionParameters(BaseModel):
-    word_finalization_max_wait_time: Optional[int] = None
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = None
     max_turn_silence: Optional[int] = None
-    formatted_finals: Optional[bool] = None
+    format_turns: Optional[bool] = None
 
 
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
-    token: Optional[str] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
@@ -81,8 +79,9 @@ OperationMessage = Union[
 
 
 class StreamingClientOptions(BaseModel):
+    api_host: str = "streaming.assemblyai.com"
     api_key: Optional[str] = None
-    api_host: str
+    token: Optional[str] = None
 
 
 class StreamingError(Exception):
