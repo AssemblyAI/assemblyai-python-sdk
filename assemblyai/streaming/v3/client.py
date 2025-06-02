@@ -286,15 +286,21 @@ class _HTTPClient:
 
     def create_temporary_token(
         self,
-        expires_in_seconds: int,
-        max_session_duration_seconds: int,
+        expires_in_seconds: Optional[int] = None,
+        max_session_duration_seconds: Optional[int] = None,
     ) -> str:
+        params: Dict[str, Any] = {}
+
+        if expires_in_seconds:
+            params["expires_in_seconds"] = expires_in_seconds
+
+        if max_session_duration_seconds:
+            params["max_session_duration_seconds"] = expires_in_seconds
+
         response = self._http_client.get(
             "/v3/token",
-            params={
-                "expires_in": expires_in_seconds,
-                "max_session_duration": max_session_duration_seconds,
-            },
+            params=params,
         )
+
         response.raise_for_status()
         return response.json()["token"]
