@@ -29,7 +29,7 @@ With a single API call, get access to AI models built on the latest AI breakthro
     - [**Core Examples**](#core-examples)
     - [**LeMUR Examples**](#lemur-examples)
     - [**Audio Intelligence Examples**](#audio-intelligence-examples)
-    - [**Real-Time Examples**](#real-time-examples)
+    - [**Streaming Examples**](#streaming-examples)
   - [Playgrounds](#playgrounds)
 - [Advanced](#advanced)
   - [How the SDK handles Default Configurations](#how-the-sdk-handles-default-configurations)
@@ -692,54 +692,69 @@ for result in transcript.auto_highlights.results:
 
 ---
 
-### **Real-Time Examples**
+### **Streaming Examples**
 
-[Read more about our Real-Time service.](https://www.assemblyai.com/docs/Guides/real-time_streaming_transcription)
+[Read more about our streaming service.](https://www.assemblyai.com/docs/getting-started/transcribe-streaming-audio)
 
 <details>
   <summary>Stream your microphone in real-time</summary>
 
 ```python
 import assemblyai as aai
-
-def on_open(session_opened: aai.RealtimeSessionOpened):
-  "This function is called when the connection has been established."
-
-  print("Session ID:", session_opened.session_id)
-
-def on_data(transcript: aai.RealtimeTranscript):
-  "This function is called when a new transcript has been received."
-
-  if not transcript.text:
-    return
-
-  if isinstance(transcript, aai.RealtimeFinalTranscript):
-    print(transcript.text, end="\r\n")
-  else:
-    print(transcript.text, end="\r")
-
-def on_error(error: aai.RealtimeError):
-  "This function is called when an error occurs."
-
-  print("An error occured:", error)
-
-def on_close():
-  "This function is called when the connection has been closed."
-
-  print("Closing Session")
-
-
-# Create the Real-Time transcriber
-transcriber = aai.RealtimeTranscriber(
-  on_data=on_data,
-  on_error=on_error,
-  sample_rate=44_100,
-  on_open=on_open, # optional
-  on_close=on_close, # optional
+from assemblyai.streaming.v3 import (
+    BeginEvent,
+    StreamingClient,
+    StreamingClientOptions,
+    StreamingError,
+    StreamingEvents,
+    StreamingParameters,
+    StreamingSessionParameters,
+    TerminationEvent,
+    TurnEvent,
 )
 
+def on_begin(self: Type[StreamingClient], event: BeginEvent):
+  "This function is called when the connection has been established."
+
+  print("Session ID:", event.id)
+
+def on_turn(self: Type[StreamingClient], event: TurnEvent):
+  "This function is called when a new transcript has been received."
+
+  print(event.transcript, end="\r\n")
+
+def on_terminated(self: Type[StreamingClient], event: TerminationEvent):
+  "This function is called when an error occurs."
+
+  print(
+    f"Session terminated: {event.audio_duration_seconds} seconds of audio processed"
+  )
+
+def on_error(self: Type[StreamingClient], error: StreamingError):
+  "This function is called when the connection has been closed."
+
+  print(f"Error occurred: {error}")
+
+
+# Create the streaming client
+transcriber = StreamingClient(
+  StreamingClientOptions(
+    api_key="YOUR_API_KEY",
+  )
+)
+
+client.on(StreamingEvents.Begin, on_begin)
+client.on(StreamingEvents.Turn, on_turn)
+client.on(StreamingEvents.Termination, on_terminated)
+client.on(StreamingEvents.Error, on_error)
+
 # Start the connection
-transcriber.connect()
+client.connect(
+  StreamingParameters(
+    sample_rate=16_000,
+    formatted_finals=True,
+  )
+)
 
 # Open a microphone stream
 microphone_stream = aai.extras.MicrophoneStream()
@@ -747,7 +762,7 @@ microphone_stream = aai.extras.MicrophoneStream()
 # Press CTRL+C to abort
 transcriber.stream(microphone_stream)
 
-transcriber.close()
+transcriber.disconnect()
 ```
 
 </details>
@@ -756,36 +771,6 @@ transcriber.close()
   <summary>Transcribe a local audio file in real-time</summary>
 
 ```python
-import assemblyai as aai
-
-
-def on_data(transcript: aai.RealtimeTranscript):
-  "This function is called when a new transcript has been received."
-
-  if not transcript.text:
-    return
-
-  if isinstance(transcript, aai.RealtimeFinalTranscript):
-    print(transcript.text, end="\r\n")
-  else:
-    print(transcript.text, end="\r")
-
-def on_error(error: aai.RealtimeError):
-  "This function is called when the connection has been closed."
-
-  print("An error occured:", error)
-
-
-# Create the Real-Time transcriber
-transcriber = aai.RealtimeTranscriber(
-  on_data=on_data,
-  on_error=on_error,
-  sample_rate=44_100,
-)
-
-# Start the connection
-transcriber.connect()
-
 # Only WAV/PCM16 single channel supported for now
 file_stream = aai.extras.stream_file(
   filepath="audio.wav",
@@ -793,62 +778,6 @@ file_stream = aai.extras.stream_file(
 )
 
 transcriber.stream(file_stream)
-
-transcriber.close()
-```
-
-</details>
-
-<details>
-  <summary>End-of-utterance controls</summary>
-
-```python
-transcriber = aai.RealtimeTranscriber(...)
-
-# Manually end an utterance and immediately produce a final transcript.
-transcriber.force_end_utterance()
-
-# Configure the threshold for automatic utterance detection.
-transcriber = aai.RealtimeTranscriber(
-    ...,
-    end_utterance_silence_threshold=500
-)
-
-# Can be changed any time during a session.
-# The valid range is between 0 and 20000.
-transcriber.configure_end_utterance_silence_threshold(300)
-```
-
-</details>
-
-<details>
-  <summary>Disable partial transcripts</summary>
-
-```python
-# Set disable_partial_transcripts to `True`
-transcriber = aai.RealtimeTranscriber(
-    ...,
-    disable_partial_transcripts=True
-)
-```
-
-</details>
-
-<details>
-  <summary>Enable extra session information</summary>
-
-```python
-# Define a callback to handle the extra session information message
-def on_extra_session_information(data: aai.RealtimeSessionInformation):
-    "This function is called when a session information message has been received."
-
-    print(data.audio_duration_seconds)
-
-# Configure the RealtimeTranscriber
-transcriber = aai.RealtimeTranscriber(
-    ...,
-    on_extra_session_information=on_extra_session_information,
-)
 ```
 
 </details>
