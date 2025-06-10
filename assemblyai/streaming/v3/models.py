@@ -62,8 +62,14 @@ class StreamingSessionParameters(BaseModel):
     format_turns: Optional[bool] = None
 
 
+class Encoding(str, Enum):
+    pcm_s16le = "pcm_s16le"
+    pcm_mulaw = "pcm_mulaw"
+
+
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
+    encoding: Optional[Encoding] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
