@@ -66,6 +66,9 @@ class Encoding(str, Enum):
     pcm_s16le = "pcm_s16le"
     pcm_mulaw = "pcm_mulaw"
 
+    def __str__(self):
+        return self.value
+
 
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
