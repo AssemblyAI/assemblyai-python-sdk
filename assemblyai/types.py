@@ -489,6 +489,43 @@ class SpeechModel(str, Enum):
     "The model optimized for accuracy, low latency, ease of use, and multi-language support"
 
 
+class SpeakerOptions(BaseModel):
+    """
+    Speaker options for controlling speaker diarization parameters
+    """
+
+    min_speakers_expected: Optional[int] = Field(
+        None, ge=1, description="Minimum number of speakers expected in the audio"
+    )
+    max_speakers_expected: Optional[int] = Field(
+        None, ge=1, description="Maximum number of speakers expected in the audio"
+    )
+
+    if pydantic_v2:
+
+        @field_validator("max_speakers_expected")
+        @classmethod
+        def validate_max_speakers(cls, v, info):
+            if v is not None and info.data.get("min_speakers_expected") is not None:
+                min_speakers = info.data["min_speakers_expected"]
+                if v < min_speakers:
+                    raise ValueError(
+                        "max_speakers_expected must be greater than or equal to min_speakers_expected"
+                    )
+            return v
+    else:
+
+        @validator("max_speakers_expected")
+        def validate_max_speakers(cls, v, values):
+            if v is not None and values.get("min_speakers_expected") is not None:
+                min_speakers = values["min_speakers_expected"]
+                if v < min_speakers:
+                    raise ValueError(
+                        "max_speakers_expected must be greater than or equal to min_speakers_expected"
+                    )
+            return v
+
+
 class RawTranscriptionConfig(BaseModel):
     language_code: Optional[Union[str, LanguageCode]] = None
     """
@@ -545,6 +582,9 @@ class RawTranscriptionConfig(BaseModel):
 
     speakers_expected: Optional[int] = None
     "The number of speakers you expect to be in your audio file."
+
+    speaker_options: Optional[SpeakerOptions] = None
+    "Advanced options for controlling speaker diarization parameters."
 
     content_safety: Optional[bool] = None
     "Enable Content Safety Detection."
@@ -633,6 +673,7 @@ class TranscriptionConfig:
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
+        speaker_options: Optional[SpeakerOptions] = None,
         content_safety: Optional[bool] = None,
         content_safety_confidence: Optional[int] = None,
         iab_categories: Optional[bool] = None,
@@ -675,6 +716,7 @@ class TranscriptionConfig:
             redact_pii_sub: The replacement logic for detected PII.
             speaker_labels: Enable Speaker Diarization.
             speakers_expected: The number of speakers you expect to hear in your audio file. Up to 10 speakers are supported.
+            speaker_options: Advanced options for controlling speaker diarization parameters, including min and max speakers expected.
             content_safety: Enable Content Safety Detection.
             iab_categories: Enable Topic Detection.
             custom_spelling: Customize how words are spelled and formatted using to and from values.
@@ -722,7 +764,7 @@ class TranscriptionConfig:
             redact_pii_policies,
             redact_pii_sub,
         )
-        self.set_speaker_diarization(speaker_labels, speakers_expected)
+        self.set_speaker_diarization(speaker_labels, speakers_expected, speaker_options)
         self.set_content_safety(content_safety, content_safety_confidence)
         self.iab_categories = iab_categories
         self.set_custom_spelling(custom_spelling, override=True)
@@ -933,6 +975,12 @@ class TranscriptionConfig:
         "Returns the number of speakers expected to be in the audio file. Used in combination with the `speaker_labels` parameter."
 
         return self._raw_transcription_config.speakers_expected
+
+    @property
+    def speaker_options(self) -> Optional[SpeakerOptions]:
+        "Returns the advanced speaker diarization options."
+
+        return self._raw_transcription_config.speaker_options
 
     @property
     def content_safety(self) -> Optional[bool]:
@@ -1162,6 +1210,7 @@ class TranscriptionConfig:
         self,
         enable: Optional[bool] = True,
         speakers_expected: Optional[int] = None,
+        speaker_options: Optional[SpeakerOptions] = None,
     ) -> Self:
         """
         Whether to enable Speaker Diarization on the transcript.
@@ -1169,14 +1218,24 @@ class TranscriptionConfig:
         Args:
             `enable`: Enable Speaker Diarization
             `speakers_expected`: The number of speakers in the audio file.
+            `speaker_options`: Advanced options for controlling speaker diarization parameters.
         """
 
-        if not enable:
+        # If enable is explicitly False, clear all speaker settings
+        if enable is False:
             self._raw_transcription_config.speaker_labels = None
             self._raw_transcription_config.speakers_expected = None
+            self._raw_transcription_config.speaker_options = None
+        # If enable is True or None, set the values (allow setting speaker_options even when enable is None)
         else:
-            self._raw_transcription_config.speaker_labels = True
-            self._raw_transcription_config.speakers_expected = speakers_expected
+            # Only set speaker_labels to True if enable is explicitly True
+            if enable is True:
+                self._raw_transcription_config.speaker_labels = True
+            # Always set these if provided, regardless of enable value
+            if speakers_expected is not None:
+                self._raw_transcription_config.speakers_expected = speakers_expected
+            if speaker_options is not None:
+                self._raw_transcription_config.speaker_options = speaker_options
 
         return self
 
@@ -1711,6 +1770,9 @@ class BaseTranscript(BaseModel):
 
     speakers_expected: Optional[int] = None
     "The number of speakers you expect to be in your audio file."
+
+    speaker_options: Optional[SpeakerOptions] = None
+    "Advanced options for controlling speaker diarization parameters."
 
     content_safety: Optional[bool] = None
     "Enable Content Safety Detection."
