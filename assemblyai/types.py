@@ -2109,33 +2109,50 @@ class LemurModel(str, Enum):
     LeMUR features different model modes that allow you to configure your request to suit your needs.
     """
 
+    claude_opus_4_20250514 = "anthropic/claude-opus-4-20250514"
+    """
+    https://www.anthropic.com/news/claude-4 - read to understand the capabilities/limitations of opus 4
+
+    Input Token Limit: 200k
+    Output Token Limit: 64k
+    """
+
+    claude_sonnet_4_20250514 = "anthropic/claude-sonnet-4-20250514"
+    """
+    https://www.anthropic.com/news/claude-4 - read to understand the capabilities/limitations of sonnet 4
+
+    Input Token Limit: 200k
+    Output Token Limit: 64k
+    """
+
     claude3_7_sonnet_20250219 = "anthropic/claude-3-7-sonnet-20250219"
     """
-    Claude 3.7 Sonnet is the most intelligent model to date, providing the highest level of intelligence and capability with toggleable extended thinking.
+    https://www.anthropic.com/news/claude-3-7-sonnet - read to understand the capabilities/limitations of sonnet 3.7
     """
 
     claude3_5_sonnet = "anthropic/claude-3-5-sonnet"
     """
-    Claude 3.5 Sonnet is the previous most intelligent model to date, providing high level of intelligence and capability.
+    https://www.anthropic.com/news/claude-3-5-sonnet - read to understand the capabilities/limitations of sonnet 3.7
     """
 
     claude3_opus = "anthropic/claude-3-opus"
     """
-    Claude 3 Opus is good at handling complex analysis, longer tasks with many steps, and higher-order math and coding tasks.
+    Deprecated: EOL ~Jan 2026
     """
 
     claude3_5_haiku_20241022 = "anthropic/claude-3-5-haiku-20241022"
     """
-    Claude 3.5 Haiku is the fastest model, providing intelligence at blazing speeds.
+    https://www.anthropic.com/claude/haiku - read to understand the capabilities/limitations of haiku 3.5
     """
 
     claude3_haiku = "anthropic/claude-3-haiku"
     """
-    Claude 3 Haiku is the fastest and most compact model for near-instant responsiveness.
+    https://www.anthropic.com/news/claude-3-haiku - read to understand the capabilities/limitations of haiku 3
     """
 
     claude3_sonnet = "anthropic/claude-3-sonnet"
     """
+    Deprecated: EOL ~July 2025
     Claude 3 Sonnet is a legacy model with a balanced combination of performance and speed for efficient, high-throughput tasks.
     """
 
