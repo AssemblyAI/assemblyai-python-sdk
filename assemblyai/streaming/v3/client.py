@@ -260,7 +260,7 @@ class StreamingClient:
     def create_temporary_token(
         self,
         expires_in_seconds: int,
-        max_session_duration_seconds: int,
+        max_session_duration_seconds: Optional[int] = None,
     ) -> str:
         return self._client.create_temporary_token(
             expires_in_seconds=expires_in_seconds,
@@ -286,7 +286,7 @@ class _HTTPClient:
 
     def create_temporary_token(
         self,
-        expires_in_seconds: Optional[int] = None,
+        expires_in_seconds: int,
         max_session_duration_seconds: Optional[int] = None,
     ) -> str:
         params: Dict[str, Any] = {}
@@ -295,7 +295,7 @@ class _HTTPClient:
             params["expires_in_seconds"] = expires_in_seconds
 
         if max_session_duration_seconds:
-            params["max_session_duration_seconds"] = expires_in_seconds
+            params["max_session_duration_seconds"] = max_session_duration_seconds
 
         response = self._http_client.get(
             "/v3/token",
