@@ -20,6 +20,7 @@ def test_configuration_drift():
         "set_webhook",  # webhook
         "set_speaker_diarization",  # speaker diarization
         "set_content_safety",  # content safety
+        "set_language_detection",  # language detection
     }
 
     # get all members

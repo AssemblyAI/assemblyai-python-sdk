@@ -489,6 +489,18 @@ class SpeechModel(str, Enum):
     "The model optimized for accuracy, low latency, ease of use, and multi-language support"
 
 
+class LanguageDetectionOptions(BaseModel):
+    """Options for controlling the behavior or Automatic Language Detection"""
+
+    expected_languages: Optional[List[str]] = Field(
+        None, description="A list of languages that the audio could be expected to be."
+    )
+    fallback_language: Optional[str] = Field(
+        None,
+        description="The language to fallback to in case the language detection does not predict any of the expected ones.",
+    )
+
+
 class SpeakerOptions(BaseModel):
     """
     Speaker options for controlling speaker diarization parameters
@@ -633,6 +645,9 @@ class RawTranscriptionConfig(BaseModel):
     if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
     """
 
+    language_detection_options: Optional[LanguageDetectionOptions] = None
+    "Options for controlling the behavior or Automatic Language Detection."
+
     speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive."
 
@@ -688,6 +703,7 @@ class TranscriptionConfig:
         auto_highlights: Optional[bool] = None,
         language_detection: Optional[bool] = None,
         language_confidence_threshold: Optional[float] = None,
+        language_detection_options: Optional[LanguageDetectionOptions] = None,
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
@@ -731,6 +747,7 @@ class TranscriptionConfig:
             language_detection: Identify the dominant language that's spoken in an audio file, and route the file to the appropriate model for the detected language.
             language_confidence_threshold: The confidence threshold that must be reached if `language_detection` is enabled.
                 An error will be returned if the language confidence is below this threshold. Valid values are in the range [0,1] inclusive.
+            language_detection_options: Options for controlling the behavior or Automatic Language Detection.
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
         """
@@ -780,6 +797,7 @@ class TranscriptionConfig:
         self.auto_highlights = auto_highlights
         self.language_detection = language_detection
         self.language_confidence_threshold = language_confidence_threshold
+        self.language_detection_options = language_detection_options
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
         self.prompt = prompt
@@ -1176,6 +1194,20 @@ class TranscriptionConfig:
         self._raw_transcription_config.language_confidence_threshold = threshold
 
     @property
+    def language_detection_options(self) -> Optional[LanguageDetectionOptions]:
+        "Returns the options for controlling the behavior or Automatic Language Detection."
+
+        return self._raw_transcription_config.language_detection_options
+
+    @language_detection_options.setter
+    def language_detection_options(
+        self, options: Optional[LanguageDetectionOptions]
+    ) -> None:
+        "Set the options for controlling the behavior or Automatic Language Detection."
+
+        self._raw_transcription_config.language_detection_options = options
+
+    @property
     def speech_threshold(self) -> Optional[float]:
         "Returns the current speech threshold."
 
@@ -1438,6 +1470,44 @@ class TranscriptionConfig:
         self._raw_transcription_config.summarization = True
         self._raw_transcription_config.summary_model = model
         self._raw_transcription_config.summary_type = type
+
+        return self
+
+    def set_language_detection(
+        self,
+        enable: Optional[bool] = True,
+        confidence_threshold: Optional[float] = None,
+        expected_languages: Optional[List[str]] = None,
+        fallback_language: Optional[str] = None,
+    ) -> Self:
+        """
+        Enable Automatic Language Detection with optional configuration.
+
+        Args:
+            enable: whether to enable or disable the Language Detection feature.
+            confidence_threshold: The confidence threshold that must be reached.
+            expected_languages: A list of languages that the audio could be expected to be.
+            fallback_language: The language to fallback to if detection fails.
+        """
+
+        if not enable:
+            self._raw_transcription_config.language_detection = None
+            self._raw_transcription_config.language_confidence_threshold = None
+            self._raw_transcription_config.language_detection_options = None
+            return self
+
+        self._raw_transcription_config.language_detection = True
+        self._raw_transcription_config.language_confidence_threshold = (
+            confidence_threshold
+        )
+
+        if expected_languages or fallback_language:
+            self._raw_transcription_config.language_detection_options = (
+                LanguageDetectionOptions(
+                    expected_languages=expected_languages,
+                    fallback_language=fallback_language,
+                )
+            )
 
         return self
 
@@ -1817,6 +1887,9 @@ class BaseTranscript(BaseModel):
 
     language_confidence_threshold: Optional[float] = None
     "The confidence threshold that must be reached if `language_detection` is enabled."
+
+    language_detection_options: Optional[LanguageDetectionOptions] = None
+    "Options for controlling the behavior or Automatic Language Detection."
 
     language_confidence: Optional[float] = None
     "The confidence score for the detected language, between 0.0 (low confidence) and 1.0 (high confidence)."
