@@ -17,6 +17,7 @@ from .models import (
     BeginEvent,
     ErrorEvent,
     EventMessage,
+    ForceEndpoint,
     OperationMessage,
     StreamingClientOptions,
     StreamingError,
@@ -122,6 +123,10 @@ class StreamingClient:
 
     def set_params(self, params: StreamingSessionParameters):
         message = UpdateConfiguration(**_dump_model(params))
+        self._write_queue.put(message)
+
+    def force_endpoint(self):
+        message = ForceEndpoint()
         self._write_queue.put(message)
 
     def on(self, event: StreamingEvents, handler: Callable) -> None:
