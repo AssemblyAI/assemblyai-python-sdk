@@ -60,6 +60,8 @@ class StreamingSessionParameters(BaseModel):
     min_end_of_turn_silence_when_confident: Optional[int] = None
     max_turn_silence: Optional[int] = None
     format_turns: Optional[bool] = None
+    keyterms_prompt: Optional[List[str]] = None
+    filter_profanity: Optional[bool] = None
 
 
 class Encoding(str, Enum):

@@ -246,6 +246,49 @@ class ListTranscriptResponse(factory.Factory):
     )
 
 
+class LemurRequestDetails(factory.Factory):
+    class Meta:
+        model = types.LemurRequestDetails
+
+    request_endpoint = factory.Faker("text")
+    temperature = factory.Faker("pyfloat")
+    final_model = factory.Faker("text")
+    max_output_size = factory.Faker("pyint")
+    created_at = factory.Faker("date")
+
+
+class LemurTaskRequestDetails(LemurRequestDetails):
+    """Request details specific to LeMUR task operations"""
+
+    request_endpoint = "/lemur/v3/task"
+    prompt = factory.Faker("text")
+
+
+class LemurSummaryRequestDetails(LemurRequestDetails):
+    """Request details specific to LeMUR summary operations"""
+
+    request_endpoint = "/lemur/v3/summary"
+    context = factory.LazyFunction(lambda: {"key": "value"})
+    answer_format = factory.Faker("sentence")
+
+
+class LemurQuestionRequestDetails(LemurRequestDetails):
+    """Request details specific to LeMUR question-answer operations"""
+
+    request_endpoint = "/lemur/v3/question-answer"
+    questions = [
+        {
+            "question": "What is the main topic?",
+            "answer_format": "short sentence",
+            "context": "Meeting context",
+        },
+        {
+            "question": "What is the sentiment?",
+            "answer_options": ["positive", "negative", "neutral"],
+        },
+    ]
+
+
 class LemurUsage(factory.Factory):
     class Meta:
         model = types.LemurUsage
@@ -310,6 +353,43 @@ class LemurStringResponse(factory.Factory):
     request_id = factory.Faker("uuid4")
     usage = factory.SubFactory(LemurUsage)
     response = factory.Faker("text")
+    request = factory.SubFactory(LemurRequestDetails)
+
+
+# Factories specifically for get_response endpoint tests (include request field)
+class LemurTaskResponseWithRequest(factory.Factory):
+    class Meta:
+        model = types.LemurTaskResponse
+
+    request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
+    response = factory.Faker("text")
+    request = factory.SubFactory(LemurTaskRequestDetails)
+
+
+class LemurSummaryResponseWithRequest(factory.Factory):
+    class Meta:
+        model = types.LemurSummaryResponse
+
+    request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
+    response = factory.Faker("text")
+    request = factory.SubFactory(LemurSummaryRequestDetails)
+
+
+class LemurQuestionResponseWithRequest(factory.Factory):
+    class Meta:
+        model = types.LemurQuestionResponse
+
+    request_id = factory.Faker("uuid4")
+    usage = factory.SubFactory(LemurUsage)
+    response = factory.List(
+        [
+            factory.SubFactory(LemurQuestionAnswer),
+            factory.SubFactory(LemurQuestionAnswer),
+        ]
+    )
+    request = factory.SubFactory(LemurQuestionRequestDetails)
 
 
 class LemurPurgeResponse(factory.Factory):
