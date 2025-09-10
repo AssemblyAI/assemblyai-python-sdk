@@ -907,21 +907,146 @@ def test_lemur_usage_data(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 1
 
 
-@pytest.mark.parametrize("response_type", ("string_response", "qa_response"))
-def test_lemur_get_response_data(response_type, httpx_mock: HTTPXMock):
+def test_lemur_get_response_data_string_response(httpx_mock: HTTPXMock):
     """
-    Tests whether a LeMUR response data is correctly returned.
+    Tests whether a LeMUR string response data is correctly returned.
     """
     request_id = "1234"
 
-    # create a mock response
-    if response_type == "string_response":
-        mock_lemur_response = factories.generate_dict_factory(
-            factories.LemurStringResponse
+    mock_lemur_response = factories.generate_dict_factory(
+        factories.LemurStringResponse
+    )()
+    mock_lemur_response["request_id"] = request_id
+
+    # mock the specific endpoint
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{request_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_lemur_response,
+    )
+
+    # mimic the usage of the SDK
+    lemur = aai.Lemur()
+    result = lemur.get_response_data(request_id)
+
+    # check the response
+    assert isinstance(result, aai.LemurStringResponse)
+    assert result.request_id == request_id
+
+    # test the request field is populated correctly
+    assert result.request is not None
+    assert hasattr(result.request, "request_endpoint")
+    assert hasattr(result.request, "temperature")
+    assert hasattr(result.request, "final_model")
+    assert hasattr(result.request, "max_output_size")
+    assert hasattr(result.request, "created_at")
+
+    # test usage field
+    assert result.usage is not None
+    assert hasattr(result.usage, "input_tokens")
+    assert hasattr(result.usage, "output_tokens")
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_get_response_data_question_answer(httpx_mock: HTTPXMock):
+    """
+    Tests whether a LeMUR question-answer response data is correctly returned with questions field.
+    """
+    request_id = "qa-1234"
+
+    mock_lemur_response = factories.generate_dict_factory(
+        factories.LemurQuestionResponse
+    )()
+    mock_lemur_response["request"] = factories.generate_dict_factory(
+        factories.LemurQuestionRequestDetails
+    )()
+    mock_lemur_response["request_id"] = request_id
+
+    # mock the specific endpoint
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{request_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_lemur_response,
+    )
+
+    # mimic the usage of the SDK
+    lemur = aai.Lemur()
+    result = lemur.get_response_data(request_id)
+
+    # check the response
+    assert isinstance(result, aai.LemurQuestionResponse)
+    assert result.request_id == request_id
+
+    # test the request field is populated correctly
+    assert result.request is not None
+    assert result.request.request_endpoint == "/lemur/v3/question-answer"
+    assert hasattr(result.request, "temperature")
+    assert hasattr(result.request, "final_model")
+    assert hasattr(result.request, "max_output_size")
+    assert hasattr(result.request, "created_at")
+
+    # test question-answer specific request fields
+    assert hasattr(result.request, "questions")
+    assert isinstance(result.request.questions, list)
+    assert len(result.request.questions) == 2
+
+    # test that questions have the right structure - one with answer_format, one with answer_options
+    question1, question2 = result.request.questions
+    assert hasattr(question1, "answer_format")
+    assert hasattr(question1, "context")
+    assert question1.question == "What is the main topic?"
+    assert question1.answer_format == "short sentence"
+    assert question1.context == "Meeting context"
+
+    assert hasattr(question2, "answer_options")
+    assert question2.question == "What is the sentiment?"
+    assert question2.answer_options == ["positive", "negative", "neutral"]
+
+    # test that qa-specific fields are None for other operation types
+    assert result.request.prompt is None  # task-specific field
+    assert result.request.context is None  # summary/action_items-specific field
+    assert result.request.answer_format is None  # summary/action_items-specific field
+
+    # test usage field
+    assert result.usage is not None
+    assert hasattr(result.usage, "input_tokens")
+    assert hasattr(result.usage, "output_tokens")
+
+    # test response structure for question-answer
+    assert isinstance(result.response, list)
+    assert len(result.response) == 2
+    for answer in result.response:
+        assert hasattr(answer, "question")
+        assert hasattr(answer, "answer")
+
+    # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+@pytest.mark.parametrize("response_type", ("summary", "task"))
+def test_lemur_get_response_data_additional_types(response_type, httpx_mock: HTTPXMock):
+    """
+    Tests whether additional LeMUR response types are correctly returned with request details.
+    """
+    request_id = "5678"
+
+    # create a mock response - get_response_data returns LemurStringResponse but with different request details
+    mock_lemur_response = factories.generate_dict_factory(
+        factories.LemurStringResponse
+    )()
+
+    # Override the request details based on response type
+    if response_type == "summary":
+        mock_lemur_response["request"] = factories.generate_dict_factory(
+            factories.LemurSummaryRequestDetails
         )()
-    else:
-        mock_lemur_response = factories.generate_dict_factory(
-            factories.LemurQuestionResponse
+    else:  # task
+        mock_lemur_response["request"] = factories.generate_dict_factory(
+            factories.LemurTaskRequestDetails
         )()
 
     mock_lemur_response["request_id"] = request_id
@@ -938,13 +1063,106 @@ def test_lemur_get_response_data(response_type, httpx_mock: HTTPXMock):
     lemur = aai.Lemur()
     result = lemur.get_response_data(request_id)
 
-    # check the response
-    if response_type == "string_response":
-        assert isinstance(result, aai.LemurStringResponse)
-    else:
-        assert isinstance(result, aai.LemurQuestionResponse)
+    # check the response type - get_response_data returns LemurStringResponse for all string responses
+    assert isinstance(result, aai.LemurStringResponse)
 
     assert result.request_id == request_id
 
+    # test the request field is populated correctly for all response types
+    assert result.request is not None
+    assert hasattr(result.request, "request_endpoint")
+    assert hasattr(result.request, "temperature")
+    assert hasattr(result.request, "final_model")
+    assert hasattr(result.request, "max_output_size")
+    assert hasattr(result.request, "created_at")
+
+    # test type-specific request fields
+    if response_type == "summary":
+        assert result.request.request_endpoint == "/lemur/v3/summary"
+        assert result.request.context is not None
+        assert result.request.answer_format is not None
+        assert result.request.prompt is None  # task-specific field
+        assert result.request.questions is None  # qa-specific field
+    else:  # task
+        assert result.request.request_endpoint == "/lemur/v3/task"
+        assert result.request.prompt is not None
+        assert result.request.context is None  # summary-specific field
+        assert result.request.answer_format is None  # summary-specific field
+        assert result.request.questions is None  # qa-specific field
+
+    # test usage field
+    assert result.usage is not None
+    assert hasattr(result.usage, "input_tokens")
+    assert hasattr(result.usage, "output_tokens")
+
+    # test string response field
+    assert isinstance(result.response, str)
+
     # check whether we mocked everything
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_get_response_data_with_optional_request_fields(httpx_mock: HTTPXMock):
+    """
+    Tests that optional fields in LemurRequestDetails are handled correctly.
+    """
+    request_id = "test-optional-fields"
+
+    mock_lemur_response = factories.generate_dict_factory(
+        factories.LemurStringResponse
+    )()
+    mock_lemur_response["request_id"] = request_id
+
+    # Add optional fields to request details
+    mock_lemur_response["request"]["transcript_ids"] = ["transcript_1", "transcript_2"]
+    mock_lemur_response["request"]["input_text"] = "Test input text"
+    mock_lemur_response["request"]["questions"] = [
+        {"question": "What is this about?", "answer_format": "short"}
+    ]
+    mock_lemur_response["request"]["prompt"] = "Test prompt"
+    mock_lemur_response["request"]["context"] = {"key": "value"}
+    mock_lemur_response["request"]["answer_format"] = "bullet points"
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{request_id}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_lemur_response,
+    )
+
+    lemur = aai.Lemur()
+    result = lemur.get_response_data(request_id)
+
+    assert isinstance(result, aai.LemurStringResponse)
+    assert result.request_id == request_id
+
+    # test that optional fields are present
+    assert result.request.transcript_ids == ["transcript_1", "transcript_2"]
+    assert result.request.input_text == "Test input text"
+    assert result.request.questions is not None
+    assert result.request.prompt == "Test prompt"
+    assert result.request.context == {"key": "value"}
+    assert result.request.answer_format == "bullet points"
+
+    assert len(httpx_mock.get_requests()) == 1
+
+
+def test_lemur_get_response_data_fails(httpx_mock: HTTPXMock):
+    """
+    Tests that get_response_data properly handles API errors.
+    """
+    request_id = "error-request-id"
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_LEMUR_BASE}/{request_id}",
+        status_code=httpx.codes.NOT_FOUND,
+        method="GET",
+        json={"error": "Request not found"},
+    )
+
+    lemur = aai.Lemur()
+
+    with pytest.raises(aai.LemurError):
+        lemur.get_response_data(request_id)
+
     assert len(httpx_mock.get_requests()) == 1
