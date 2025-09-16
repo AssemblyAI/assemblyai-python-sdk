@@ -254,7 +254,7 @@ class LemurRequestDetails(factory.Factory):
     temperature = factory.Faker("pyfloat")
     final_model = factory.Faker("text")
     max_output_size = factory.Faker("pyint")
-    created_at = factory.Faker("date")
+    created_at = factory.Faker("iso8601")
 
 
 class LemurTaskRequestDetails(LemurRequestDetails):
