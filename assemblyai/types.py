@@ -501,6 +501,60 @@ class LanguageDetectionOptions(BaseModel):
     )
 
 
+class SpeakerType(str, Enum):
+    """
+    Speaker identification type for speech understanding
+    """
+
+    role = "role"
+    "Identify speakers by their role"
+
+    name = "name"
+    "Identify speakers by their name"
+
+
+class SpeakerIdentificationRequest(BaseModel):
+    """
+    Speaker identification configuration for speech understanding
+    """
+
+    speaker_type: SpeakerType
+    "The type of speaker identification to perform"
+
+    known_values: Optional[List[str]] = None
+    "Known speaker values (required if speaker_type is 'role')"
+
+
+class SpeechUnderstandingRequest(BaseModel):
+    """
+    Speech understanding request configuration
+    """
+
+    speaker_identification: Optional[SpeakerIdentificationRequest] = None
+    "Speaker identification configuration"
+
+
+class SpeechUnderstandingFeatureStatus(BaseModel):
+    """
+    Status of a speech understanding feature
+    """
+
+    status: str
+    "Status of the feature (e.g., 'success')"
+
+
+class SpeechUnderstandingResponse(BaseModel):
+    """
+    Speech understanding response containing feature statuses and the original request
+    """
+
+    speaker_identification: Optional[SpeechUnderstandingFeatureStatus] = None
+    "Status of speaker identification feature"
+
+    request: Optional[SpeechUnderstandingRequest] = None
+    "The original speech understanding request"
+
+
 class SpeakerOptions(BaseModel):
     """
     Speaker options for controlling speaker diarization parameters
@@ -657,11 +711,19 @@ class RawTranscriptionConfig(BaseModel):
     The speech model to use for the transcription.
     """
 
+    speech_models: Optional[List[str]] = None
+    """
+    The list of speech models to use for the transcription in priority order.
+    """
+
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
+
+    speech_understanding: Optional[SpeechUnderstandingRequest] = None
+    "Speech understanding configuration for LLM Gateway features"
 
     model_config = ConfigDict(extra="allow")
 
@@ -708,8 +770,10 @@ class TranscriptionConfig:
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
+        speech_models: Optional[List[str]] = None,
         prompt: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
+        speech_understanding: Optional[SpeechUnderstandingRequest] = None,
     ) -> None:
         """
         Args:
@@ -751,6 +815,7 @@ class TranscriptionConfig:
             language_detection_options: Options for controlling the behavior or Automatic Language Detection.
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
+            speech_understanding: Speech understanding configuration for LLM Gateway features
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -801,8 +866,10 @@ class TranscriptionConfig:
         self.language_detection_options = language_detection_options
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
+        self.speech_models = speech_models
         self.prompt = prompt
         self.keyterms_prompt = keyterms_prompt
+        self.speech_understanding = speech_understanding
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -832,6 +899,16 @@ class TranscriptionConfig:
         self._raw_transcription_config.speech_model = speech_model
 
     @property
+    def speech_models(self) -> Optional[List[str]]:
+        "The list of speech models to use for the transcription in priority order."
+        return self._raw_transcription_config.speech_models
+
+    @speech_models.setter
+    def speech_models(self, speech_models: Optional[List[str]]) -> None:
+        "Sets the list of speech models to use for the transcription in priority order."
+        self._raw_transcription_config.speech_models = speech_models
+
+    @property
     def prompt(self) -> Optional[str]:
         "The prompt to use for the transcription."
         return self._raw_transcription_config.prompt
@@ -850,6 +927,18 @@ class TranscriptionConfig:
     def keyterms_prompt(self, keyterms_prompt: Optional[List[str]]) -> None:
         "Sets the prompt to use for the transcription."
         self._raw_transcription_config.keyterms_prompt = keyterms_prompt
+
+    @property
+    def speech_understanding(self) -> Optional[SpeechUnderstandingRequest]:
+        "The speech understanding configuration for LLM Gateway features."
+        return self._raw_transcription_config.speech_understanding
+
+    @speech_understanding.setter
+    def speech_understanding(
+        self, speech_understanding: Optional[SpeechUnderstandingRequest]
+    ) -> None:
+        "Sets the speech understanding configuration for LLM Gateway features."
+        self._raw_transcription_config.speech_understanding = speech_understanding
 
     @property
     def punctuate(self) -> Optional[bool]:
@@ -1902,11 +1991,17 @@ class BaseTranscript(BaseModel):
     speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
+    speech_models: Optional[List[str]] = None
+    "The list of speech models to use for the transcription in priority order."
+
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
+
+    speech_understanding: Optional[SpeechUnderstandingRequest] = None
+    "Speech understanding configuration for LLM Gateway features"
 
 
 class TranscriptRequest(BaseTranscript):
@@ -1973,11 +2068,17 @@ class TranscriptResponse(BaseTranscript):
     speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
 
+    speech_model_used: Optional[str] = None
+    "The actual speech model that was used for the transcription"
+
     prompt: Optional[str] = None
     "When Slam-1 is enabled, the prompt used to generate the transcript"
 
     keyterms_prompt: Optional[List[str]] = None
     "When Slam-1 is enabled, the list of key terms used to generate the transcript"
+
+    speech_understanding: Optional[SpeechUnderstandingResponse] = None
+    "Speech understanding response when speaker identification is enabled"
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
