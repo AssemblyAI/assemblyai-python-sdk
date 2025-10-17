@@ -369,6 +369,14 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.speech_model
 
     @property
+    def speech_model_used(self) -> Optional[str]:
+        "The actual speech model that was used for the transcription"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.speech_model_used
+
+    @property
     def text(self) -> Optional[str]:
         "The text transcription of your media file"
         if not self._impl.transcript:
