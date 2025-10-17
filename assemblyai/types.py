@@ -657,6 +657,11 @@ class RawTranscriptionConfig(BaseModel):
     The speech model to use for the transcription.
     """
 
+    speech_models: Optional[List[str]] = None
+    """
+    The list of speech models to use for the transcription in priority order.
+    """
+
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
@@ -708,6 +713,7 @@ class TranscriptionConfig:
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
+        speech_models: Optional[List[str]] = None,
         prompt: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
     ) -> None:
@@ -801,6 +807,7 @@ class TranscriptionConfig:
         self.language_detection_options = language_detection_options
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
+        self.speech_models = speech_models
         self.prompt = prompt
         self.keyterms_prompt = keyterms_prompt
 
@@ -830,6 +837,16 @@ class TranscriptionConfig:
     def speech_model(self, speech_model: Optional[SpeechModel]) -> None:
         "Sets the speech model to use for the transcription."
         self._raw_transcription_config.speech_model = speech_model
+
+    @property
+    def speech_models(self) -> Optional[List[str]]:
+        "The list of speech models to use for the transcription in priority order."
+        return self._raw_transcription_config.speech_models
+
+    @speech_models.setter
+    def speech_models(self, speech_models: Optional[List[str]]) -> None:
+        "Sets the list of speech models to use for the transcription in priority order."
+        self._raw_transcription_config.speech_models = speech_models
 
     @property
     def prompt(self) -> Optional[str]:
@@ -1902,6 +1919,9 @@ class BaseTranscript(BaseModel):
     speech_model: Optional[SpeechModel] = None
     "The speech model to use for the transcription."
 
+    speech_models: Optional[List[str]] = None
+    "The list of speech models to use for the transcription in priority order."
+
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
@@ -1972,6 +1992,9 @@ class TranscriptResponse(BaseTranscript):
 
     speech_model: Optional[SpeechModel] = None
     "The speech model used for the transcription"
+
+    speech_model_used: Optional[str] = None
+    "The actual speech model that was used for the transcription"
 
     prompt: Optional[str] = None
     "When Slam-1 is enabled, the prompt used to generate the transcript"

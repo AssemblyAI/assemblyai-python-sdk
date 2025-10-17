@@ -9,7 +9,6 @@ from pytest_httpx import HTTPXMock
 import assemblyai as aai
 from assemblyai.api import ENDPOINT_TRANSCRIPT
 from tests.unit import factories
-from assemblyai.types import SpeechModel
 
 aai.settings.api_key = "test"
 
@@ -451,3 +450,39 @@ def test_delete_by_id_async(httpx_mock: HTTPXMock):
     assert transcript.error is None
     assert transcript.text == mock_transcript_response["text"]
     assert transcript.audio_url == mock_transcript_response["audio_url"]
+
+
+def test_speech_model_used_field_deserialization():
+    """
+    Tests that the speech_model_used field can be properly deserialized.
+    """
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    # Add speech_model_used to the mock response
+    mock_transcript_response["speech_model_used"] = "best"
+
+    transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
+
+    assert transcript_response.speech_model_used == "best"
+
+
+def test_speech_model_used_field_missing():
+    """
+    Tests that the speech_model_used field being missing does not break deserialization.
+    This is important because the field has not yet been added to the API for all users.
+    """
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    # Explicitly ensure speech_model_used is not in the response
+    if "speech_model_used" in mock_transcript_response:
+        del mock_transcript_response["speech_model_used"]
+
+    # This should not raise an exception
+    transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
+
+    # The field should be None when not present
+    assert transcript_response.speech_model_used is None
