@@ -452,6 +452,17 @@ def test_delete_by_id_async(httpx_mock: HTTPXMock):
     assert transcript.audio_url == mock_transcript_response["audio_url"]
 
 
+def test_language_codes_field():
+    """Test language_codes field deserialization"""
+    mock_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    mock_response["language_codes"] = ["en", "es"]
+
+    response = aai.types.TranscriptResponse(**mock_response)
+    assert response.language_codes == ["en", "es"]
+
+
 def test_speech_model_used_field_deserialization():
     """
     Tests that the speech_model_used field can be properly deserialized.
