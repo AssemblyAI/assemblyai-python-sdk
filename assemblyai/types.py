@@ -668,6 +668,9 @@ class RawTranscriptionConfig(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
+    language_codes: Optional[List[Union[str, LanguageCode]]] = None
+    "List of language codes detected in the audio file when language detection is enabled"
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1236,6 +1239,12 @@ class TranscriptionConfig:
         "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive."
 
         self._raw_transcription_config.speech_threshold = threshold
+
+    @property
+    def language_codes(self) -> Optional[List[Union[str, LanguageCode]]]:
+        "Returns the list of language codes detected in the audio file when language detection is enabled."
+
+        return self._raw_transcription_config.language_codes
 
     # endregion
 
@@ -1912,6 +1921,9 @@ class BaseTranscript(BaseModel):
 
     language_confidence: Optional[float] = None
     "The confidence score for the detected language, between 0.0 (low confidence) and 1.0 (high confidence)."
+
+    language_codes: Optional[List[Union[str, LanguageCode]]] = None
+    "List of language codes detected in the audio file when language detection is enabled"
 
     speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
