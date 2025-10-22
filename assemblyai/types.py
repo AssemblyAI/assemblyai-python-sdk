@@ -501,6 +501,150 @@ class LanguageDetectionOptions(BaseModel):
     )
 
 
+class SpeakerType(str, Enum):
+    """
+    Speaker identification type for speech understanding
+    """
+
+    role = "role"
+    "Identify speakers by their role"
+
+    name = "name"
+    "Identify speakers by their name"
+
+
+class SpeakerIdentificationRequest(BaseModel):
+    """
+    Speaker identification configuration for speech understanding
+    """
+
+    speaker_type: SpeakerType
+    "The type of speaker identification to perform"
+
+    known_values: Optional[List[str]] = None
+    "Known speaker values (required when speaker_type is 'role')"
+
+
+class TranslationRequest(BaseModel):
+    """
+    Translation configuration for speech understanding
+    """
+
+    target_languages: List[str]
+    "List of target language codes to translate the transcript into"
+
+    formal: Optional[bool] = False
+    "Whether to use formal language in translations (default: False)"
+
+    match_original_utterance: Optional[bool] = False
+    "Whether to match the original utterance structure in translations (default: False)"
+
+
+class CustomFormattingRequest(BaseModel):
+    """
+    Custom formatting configuration for speech understanding
+    """
+
+    date: Optional[str] = None
+    "Custom date format pattern (e.g., 'mm/dd/yyyy')"
+
+    phone_number: Optional[str] = None
+    "Custom phone number format pattern (e.g., '(xxx)xxx-xxxx')"
+
+    email: Optional[str] = None
+    "Custom email format pattern (e.g., 'username@domain.com')"
+
+
+class SpeechUnderstandingFeatureRequests(BaseModel):
+    """
+    Speech understanding feature requests
+    """
+
+    speaker_identification: Optional[SpeakerIdentificationRequest] = None
+    "Speaker identification configuration"
+
+    translation: Optional[TranslationRequest] = None
+    "Translation configuration"
+
+    custom_formatting: Optional[CustomFormattingRequest] = None
+    "Custom formatting configuration"
+
+
+class SpeechUnderstandingRequest(BaseModel):
+    """
+    Speech understanding request configuration for LLM Gateway features
+    """
+
+    request: Optional[SpeechUnderstandingFeatureRequests] = None
+    "The speech understanding feature requests"
+
+
+class SpeakerIdentificationResponse(BaseModel):
+    """
+    Speaker identification response containing status and mapping
+    """
+
+    status: str
+    "Status of the speaker identification feature (e.g., 'success')"
+
+    mapping: Optional[Dict[str, str]] = None
+    "Mapping of original speaker labels to identified speaker labels"
+
+
+class CustomFormattingResponse(BaseModel):
+    """
+    Custom formatting response containing mapping and formatted texts
+    """
+
+    mapping: Optional[Dict[str, str]] = None
+    "Mapping of original entities to formatted entities"
+
+    formatted_text: Optional[str] = None
+    "Full transcript text with formatted entities"
+
+    formatted_utterances: Optional[List[Dict[str, Any]]] = None
+    "List of utterances with formatted text"
+
+    status: str
+    "Status of the custom formatting feature"
+
+
+class TranslationResponse(BaseModel):
+    """
+    Translation response containing status
+    """
+
+    status: str
+    "Status of the translation feature"
+
+
+class SpeechUnderstandingFeatureResponses(BaseModel):
+    """
+    Speech understanding feature responses grouped together
+    """
+
+    speaker_identification: Optional[SpeakerIdentificationResponse] = None
+    "Speaker identification results including status and mapping"
+
+    translation: Optional[TranslationResponse] = None
+    "Translation results"
+
+    custom_formatting: Optional[CustomFormattingResponse] = None
+    "Custom formatting results"
+
+
+class SpeechUnderstandingResponse(BaseModel):
+    """
+    Speech understanding response containing both request and response
+    """
+
+    request: Optional[SpeechUnderstandingFeatureRequests] = None
+    "The original speech understanding request"
+
+    response: Optional[SpeechUnderstandingFeatureResponses] = None
+    "The speech understanding feature responses"
+
+
 class SpeakerOptions(BaseModel):
     """
     Speaker options for controlling speaker diarization parameters
@@ -671,6 +815,9 @@ class RawTranscriptionConfig(BaseModel):
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     "List of language codes detected in the audio file when language detection is enabled"
 
+    speech_understanding: Optional[SpeechUnderstandingRequest] = None
+    "Speech understanding configuration for LLM Gateway features"
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -719,6 +866,7 @@ class TranscriptionConfig:
         speech_models: Optional[List[str]] = None,
         prompt: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
+        speech_understanding: Optional[SpeechUnderstandingRequest] = None,
     ) -> None:
         """
         Args:
@@ -760,6 +908,7 @@ class TranscriptionConfig:
             language_detection_options: Options for controlling the behavior or Automatic Language Detection.
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
+            speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting)
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -813,6 +962,7 @@ class TranscriptionConfig:
         self.speech_models = speech_models
         self.prompt = prompt
         self.keyterms_prompt = keyterms_prompt
+        self.speech_understanding = speech_understanding
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -870,6 +1020,18 @@ class TranscriptionConfig:
     def keyterms_prompt(self, keyterms_prompt: Optional[List[str]]) -> None:
         "Sets the prompt to use for the transcription."
         self._raw_transcription_config.keyterms_prompt = keyterms_prompt
+
+    @property
+    def speech_understanding(self) -> Optional[SpeechUnderstandingRequest]:
+        "The speech understanding configuration for LLM Gateway features."
+        return self._raw_transcription_config.speech_understanding
+
+    @speech_understanding.setter
+    def speech_understanding(
+        self, speech_understanding: Optional[SpeechUnderstandingRequest]
+    ) -> None:
+        "Sets the speech understanding configuration for LLM Gateway features."
+        self._raw_transcription_config.speech_understanding = speech_understanding
 
     @property
     def punctuate(self) -> Optional[bool]:
@@ -1649,6 +1811,8 @@ class UtteranceWord(Word):
 
 class Utterance(UtteranceWord):
     words: List[UtteranceWord]
+    translated_texts: Optional[Dict[str, str]] = None
+    "Translations of the utterance text when translation is enabled"
 
 
 class Chapter(BaseModel):
@@ -1940,6 +2104,9 @@ class BaseTranscript(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
+    speech_understanding: Optional[SpeechUnderstandingRequest] = None
+    "Speech understanding configuration for LLM Gateway features"
+
 
 class TranscriptRequest(BaseTranscript):
     """
@@ -2013,6 +2180,12 @@ class TranscriptResponse(BaseTranscript):
 
     keyterms_prompt: Optional[List[str]] = None
     "When Slam-1 is enabled, the list of key terms used to generate the transcript"
+
+    speech_understanding: Optional[SpeechUnderstandingResponse] = None
+    "Speech understanding response when enabled"
+
+    translated_texts: Optional[Dict[str, str]] = None
+    "Translations of the full transcript text when translation is enabled"
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
