@@ -385,6 +385,22 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.text
 
     @property
+    def translated_texts(self) -> Optional[Dict[str, str]]:
+        "The translated texts transcription of your media file"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.translated_texts
+
+    @property
+    def speech_understanding(self) -> Optional[types.SpeechUnderstandingResponse]:
+        "The text transcription of your media file"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.speech_understanding
+
+    @property
     def summary(self) -> Optional[str]:
         "The summarization of the transcript"
         if not self._impl.transcript:
