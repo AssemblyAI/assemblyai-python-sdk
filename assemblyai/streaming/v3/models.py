@@ -72,9 +72,18 @@ class Encoding(str, Enum):
         return self.value
 
 
+class SpeechModel(str, Enum):
+    universal_streaming_multilingual = "universal-streaming-multilingual"
+    universal_streaming_english = "universal-streaming-english"
+
+    def __str__(self):
+        return self.value
+
+
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
+    speech_model: Optional[SpeechModel] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):

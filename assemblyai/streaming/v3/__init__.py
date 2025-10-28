@@ -1,7 +1,9 @@
 from .client import StreamingClient
 from .models import (
     BeginEvent,
+    Encoding,
     EventMessage,
+    SpeechModel,
     StreamingClientOptions,
     StreamingError,
     StreamingEvents,
@@ -14,7 +16,9 @@ from .models import (
 
 __all__ = [
     "BeginEvent",
+    "Encoding",
     "EventMessage",
+    "SpeechModel",
     "StreamingClient",
     "StreamingClientOptions",
     "StreamingError",
