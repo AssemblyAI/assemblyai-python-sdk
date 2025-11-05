@@ -499,6 +499,31 @@ class LanguageDetectionOptions(BaseModel):
         None,
         description="The language to fallback to in case the language detection does not predict any of the expected ones.",
     )
+    code_switching: Optional[bool] = Field(
+        None,
+        description="Enable code switching detection for multilingual transcription.",
+    )
+    code_switching_confidence_threshold: Optional[float] = Field(
+        None,
+        description="The confidence threshold for code switching detection. Valid values are in the range [0,1] inclusive.",
+    )
+
+
+class CodeSwitchingLanguage(BaseModel):
+    """Code switching language detection result"""
+
+    language_code: str
+    "The language code detected"
+
+    confidence: float
+    "The confidence score for this language detection, between 0.0 and 1.0"
+
+
+class LanguageDetectionResults(BaseModel):
+    """Language detection results including code switching languages"""
+
+    code_switching_languages: Optional[List[CodeSwitchingLanguage]] = None
+    "List of detected languages with confidence scores when code switching is enabled"
 
 
 class SpeakerType(str, Enum):
@@ -814,6 +839,9 @@ class RawTranscriptionConfig(BaseModel):
 
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     "List of language codes detected in the audio file when language detection is enabled"
+
+    code_switching_languages: Optional[List[CodeSwitchingLanguage]] = None
+    "List of detected languages with confidence scores when code switching is enabled"
 
     speech_understanding: Optional[SpeechUnderstandingRequest] = None
     "Speech understanding configuration for LLM Gateway features"
@@ -1407,6 +1435,12 @@ class TranscriptionConfig:
         "Returns the list of language codes detected in the audio file when language detection is enabled."
 
         return self._raw_transcription_config.language_codes
+
+    @property
+    def code_switching_languages(self) -> Optional[List[CodeSwitchingLanguage]]:
+        "Returns the list of detected languages with confidence scores when code switching is enabled."
+
+        return self._raw_transcription_config.code_switching_languages
 
     # endregion
 
@@ -2088,6 +2122,9 @@ class BaseTranscript(BaseModel):
 
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     "List of language codes detected in the audio file when language detection is enabled"
+
+    code_switching_languages: Optional[List[CodeSwitchingLanguage]] = None
+    "List of detected languages with confidence scores when code switching is enabled"
 
     speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
