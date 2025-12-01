@@ -94,3 +94,36 @@ def test_speaker_options_in_raw_config():
     config = aai.TranscriptionConfig(speaker_options=speaker_options)
 
     assert config.raw.speaker_options == speaker_options
+
+
+def test_speaker_options_with_two_stage_clustering():
+    """Test that SpeakerOptions can be created with use_two_stage_clustering parameter."""
+    speaker_options = aai.SpeakerOptions(
+        min_speakers_expected=2,
+        max_speakers_expected=5,
+        use_two_stage_clustering=False,
+    )
+    assert speaker_options.min_speakers_expected == 2
+    assert speaker_options.max_speakers_expected == 5
+    assert speaker_options.use_two_stage_clustering is False
+
+
+def test_speaker_options_two_stage_clustering_true():
+    """Test that use_two_stage_clustering can be set to True."""
+    speaker_options = aai.SpeakerOptions(use_two_stage_clustering=True)
+    assert speaker_options.use_two_stage_clustering is True
+
+
+def test_transcription_config_with_two_stage_clustering():
+    """Test that TranscriptionConfig accepts speaker_options with use_two_stage_clustering."""
+    speaker_options = aai.SpeakerOptions(
+        min_speakers_expected=2, max_speakers_expected=4, use_two_stage_clustering=False
+    )
+
+    config = aai.TranscriptionConfig(
+        speaker_labels=True, speaker_options=speaker_options
+    )
+
+    assert config.speaker_labels is True
+    assert config.speaker_options == speaker_options
+    assert config.speaker_options.use_two_stage_clustering is False

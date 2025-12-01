@@ -127,3 +127,68 @@ def test_set_language_detection_disable():
     assert config.language_detection is None
     assert config.language_confidence_threshold is None
     assert config.language_detection_options is None
+
+
+def test_language_detection_options_with_on_low_language_confidence():
+    """Test that LanguageDetectionOptions accepts on_low_language_confidence parameter."""
+    options = aai.LanguageDetectionOptions(
+        expected_languages=["en", "es"],
+        fallback_language="en",
+        on_low_language_confidence="fallback",
+    )
+    assert options.expected_languages == ["en", "es"]
+    assert options.fallback_language == "en"
+    assert options.on_low_language_confidence == "fallback"
+
+
+def test_language_detection_options_on_low_confidence_only():
+    """Test that LanguageDetectionOptions can be created with only on_low_language_confidence."""
+    options = aai.LanguageDetectionOptions(on_low_language_confidence="error")
+    assert options.expected_languages is None
+    assert options.fallback_language is None
+    assert options.on_low_language_confidence == "error"
+
+
+def test_set_language_detection_with_on_low_confidence():
+    """Test the set_language_detection method with on_low_language_confidence."""
+    config = aai.TranscriptionConfig().set_language_detection(
+        confidence_threshold=0.8,
+        expected_languages=["en", "fr"],
+        fallback_language="en",
+        on_low_language_confidence="fallback",
+    )
+
+    assert config.language_detection is True
+    assert config.language_confidence_threshold == 0.8
+    assert config.language_detection_options.expected_languages == ["en", "fr"]
+    assert config.language_detection_options.fallback_language == "en"
+    assert config.language_detection_options.on_low_language_confidence == "fallback"
+
+
+def test_set_language_detection_on_low_confidence_only():
+    """Test set_language_detection with only on_low_language_confidence parameter."""
+    config = aai.TranscriptionConfig().set_language_detection(
+        on_low_language_confidence="error"
+    )
+
+    assert config.language_detection is True
+    assert config.language_detection_options is not None
+    assert config.language_detection_options.on_low_language_confidence == "error"
+
+
+def test_transcription_config_with_on_low_confidence_in_options():
+    """Test that TranscriptionConfig properly handles on_low_language_confidence in options."""
+    options = aai.LanguageDetectionOptions(
+        fallback_language="en", on_low_language_confidence="fallback"
+    )
+
+    config = aai.TranscriptionConfig(
+        language_detection=True,
+        language_confidence_threshold=0.9,
+        language_detection_options=options,
+    )
+
+    assert config.language_detection is True
+    assert config.language_confidence_threshold == 0.9
+    assert config.language_detection_options.fallback_language == "en"
+    assert config.language_detection_options.on_low_language_confidence == "fallback"

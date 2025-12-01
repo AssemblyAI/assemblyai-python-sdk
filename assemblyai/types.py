@@ -507,6 +507,10 @@ class LanguageDetectionOptions(BaseModel):
         None,
         description="The confidence threshold for code switching detection. Valid values are in the range [0,1] inclusive.",
     )
+    on_low_language_confidence: Optional[str] = Field(
+        None,
+        description='Controls behavior when language confidence is below threshold. Either "error" (default) or "fallback".',
+    )
 
 
 class CodeSwitchingLanguage(BaseModel):
@@ -680,6 +684,10 @@ class SpeakerOptions(BaseModel):
     )
     max_speakers_expected: Optional[int] = Field(
         None, ge=1, description="Maximum number of speakers expected in the audio"
+    )
+    use_two_stage_clustering: Optional[bool] = Field(
+        None,
+        description="Enable or disable two-stage clustering for speaker diarization",
     )
 
     if pydantic_v2:
@@ -1702,6 +1710,7 @@ class TranscriptionConfig:
         confidence_threshold: Optional[float] = None,
         expected_languages: Optional[List[str]] = None,
         fallback_language: Optional[str] = None,
+        on_low_language_confidence: Optional[str] = None,
     ) -> Self:
         """
         Enable Automatic Language Detection with optional configuration.
@@ -1711,6 +1720,7 @@ class TranscriptionConfig:
             confidence_threshold: The confidence threshold that must be reached.
             expected_languages: A list of languages that the audio could be expected to be.
             fallback_language: The language to fallback to if detection fails.
+            on_low_language_confidence: Controls behavior when language confidence is below threshold. Either "error" (default) or "fallback".
         """
 
         if not enable:
@@ -1724,11 +1734,12 @@ class TranscriptionConfig:
             confidence_threshold
         )
 
-        if expected_languages or fallback_language:
+        if expected_languages or fallback_language or on_low_language_confidence:
             self._raw_transcription_config.language_detection_options = (
                 LanguageDetectionOptions(
                     expected_languages=expected_languages,
                     fallback_language=fallback_language,
+                    on_low_language_confidence=on_low_language_confidence,
                 )
             )
 
