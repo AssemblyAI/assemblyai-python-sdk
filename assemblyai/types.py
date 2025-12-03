@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime
 from enum import Enum, EnumMeta
 from typing import (
@@ -24,7 +25,14 @@ try:
 
     pydantic_v2 = True
 except ImportError:
-    # pydantic v1 import
+    # Python 3.14+ requires Pydantic V2
+    if sys.version_info >= (3, 14):
+        raise ImportError(
+            "Python 3.14 or greater requires Pydantic V2 and pydantic-settings. "
+            "Please install with: pip install 'pydantic>=2.0' 'pydantic-settings>=2.0'"
+        ) from None
+
+    # pydantic v1 import (fallback for Python < 3.14)
     from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field, validator
 
     pydantic_v2 = False
