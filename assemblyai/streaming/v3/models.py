@@ -21,6 +21,8 @@ class TurnEvent(BaseModel):
     transcript: str
     end_of_turn_confidence: float
     words: List[Word]
+    language_code: Optional[str] = None
+    language_confidence: Optional[float] = None
 
 
 class BeginEvent(BaseModel):
@@ -59,6 +61,7 @@ class StreamingSessionParameters(BaseModel):
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = None
     max_turn_silence: Optional[int] = None
+    vad_threshold: Optional[float] = None
     format_turns: Optional[bool] = None
     keyterms_prompt: Optional[List[str]] = None
     filter_profanity: Optional[bool] = None
@@ -84,6 +87,8 @@ class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
     speech_model: Optional[SpeechModel] = None
+    language_detection: Optional[bool] = None
+    inactivity_timeout: Optional[int] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
