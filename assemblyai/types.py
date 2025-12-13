@@ -856,8 +856,8 @@ class RawTranscriptionConfig(BaseModel):
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     "List of language codes detected in the audio file when language detection is enabled"
 
-    code_switching_languages: Optional[List[CodeSwitchingLanguage]] = None
-    "List of detected languages with confidence scores when code switching is enabled"
+    language_detection_results: Optional[LanguageDetectionResults] = None
+    "Language detection results including code switching languages"
 
     speech_understanding: Optional[SpeechUnderstandingRequest] = None
     "Speech understanding configuration for LLM Gateway features"
@@ -1453,10 +1453,10 @@ class TranscriptionConfig:
         return self._raw_transcription_config.language_codes
 
     @property
-    def code_switching_languages(self) -> Optional[List[CodeSwitchingLanguage]]:
-        "Returns the list of detected languages with confidence scores when code switching is enabled."
+    def language_detection_results(self) -> Optional[LanguageDetectionResults]:
+        "Returns the language detection results including code switching languages."
 
-        return self._raw_transcription_config.code_switching_languages
+        return self._raw_transcription_config.language_detection_results
 
     # endregion
 
@@ -2142,8 +2142,8 @@ class BaseTranscript(BaseModel):
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     "List of language codes detected in the audio file when language detection is enabled"
 
-    code_switching_languages: Optional[List[CodeSwitchingLanguage]] = None
-    "List of detected languages with confidence scores when code switching is enabled"
+    language_detection_results: Optional[LanguageDetectionResults] = None
+    "Language detection results including code switching languages"
 
     speech_threshold: Optional[float] = None
     "Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive"
