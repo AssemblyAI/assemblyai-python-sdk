@@ -31,6 +31,15 @@ jobs:
           python-version: ${{ matrix.py }}
           cache: 'pip'
           cache-dependency-path: 'setup.py'
+      - name: Cache apt packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: apt-${{ runner.os }}-portaudio
+          restore-keys: |
+            apt-${{ runner.os }}-
       - name: Cache tox environments
         uses: actions/cache@v3
         with:
