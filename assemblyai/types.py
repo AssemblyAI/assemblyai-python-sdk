@@ -172,6 +172,9 @@ class LanguageCode(str, Enum, metaclass=DeprecatedLanguageCodeMeta):
     de = "de"
     "German"
 
+    de_ch = "de_ch"
+    "Swiss German"
+
     en = "en"
     "Global English"
 
@@ -518,6 +521,10 @@ class LanguageDetectionOptions(BaseModel):
     on_low_language_confidence: Optional[str] = Field(
         None,
         description='Controls behavior when language confidence is below threshold. Either "error" (default) or "fallback".',
+    )
+    swiss_german: Optional[bool] = Field(
+        None,
+        description="If True, route German language requests as Swiss German audio. Only applies when language_detection is enabled and German is detected.",
     )
 
 
