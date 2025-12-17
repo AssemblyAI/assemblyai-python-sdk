@@ -86,6 +86,8 @@ jobs:
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
           python-version: '3.9'
+          cache: 'pip'
+          cache-dependency-path: 'setup.py'
       - run: pip install mypy==1.5.1
         if: ${{ steps.counter.outputs.count > 0 }}
       - run: mypy ${{ steps.filter.outputs.python_files }} --follow-imports=silent --ignore-missing-imports
