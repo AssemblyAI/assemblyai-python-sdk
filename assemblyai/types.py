@@ -1878,9 +1878,9 @@ class Utterance(UtteranceWord):
 class Chapter(BaseModel):
     summary: str
     headline: str
-    gist: str
     start: int
     end: int
+    gist: Optional[str] = None
 
 
 class StatusResult(str, Enum):
