@@ -127,3 +127,82 @@ def test_transcription_config_with_two_stage_clustering():
     assert config.speaker_labels is True
     assert config.speaker_options == speaker_options
     assert config.speaker_options.use_two_stage_clustering is False
+
+
+def test_speaker_options_short_file_diarization_method():
+    """Test that SpeakerOptions can be created with short_file_diarization_method."""
+    speaker_options = aai.SpeakerOptions(
+        short_file_diarization_method="deliberate"
+    )
+    assert speaker_options.short_file_diarization_method == "deliberate"
+
+
+def test_speaker_options_short_file_diarization_all_methods():
+    """Test all valid values for short_file_diarization_method."""
+    methods = ["deliberate", "balanced", "conservative", "aggressive"]
+    for method in methods:
+        speaker_options = aai.SpeakerOptions(short_file_diarization_method=method)
+        assert speaker_options.short_file_diarization_method == method
+
+
+def test_speaker_options_long_file_diarization_method():
+    """Test that SpeakerOptions can be created with long_file_diarization_method."""
+    speaker_options = aai.SpeakerOptions(long_file_diarization_method="experimental")
+    assert speaker_options.long_file_diarization_method == "experimental"
+
+
+def test_speaker_options_long_file_diarization_all_methods():
+    """Test all valid values for long_file_diarization_method."""
+    methods = ["standard", "experimental"]
+    for method in methods:
+        speaker_options = aai.SpeakerOptions(long_file_diarization_method=method)
+        assert speaker_options.long_file_diarization_method == method
+
+
+def test_speaker_options_with_diarization_methods():
+    """Test that SpeakerOptions can be created with both diarization methods."""
+    speaker_options = aai.SpeakerOptions(
+        short_file_diarization_method="balanced",
+        long_file_diarization_method="experimental",
+    )
+    assert speaker_options.short_file_diarization_method == "balanced"
+    assert speaker_options.long_file_diarization_method == "experimental"
+
+
+def test_transcription_config_with_long_file_experimental_diarization():
+    """Test the issue scenario: TranscriptionConfig with experimental diarization."""
+    speaker_options = aai.SpeakerOptions(
+        long_file_diarization_method="experimental"
+    )
+
+    config = aai.TranscriptionConfig(
+        speaker_labels=True,
+        speaker_options=speaker_options,
+    )
+
+    assert config.speaker_labels is True
+    assert config.speaker_options == speaker_options
+    assert config.speaker_options.long_file_diarization_method == "experimental"
+    assert config.raw.speaker_options.long_file_diarization_method == "experimental"
+
+
+def test_transcription_config_with_all_speaker_options():
+    """Test TranscriptionConfig with all speaker options fields."""
+    speaker_options = aai.SpeakerOptions(
+        min_speakers_expected=2,
+        max_speakers_expected=5,
+        use_two_stage_clustering=False,
+        short_file_diarization_method="conservative",
+        long_file_diarization_method="experimental",
+    )
+
+    config = aai.TranscriptionConfig(
+        speaker_labels=True,
+        speaker_options=speaker_options,
+    )
+
+    assert config.speaker_options.min_speakers_expected == 2
+    assert config.speaker_options.max_speakers_expected == 5
+    assert config.speaker_options.use_two_stage_clustering is False
+    assert config.speaker_options.short_file_diarization_method == "conservative"
+    assert config.speaker_options.long_file_diarization_method == "experimental"
