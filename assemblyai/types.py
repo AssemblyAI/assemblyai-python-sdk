@@ -7,6 +7,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
@@ -703,6 +704,16 @@ class SpeakerOptions(BaseModel):
     use_two_stage_clustering: Optional[bool] = Field(
         None,
         description="Enable or disable two-stage clustering for speaker diarization",
+    )
+    short_file_diarization_method: Optional[
+        Literal["deliberate", "balanced", "conservative", "aggressive"]
+    ] = Field(
+        None,
+        description="Diarization method for short files. Options: deliberate (default), balanced, conservative, aggressive",
+    )
+    long_file_diarization_method: Optional[Literal["standard", "experimental"]] = Field(
+        None,
+        description="Diarization method for long files. Options: standard (default), experimental",
     )
 
     if pydantic_v2:
