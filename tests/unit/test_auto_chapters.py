@@ -81,3 +81,41 @@ def test_auto_chapters_enabled(httpx_mock: HTTPXMock):
         assert transcript_chapter.gist == response_chapter["gist"]
         assert transcript_chapter.start == response_chapter["start"]
         assert transcript_chapter.end == response_chapter["end"]
+
+
+def test_auto_chapters_with_missing_gist(httpx_mock: HTTPXMock):
+    """
+    Tests that the SDK can handle Chapter responses where the `gist` field is missing.
+    The `gist` field is optional in the Chapter model and should default to None.
+    """
+    # Create a mock response with chapters that have missing gist fields
+    mock_response = factories.generate_dict_factory(AutoChaptersResponseFactory)()
+
+    # Remove the gist field from all chapters to simulate backend response without gist
+    for chapter in mock_response["chapters"]:
+        del chapter["gist"]
+
+    request_body, transcript = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=mock_response,
+        config=aai.TranscriptionConfig(auto_chapters=True),
+    )
+
+    # Check that request body was properly defined
+    assert request_body.get("auto_chapters") is True
+
+    # Check that transcript was properly parsed from JSON response
+    assert transcript.error is None
+    assert transcript.chapters is not None
+    assert len(transcript.chapters) > 0
+    assert len(transcript.chapters) == len(mock_response["chapters"])
+
+    # Verify that chapters can be parsed without gist field
+    for response_chapter, transcript_chapter in zip(
+        mock_response["chapters"], transcript.chapters
+    ):
+        assert transcript_chapter.summary == response_chapter["summary"]
+        assert transcript_chapter.headline == response_chapter["headline"]
+        assert transcript_chapter.gist is None  # Should be None when missing
+        assert transcript_chapter.start == response_chapter["start"]
+        assert transcript_chapter.end == response_chapter["end"]

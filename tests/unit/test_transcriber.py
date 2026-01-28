@@ -644,6 +644,36 @@ def test_language_detection(httpx_mock: HTTPXMock):
     assert request.get("language_code") is None
 
 
+def test_language_codes_request(httpx_mock: HTTPXMock):
+    mock_completed_json = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=mock_completed_json,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{mock_completed_json['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_completed_json,
+    )
+
+    aai.Transcriber().transcribe(
+        "https://example.org/audio.wav",
+        config=aai.TranscriptionConfig(
+            language_codes=["en", "es"],
+        ),
+    )
+
+    request = json.loads(httpx_mock.get_requests()[0].content.decode())
+    assert request.get("language_codes") == ["en", "es"]
+
+
 def test_language_code_string(httpx_mock: HTTPXMock):
     mock_completed_json = factories.generate_dict_factory(
         factories.TranscriptCompletedResponseFactory
