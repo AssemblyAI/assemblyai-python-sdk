@@ -711,11 +711,9 @@ class SpeakerOptions(BaseModel):
         None,
         description="Diarization method for short files. Options: deliberate (default), balanced, conservative, aggressive",
     )
-    long_file_diarization_method: Optional[Literal["standard", "experimental"]] = (
-        Field(
-            None,
-            description="Diarization method for long files. Options: standard (default), experimental",
-        )
+    long_file_diarization_method: Optional[Literal["standard", "experimental"]] = Field(
+        None,
+        description="Diarization method for long files. Options: standard (default), experimental",
     )
 
     if pydantic_v2:
