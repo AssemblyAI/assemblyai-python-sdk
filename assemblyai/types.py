@@ -7,6 +7,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
@@ -296,6 +297,9 @@ class EntityType(str, Enum):
     filename = "filename"
     "Names of computer files, including the extension or filepath (e.g., Taxes/2012/brad-tax-returns.pdf)"
 
+    gender = "gender"
+    "Terms indicating gender identity (e.g., female, male, non-binary)"
+
     gender_sexuality = "gender_sexuality"
     "Terms indicating gender identity or sexual orientation, including slang terms (e.g., female; bisexual; trans)"
 
@@ -313,6 +317,27 @@ class EntityType(str, Enum):
 
     location = "location"
     "Any Location reference including mailing address, postal code, city, state, province, country, or coordinates (e.g., Lake Victoria, 145 Windsor St., 90210)"
+
+    location_address = "location_address"
+    "Mailing address (e.g., 123 Main Street, Apartment 4B)"
+
+    location_address_street = "location_address_street"
+    "Street address (e.g., 123 Main Street)"
+
+    location_city = "location_city"
+    "City name (e.g., San Francisco, New York)"
+
+    location_coordinate = "location_coordinate"
+    "Geographic coordinates (e.g., 37.7749° N, 122.4194° W)"
+
+    location_country = "location_country"
+    "Country name (e.g., United States, Canada)"
+
+    location_state = "location_state"
+    "State or province name (e.g., California, Ontario)"
+
+    location_zip = "location_zip"
+    "Postal or ZIP code (e.g., 94102, M5V 3A8)"
 
     marital_status = "marital_status"
     "Terms indicating marital status (e.g., Single, common-law, ex-wife, married)"
@@ -338,6 +363,8 @@ class EntityType(str, Enum):
     organization = "organization"
     "Name of an organization (e.g., CNN, McDonalds, University of Alaska, Northwest General Hospital)"
 
+    organization_medical_facility = "organization_medical_facility"
+
     passport_number = "passport_number"
     "Passport numbers, issued by any country (e.g., PA4568332; NU3C6L86S12)"
 
@@ -362,6 +389,9 @@ class EntityType(str, Enum):
     religion = "religion"
     "Terms indicating religious affiliation (e.g., Hindu, Catholic)"
 
+    sexuality = "sexuality"
+    "Terms indicating sexual orientation (e.g., heterosexual, gay, bisexual)"
+
     statistics = "statistics"
     "Medical statistics (e.g., 18%, 18 percent)"
 
@@ -382,6 +412,40 @@ class EntityType(str, Enum):
 
     zodiac_sign = "zodiac_sign"
     "Names of Zodiac signs (e.g., Aries, Taurus)"
+
+    # BETA - only english
+    corporate_action = "corporate_action"
+    "Corporate actions (e.g., merger, acquisition, IPO)"
+
+    day = "day"
+    "Day reference (e.g., Monday, Friday)"
+
+    effect = "effect"
+    "Effect or result (e.g., increase, decrease)"
+
+    financial_metric = "financial_metric"
+    "Financial metrics (e.g., revenue, profit margin, EBITDA)"
+
+    medical_code = "medical_code"
+    "Medical codes (e.g., ICD-10, CPT codes)"
+
+    month = "month"
+    "Month reference (e.g., January, February)"
+
+    organization_id = "organization_id"
+    "Organization identification numbers (e.g., EIN, company registration number)"
+
+    product = "product"
+    "Product names (e.g., iPhone, Tesla Model 3)"
+
+    project = "project"
+    "Project names (e.g., Project Apollo, Manhattan Project)"
+
+    trend = "trend"
+    "Trend indicators (e.g., upward trend, downward trend)"
+
+    year = "year"
+    "Year reference (e.g., 2023, 1999)"
 
 
 # EntityType and PIIRedactionPolicy share the same values
@@ -704,6 +768,10 @@ class SpeakerOptions(BaseModel):
         None,
         description="Enable or disable two-stage clustering for speaker diarization",
     )
+    long_file_diarization_method: Optional[Literal["standard", "experimental"]] = Field(
+        None,
+        description="Diarization method for long files. Options: standard (default), experimental",
+    )
 
     if pydantic_v2:
 
@@ -861,7 +929,13 @@ class RawTranscriptionConfig(BaseModel):
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
-    "List of language codes detected in the audio file when language detection is enabled"
+    """
+    A list of language codes associated with the transcript.
+
+    When submitting a transcript request, this can be used to provide multiple language codes
+    for multilingual/code-switching audio (equivalent to passing `language_codes` in the
+    `/v2/transcript` API request body).
+    """
 
     language_detection_results: Optional[LanguageDetectionResults] = None
     "Language detection results including code switching languages"
@@ -876,6 +950,7 @@ class TranscriptionConfig:
     def __init__(
         self,
         language_code: Optional[Union[str, LanguageCode]] = None,
+        language_codes: Optional[List[Union[str, LanguageCode]]] = None,
         punctuate: Optional[bool] = None,
         format_text: Optional[bool] = None,
         dual_channel: Optional[bool] = None,
@@ -922,6 +997,7 @@ class TranscriptionConfig:
         """
         Args:
             language_code: The language of your audio file. Possible values are found in Supported Languages.
+            language_codes: A list of language codes for multilingual/code-switching audio.
             punctuate: Enable Automatic Punctuation
             format_text: Enable Text Formatting
             dual_channel: Enable Dual Channel transcription
@@ -969,6 +1045,7 @@ class TranscriptionConfig:
 
         # explicit configurations have higher priority if `raw_transcription_config` has been passed as well
         self.language_code = language_code
+        self.language_codes = language_codes
         self.punctuate = punctuate
         self.format_text = format_text
         self.dual_channel = dual_channel
@@ -1455,9 +1532,16 @@ class TranscriptionConfig:
 
     @property
     def language_codes(self) -> Optional[List[Union[str, LanguageCode]]]:
-        "Returns the list of language codes detected in the audio file when language detection is enabled."
+        "Returns the list of language codes associated with this transcript/config."
 
         return self._raw_transcription_config.language_codes
+
+    @language_codes.setter
+    def language_codes(
+        self, language_codes: Optional[List[Union[str, LanguageCode]]]
+    ) -> None:
+        "Sets the list of language codes for multilingual/code-switching audio."
+        self._raw_transcription_config.language_codes = language_codes
 
     @property
     def language_detection_results(self) -> Optional[LanguageDetectionResults]:
@@ -1878,7 +1962,7 @@ class Utterance(UtteranceWord):
 class Chapter(BaseModel):
     summary: str
     headline: str
-    gist: str
+    gist: Optional[str] = None
     start: int
     end: int
 

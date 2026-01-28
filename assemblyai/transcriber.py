@@ -524,6 +524,22 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.webhook_auth
 
     @property
+    def language_code(self) -> Optional[Union[str, types.LanguageCode]]:
+        "The language code of the transcript"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.language_code
+
+    @property
+    def language_codes(self) -> Optional[List[Union[str, types.LanguageCode]]]:
+        "The list of language codes for multilingual/code-switching audio"
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.language_codes
+
+    @property
     def lemur(self) -> lemur.Lemur:
         """
         Access AssemblyAI's LeMUR features.
