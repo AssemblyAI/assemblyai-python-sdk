@@ -925,6 +925,9 @@ class RawTranscriptionConfig(BaseModel):
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
+    temperature: Optional[float] = None
+    "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
+
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
@@ -991,6 +994,7 @@ class TranscriptionConfig:
         speech_model: Optional[SpeechModel] = None,
         speech_models: Optional[List[str]] = None,
         prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
         keyterms_prompt: Optional[List[str]] = None,
         speech_understanding: Optional[SpeechUnderstandingRequest] = None,
     ) -> None:
@@ -1036,6 +1040,7 @@ class TranscriptionConfig:
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
             speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting)
+            temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -1089,6 +1094,7 @@ class TranscriptionConfig:
         self.speech_model = speech_model
         self.speech_models = speech_models
         self.prompt = prompt
+        self.temperature = temperature
         self.keyterms_prompt = keyterms_prompt
         self.speech_understanding = speech_understanding
 
@@ -1138,6 +1144,16 @@ class TranscriptionConfig:
     def prompt(self, prompt: Optional[str]) -> None:
         "Sets the prompt to use for the transcription."
         self._raw_transcription_config.prompt = prompt
+
+    @property
+    def temperature(self) -> Optional[float]:
+        "The temperature to use for the transcription."
+        return self._raw_transcription_config.temperature
+
+    @temperature.setter
+    def temperature(self, temperature: Optional[float]) -> None:
+        "Sets the temperature to use for the transcription."
+        self._raw_transcription_config.temperature = temperature
 
     @property
     def keyterms_prompt(self) -> Optional[List[str]]:
@@ -2248,6 +2264,9 @@ class BaseTranscript(BaseModel):
     prompt: Optional[str] = None
     "The prompt used to generate the transcript with the Slam-1 speech model. Can't be used together with `keyterms_prompt`."
 
+    temperature: Optional[float] = None
+    "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
+
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
@@ -2324,6 +2343,9 @@ class TranscriptResponse(BaseTranscript):
 
     prompt: Optional[str] = None
     "When Slam-1 is enabled, the prompt used to generate the transcript"
+
+    temperature: Optional[float] = None
+    "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
 
     keyterms_prompt: Optional[List[str]] = None
     "When Slam-1 is enabled, the list of key terms used to generate the transcript"
