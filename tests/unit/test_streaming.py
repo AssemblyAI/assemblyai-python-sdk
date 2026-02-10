@@ -141,6 +141,50 @@ def test_client_connect_all_parameters(mocker: MockFixture):
     assert actual_open_timeout == 15
 
 
+def test_client_connect_with_webhook(mocker: MockFixture):
+    actual_url = None
+    actual_additional_headers = None
+    actual_open_timeout = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url, actual_additional_headers, actual_open_timeout
+        actual_url = url
+        actual_additional_headers = additional_headers
+        actual_open_timeout = open_timeout
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        webhook_url="https://example.com/webhook",
+        webhook_auth_header_name="X-Webhook-Secret",
+        webhook_auth_header_value="secret-value",
+    )
+
+    client.connect(params)
+
+    expected_headers = {
+        "sample_rate": params.sample_rate,
+        "webhook_url": params.webhook_url,
+        "webhook_auth_header_name": params.webhook_auth_header_name,
+        "webhook_auth_header_value": params.webhook_auth_header_value,
+    }
+
+    assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
+    assert actual_additional_headers["Authorization"] == "test"
+    assert actual_open_timeout == 15
+
+
 def test_client_send_audio(mocker: MockFixture):
     actual_url = None
     actual_additional_headers = None
