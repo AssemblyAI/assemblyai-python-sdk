@@ -89,6 +89,9 @@ class StreamingParameters(StreamingSessionParameters):
     speech_model: Optional[SpeechModel] = None
     language_detection: Optional[bool] = None
     inactivity_timeout: Optional[int] = None
+    webhook_url: Optional[str] = None
+    webhook_auth_header_name: Optional[str] = None
+    webhook_auth_header_value: Optional[str] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
