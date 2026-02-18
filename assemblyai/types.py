@@ -717,6 +717,15 @@ class CustomFormattingResponse(BaseModel):
     "Status of the custom formatting feature"
 
 
+class KeytermsPromptOptions(BaseModel):
+    """Keyterms prompt options for controlling keyterms boosting behavior"""
+
+    keyterms_match_strength: Optional[Literal["high", "standard"]] = Field(
+        None,
+        description="Level of match strength for keyterms boosting ('high' or 'standard')",
+    )
+
+
 class TranslationResponse(BaseModel):
     """
     Translation response containing status
@@ -931,6 +940,9 @@ class RawTranscriptionConfig(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
+    keyterms_prompt_options: Optional[KeytermsPromptOptions] = None
+    "Options for controlling keyterms boosting behavior when using `keyterms_prompt`."
+
     language_codes: Optional[List[Union[str, LanguageCode]]] = None
     """
     A list of language codes associated with the transcript.
@@ -996,6 +1008,7 @@ class TranscriptionConfig:
         prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         keyterms_prompt: Optional[List[str]] = None,
+        keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
         speech_understanding: Optional[SpeechUnderstandingRequest] = None,
     ) -> None:
         """
@@ -1041,6 +1054,7 @@ class TranscriptionConfig:
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
             speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting)
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -1096,6 +1110,7 @@ class TranscriptionConfig:
         self.prompt = prompt
         self.temperature = temperature
         self.keyterms_prompt = keyterms_prompt
+        self.keyterms_prompt_options = keyterms_prompt_options
         self.speech_understanding = speech_understanding
 
     @property
@@ -1164,6 +1179,20 @@ class TranscriptionConfig:
     def keyterms_prompt(self, keyterms_prompt: Optional[List[str]]) -> None:
         "Sets the prompt to use for the transcription."
         self._raw_transcription_config.keyterms_prompt = keyterms_prompt
+
+    @property
+    def keyterms_prompt_options(self) -> Optional[KeytermsPromptOptions]:
+        "The keyterms_prompt_options to use for the transcription."
+
+        return self._raw_transcription_config.keyterms_prompt_options
+
+    @keyterms_prompt_options.setter
+    def keyterms_prompt_options(
+        self, keyterms_prompt_options: Optional[KeytermsPromptOptions]
+    ) -> None:
+        "Sets the keyterms_prompt_options to use for the transcription."
+
+        self._raw_transcription_config.keyterms_prompt_options = keyterms_prompt_options
 
     @property
     def speech_understanding(self) -> Optional[SpeechUnderstandingRequest]:
