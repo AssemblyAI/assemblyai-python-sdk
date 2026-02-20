@@ -73,9 +73,11 @@ class StreamingClient:
     def connect(self, params: StreamingParameters) -> None:
         params_dict = _dump_model(params)
 
-        # JSON-encode list parameters for proper API compatibility (e.g., keyterms_prompt)
+        # JSON-encode list and dict parameters for proper API compatibility (e.g., keyterms_prompt, llm_gateway)
         for key, value in params_dict.items():
             if isinstance(value, list):
+                params_dict[key] = json.dumps(value)
+            elif isinstance(value, dict):
                 params_dict[key] = json.dumps(value)
 
         params_encoded = urlencode(params_dict)
