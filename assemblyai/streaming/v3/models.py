@@ -5,6 +5,17 @@ from typing import List, Literal, Optional, Union
 from pydantic import BaseModel
 
 
+class LLMGatewayMessage(BaseModel):
+    role: str
+    content: str
+
+
+class LLMGatewayConfig(BaseModel):
+    model: str
+    messages: List["LLMGatewayMessage"]
+    max_tokens: int
+
+
 class Word(BaseModel):
     start: int
     end: int
@@ -94,6 +105,7 @@ class StreamingParameters(StreamingSessionParameters):
     webhook_url: Optional[str] = None
     webhook_auth_header_name: Optional[str] = None
     webhook_auth_header_value: Optional[str] = None
+    llm_gateway: Optional[LLMGatewayConfig] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
