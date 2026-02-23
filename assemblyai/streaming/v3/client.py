@@ -18,6 +18,7 @@ from .models import (
     ErrorEvent,
     EventMessage,
     ForceEndpoint,
+    LLMGatewayResponseEvent,
     OperationMessage,
     StreamingClientOptions,
     StreamingError,
@@ -211,6 +212,8 @@ class StreamingClient:
                 return TerminationEvent.model_validate(data)
             elif event_type == StreamingEvents.Turn:
                 return TurnEvent.model_validate(data)
+            elif event_type == StreamingEvents.LLMGatewayResponse:
+                return LLMGatewayResponseEvent.model_validate(data)
             else:
                 return None
         elif "error" in data:
