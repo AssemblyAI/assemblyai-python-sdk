@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel
 
@@ -52,11 +52,19 @@ class ErrorEvent(BaseModel):
     error: str
 
 
+class LLMGatewayResponseEvent(BaseModel):
+    type: Literal["LLMGatewayResponse"] = "LLMGatewayResponse"
+    turn_order: int
+    transcript: str
+    data: Any
+
+
 EventMessage = Union[
     BeginEvent,
     TerminationEvent,
     TurnEvent,
     ErrorEvent,
+    LLMGatewayResponseEvent,
 ]
 
 
@@ -160,3 +168,4 @@ class StreamingEvents(Enum):
     Termination = "Termination"
     Turn = "Turn"
     Error = "Error"
+    LLMGatewayResponse = "LLMGatewayResponse"
