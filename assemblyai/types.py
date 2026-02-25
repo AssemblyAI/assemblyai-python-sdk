@@ -2299,6 +2299,9 @@ class BaseTranscript(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
+    keyterms_prompt_options: Optional[KeytermsPromptOptions] = None
+    "Options for controlling how the `keyterms_prompt` is used when generating the transcript with the Slam-1 speech model."
+
     speech_understanding: Optional[SpeechUnderstandingRequest] = None
     "Speech understanding configuration for LLM Gateway features"
 
