@@ -72,6 +72,21 @@ class StreamingClient:
         self._stop_event = threading.Event()
 
     def connect(self, params: StreamingParameters) -> None:
+        # Check for deprecated parameters and log warnings
+        if (
+            params.min_end_of_turn_silence_when_confident is not None
+            and params.min_turn_silence is None
+        ):
+            logger.warning(
+                "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is deprecated and will be removed in a future release. "
+                "Please use `min_turn_silence` instead."
+            )
+        if params.speech_model == "u3-pro":
+            logger.warning(
+                "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
+                "Please use `u3-rt-pro` instead."
+            )
+
         params_dict = _dump_model(params)
 
         # JSON-encode list and dict parameters for proper API compatibility (e.g., keyterms_prompt, llm_gateway)
@@ -131,6 +146,15 @@ class StreamingClient:
             self._write_queue.put(chunk)
 
     def set_params(self, params: StreamingSessionParameters):
+        # Check for deprecated parameters and log warnings
+        if (
+            params.min_end_of_turn_silence_when_confident is not None
+            and params.min_turn_silence is None
+        ):
+            logger.warning(
+                "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is deprecated and will be removed in a future release. "
+                "Please use `min_turn_silence` instead."
+            )
         message = UpdateConfiguration(**_dump_model(params))
         self._write_queue.put(message)
 
