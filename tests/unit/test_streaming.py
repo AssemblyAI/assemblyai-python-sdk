@@ -7,6 +7,7 @@ from assemblyai.streaming.v3 import (
     StreamingClient,
     StreamingClientOptions,
     StreamingParameters,
+    TurnEvent,
 )
 
 
@@ -262,3 +263,92 @@ def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
     assert actual_open_timeout == 15
+
+
+def test_client_connect_with_speaker_labels(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speaker_labels=True,
+        max_speakers=3,
+    )
+
+    client.connect(params)
+
+    assert "speaker_labels=True" in actual_url
+    assert "max_speakers=3" in actual_url
+
+
+def test_client_connect_with_whisper_rt(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.whisper_rt,
+    )
+
+    client.connect(params)
+
+    assert "speech_model=whisper-rt" in actual_url
+
+
+def test_turn_event_with_speaker_label():
+    data = {
+        "type": "Turn",
+        "turn_order": 1,
+        "turn_is_formatted": True,
+        "end_of_turn": False,
+        "transcript": "Hello world",
+        "end_of_turn_confidence": 0.85,
+        "words": [],
+        "speaker_label": "B",
+    }
+    event = TurnEvent.parse_obj(data)
+    assert event.speaker_label == "B"
+
+
+def test_turn_event_without_speaker_label():
+    data = {
+        "type": "Turn",
+        "turn_order": 1,
+        "turn_is_formatted": True,
+        "end_of_turn": False,
+        "transcript": "Hello world",
+        "end_of_turn_confidence": 0.85,
+        "words": [],
+    }
+    event = TurnEvent.parse_obj(data)
+    assert event.speaker_label is None
