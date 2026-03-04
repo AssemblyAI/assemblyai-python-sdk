@@ -49,6 +49,11 @@ class TerminationEvent(BaseModel):
     session_duration_seconds: Optional[int] = None
 
 
+class SpeechStartedEvent(BaseModel):
+    type: Literal["SpeechStarted"] = "SpeechStarted"
+    timestamp: int
+
+
 class ErrorEvent(BaseModel):
     error: str
 
@@ -64,6 +69,7 @@ EventMessage = Union[
     BeginEvent,
     TerminationEvent,
     TurnEvent,
+    SpeechStartedEvent,
     ErrorEvent,
     LLMGatewayResponseEvent,
 ]
@@ -175,5 +181,6 @@ class StreamingEvents(Enum):
     Begin = "Begin"
     Termination = "Termination"
     Turn = "Turn"
+    SpeechStarted = "SpeechStarted"
     Error = "Error"
     LLMGatewayResponse = "LLMGatewayResponse"

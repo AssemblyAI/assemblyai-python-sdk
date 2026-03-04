@@ -20,6 +20,7 @@ from .models import (
     ForceEndpoint,
     LLMGatewayResponseEvent,
     OperationMessage,
+    SpeechStartedEvent,
     StreamingClientOptions,
     StreamingError,
     StreamingErrorCodes,
@@ -236,6 +237,8 @@ class StreamingClient:
                 return TerminationEvent.model_validate(data)
             elif event_type == StreamingEvents.Turn:
                 return TurnEvent.model_validate(data)
+            elif event_type == StreamingEvents.SpeechStarted:
+                return SpeechStartedEvent.model_validate(data)
             elif event_type == StreamingEvents.LLMGatewayResponse:
                 return LLMGatewayResponseEvent.model_validate(data)
             else:

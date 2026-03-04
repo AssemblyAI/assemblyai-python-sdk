@@ -4,6 +4,7 @@ from pytest_mock import MockFixture
 
 from assemblyai.streaming.v3 import (
     SpeechModel,
+    SpeechStartedEvent,
     StreamingClient,
     StreamingClientOptions,
     StreamingParameters,
@@ -352,3 +353,14 @@ def test_turn_event_without_speaker_label():
     }
     event = TurnEvent.parse_obj(data)
     assert event.speaker_label is None
+
+
+def test_speech_started_event():
+    """Test SpeechStarted event parsing (u3-rt-pro only)"""
+    data = {
+        "type": "SpeechStarted",
+        "timestamp": 1280,
+    }
+    event = SpeechStartedEvent.parse_obj(data)
+    assert event.type == "SpeechStarted"
+    assert event.timestamp == 1280
