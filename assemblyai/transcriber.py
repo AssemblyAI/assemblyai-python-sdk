@@ -50,7 +50,7 @@ class _TranscriptImpl:
         "Returns the configuration from the internal Transcript object"
         if self.transcript is None:
             raise ValueError(
-                "Canot access the configuration. The internal Transcript object is None."
+                "Cannot access the configuration. The internal Transcript object is None."
             )
 
         return types.TranscriptionConfig(

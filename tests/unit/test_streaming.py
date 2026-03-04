@@ -1,5 +1,7 @@
 from urllib.parse import urlencode
 
+import pytest
+from pydantic import ValidationError
 from pytest_mock import MockFixture
 
 from assemblyai.streaming.v3 import (
@@ -43,11 +45,15 @@ def test_client_connect(mocker: MockFixture):
     options = StreamingClientOptions(api_key="test", api_host="api.example.com")
     client = StreamingClient(options)
 
-    params = StreamingParameters(sample_rate=16000)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+    )
     client.connect(params)
 
     expected_headers = {
         "sample_rate": params.sample_rate,
+        "speech_model": str(params.speech_model),
     }
 
     assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
@@ -81,11 +87,15 @@ def test_client_connect_with_token(mocker: MockFixture):
     options = StreamingClientOptions(token="test", api_host="api.example.com")
     client = StreamingClient(options)
 
-    params = StreamingParameters(sample_rate=16000)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+    )
     client.connect(params)
 
     expected_headers = {
         "sample_rate": params.sample_rate,
+        "speech_model": str(params.speech_model),
     }
 
     assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
@@ -121,6 +131,7 @@ def test_client_connect_all_parameters(mocker: MockFixture):
 
     params = StreamingParameters(
         sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
         end_of_turn_confidence_threshold=0.5,
         min_end_of_turn_silence_when_confident=2000,
         max_turn_silence=3000,
@@ -133,6 +144,7 @@ def test_client_connect_all_parameters(mocker: MockFixture):
         "min_end_of_turn_silence_when_confident": params.min_end_of_turn_silence_when_confident,
         "max_turn_silence": params.max_turn_silence,
         "sample_rate": params.sample_rate,
+        "speech_model": str(params.speech_model),
     }
 
     assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
@@ -167,7 +179,10 @@ def test_client_send_audio(mocker: MockFixture):
     options = StreamingClientOptions(api_key="test", api_host="api.example.com")
     client = StreamingClient(options)
 
-    params = StreamingParameters(sample_rate=16000)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+    )
     client.connect(params)
     client.stream(b"test audio data")
 
@@ -200,6 +215,7 @@ def test_client_connect_with_webhook(mocker: MockFixture):
 
     params = StreamingParameters(
         sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
         webhook_url="https://example.com/webhook",
         webhook_auth_header_name="X-Webhook-Secret",
         webhook_auth_header_value="my-secret",
@@ -209,6 +225,7 @@ def test_client_connect_with_webhook(mocker: MockFixture):
 
     expected_params = {
         "sample_rate": params.sample_rate,
+        "speech_model": str(params.speech_model),
         "webhook_url": params.webhook_url,
         "webhook_auth_header_name": params.webhook_auth_header_name,
         "webhook_auth_header_value": params.webhook_auth_header_value,
@@ -287,6 +304,7 @@ def test_client_connect_with_speaker_labels(mocker: MockFixture):
 
     params = StreamingParameters(
         sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
         speaker_labels=True,
         max_speakers=3,
     )
@@ -353,6 +371,12 @@ def test_turn_event_without_speaker_label():
     }
     event = TurnEvent.parse_obj(data)
     assert event.speaker_label is None
+
+
+def test_speech_model_required():
+    """Test that omitting speech_model raises a validation error."""
+    with pytest.raises(ValidationError):
+        StreamingParameters(sample_rate=16000)
 
 
 def test_speech_started_event():

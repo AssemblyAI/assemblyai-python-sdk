@@ -155,7 +155,7 @@ class DeprecatedLanguageCodeMeta(EnumMeta):
         ]
         if item in languages:
             warn(
-                "LanuageCode Enum is deprecated and will be removed in 1.0.0. Use a string instead.",
+                "LanguageCode Enum is deprecated and will be removed in 1.0.0. Use a string instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -165,7 +165,7 @@ class DeprecatedLanguageCodeMeta(EnumMeta):
 
 class LanguageCode(str, Enum, metaclass=DeprecatedLanguageCodeMeta):
     """
-    DeprecationWarning: LanuageCode is deprecated and will be removed in 1.0.0. Use a string instead.
+    DeprecationWarning: LanguageCode is deprecated and will be removed in 1.0.0. Use a string instead.
 
     Supported languages for transcribing audio.
     """
@@ -1780,7 +1780,7 @@ class TranscriptionConfig:
         Args:
             replacement: A dictionary that contains the replacement object (see below example).
                 For each key-value pair, the key is the 'to' field, and the value is the 'from' field.
-            override: If `True` `replacement` gets overriden with the given `replacement` argument, otherwise merged.
+            override: If `True` `replacement` gets overridden with the given `replacement` argument, otherwise merged.
 
         Example:
             ```

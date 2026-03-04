@@ -379,7 +379,7 @@ def test_get_by_id_fails(httpx_mock: HTTPXMock):
     with pytest.raises(aai.TranscriptError) as excinfo:
         aai.Transcript.get_by_id(test_id)
 
-    # check wheter the TranscriptError contains the specified error message
+    # check whether the TranscriptError contains the specified error message
     assert response_json["error"] in str(excinfo.value)
     assert len(httpx_mock.get_requests()) == 1
 
