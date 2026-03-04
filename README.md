@@ -409,7 +409,7 @@ print(result.response)
 ```python
 import assemblyai as aai
 
-# Create a transcript and a corresponding LeMUR request that may contain senstive information.
+# Create a transcript and a corresponding LeMUR request that may contain sensitive information.
 transcriber = aai.Transcriber()
 transcript_group = transcriber.transcribe_group(
   [

@@ -68,7 +68,7 @@ def test_upload_file_fails(httpx_mock: HTTPXMock):
     with pytest.raises(aai.TranscriptError) as excinfo:
         aai.Transcriber().upload_file(os.urandom(10))
 
-    # check wheter the TranscriptError contains the specified error message
+    # check whether the TranscriptError contains the specified error message
     assert returned_error_message in str(excinfo.value)
     assert httpx.codes.INTERNAL_SERVER_ERROR == excinfo.value.status_code
 
@@ -148,7 +148,7 @@ def test_submit_file_fails_due_api_error(httpx_mock: HTTPXMock):
         with pytest.raises(aai.TranscriptError) as excinfo:
             transcriber.transcribe("audio.wav")
 
-    # check wheter the Exception contains the specified error message
+    # check whether the Exception contains the specified error message
     assert "something went wrong" in str(excinfo.value)
     assert httpx.codes.INTERNAL_SERVER_ERROR == excinfo.value.status_code
 
