@@ -27,8 +27,7 @@ With a single API call, get access to AI models built on the latest AI breakthro
   - [Installation](#installation)
   - [Examples](#examples)
     - [**Core Examples**](#core-examples)
-    - [**LeMUR Examples**](#lemur-examples)
-    - [**Audio Intelligence Examples**](#audio-intelligence-examples)
+    - [**Speech Understanding Examples**](#speech-understanding-examples)
     - [**Streaming Examples**](#streaming-examples)
   - [Playgrounds](#playgrounds)
 - [Advanced](#advanced)
@@ -75,10 +74,22 @@ aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("./my-local-audio-file.wav")
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
 
-print(transcript.text)
+audio_file = "./example.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    speaker_labels=True,
+)
+
+transcript = aai.Transcriber().transcribe(audio_file, config=config)
+
+if transcript.status == aai.TranscriptStatus.error:
+    raise RuntimeError(f"Transcription failed: {transcript.error}")
+print(f"\nFull Transcript:\n\n{transcript.text}")
 ```
 
 </details>
@@ -89,10 +100,22 @@ print(transcript.text)
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3")
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
 
-print(transcript.text)
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    speaker_labels=True,
+)
+
+transcript = aai.Transcriber().transcribe(audio_file, config=config)
+
+if transcript.status == aai.TranscriptStatus.error:
+    raise RuntimeError(f"Transcription failed: {transcript.error}")
+print(f"\nFull Transcript:\n\n{transcript.text}")
 ```
 
 </details>
@@ -102,6 +125,9 @@ print(transcript.text)
 
 ```python
 import assemblyai as aai
+
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
 
 transcriber = aai.Transcriber()
 
@@ -121,14 +147,33 @@ transcript = transcriber.transcribe(upload_url)
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3")
+aai.settings.api_key = "<YOUR_API_KEY>"
 
-# in SRT format
-print(transcript.export_subtitles_srt())
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
 
-# in VTT format
-print(transcript.export_subtitles_vtt())
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True
+)
+
+transcript = aai.Transcriber(config=config).transcribe(audio_file)
+
+if transcript.status == "error":
+  raise RuntimeError(f"Transcription failed: {transcript.error}")
+
+srt = transcript.export_subtitles_srt(
+  # Optional: Customize the maximum number of characters per caption
+  chars_per_caption=32
+  )
+
+with open(f"transcript_{transcript.id}.srt", "w") as srt_file:
+  srt_file.write(srt)
+
+# vtt = transcript.export_subtitles_vtt()
+
+# with open(f"transcript_{transcript_id}.vtt", "w") as vtt_file:
+#   vtt_file.write(vtt)
 ```
 
 </details>
@@ -139,16 +184,30 @@ print(transcript.export_subtitles_vtt())
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3")
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True
+)
+
+transcript = aai.Transcriber(config=config).transcribe(audio_file)
+
+if transcript.status == "error":
+  raise RuntimeError(f"Transcription failed: {transcript.error}")
 
 sentences = transcript.get_sentences()
 for sentence in sentences:
   print(sentence.text)
+  print()
 
 paragraphs = transcript.get_paragraphs()
 for paragraph in paragraphs:
   print(paragraph.text)
+  print()
 ```
 
 </details>
@@ -159,10 +218,25 @@ for paragraph in paragraphs:
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3")
+aai.settings.api_key = "<YOUR_API_KEY>"
 
-matches = transcript.word_search(["price", "product"])
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True
+)
+
+transcript = aai.Transcriber(config=config).transcribe(audio_file)
+
+if transcript.status == "error":
+  raise RuntimeError(f"Transcription failed: {transcript.error}")
+
+# Set the words you want to search for
+words = ["foo", "bar", "foo bar", "42"]
+
+matches = transcript.word_search(words)
 
 for match in matches:
   print(f"Found '{match.text}' {match.count} times in the transcript")
@@ -176,16 +250,26 @@ for match in matches:
 ```python
 import assemblyai as aai
 
-config = aai.TranscriptionConfig()
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True
+)
 config.set_custom_spelling(
   {
-    "Kubernetes": ["k8s"],
+    "Gettleman": ["gettleman"],
     "SQL": ["Sequel"],
   }
 )
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
+transcript = aai.Transcriber(config=config).transcribe(audio_file)
+
+if transcript.status == "error":
+  raise RuntimeError(f"Transcription failed: {transcript.error}")
 
 print(transcript.text)
 ```
@@ -210,9 +294,27 @@ upload_url = transcriber.upload_file(data)
 ```python
 import assemblyai as aai
 
-transcript = aai.Transcriber().transcribe(audio_url)
+aai.settings.api_key = "<YOUR_API_KEY>"
 
-aai.Transcript.delete_by_id(transcript.id)
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True
+)
+
+transcript = aai.Transcriber(config=config).transcribe(audio_file)
+
+if transcript.status == "error":
+  raise RuntimeError(f"Transcription failed: {transcript.error}")
+
+print(transcript.text)
+
+transcript.delete_by_id(transcript.id)
+
+transcript = aai.Transcript.get_by_id(transcript.id)
+print(transcript.text)
 ```
 
 </details>
@@ -262,179 +364,7 @@ while page.page_details.before_id_of_prev_url is not None:
 
 ---
 
-### **LeMUR Examples**
-
-<details>
-  <summary>Use LeMUR to summarize an audio file</summary>
-
-```python
-import assemblyai as aai
-
-audio_file = "https://assembly.ai/sports_injuries.mp3"
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(audio_file)
-
-prompt = "Provide a brief summary of the transcript."
-
-result = transcript.lemur.task(
-    prompt, final_model=aai.LemurModel.claude3_5_sonnet
-)
-
-print(result.response)
-```
-
-Or use the specialized Summarization endpoint that requires no prompt engineering and facilitates more deterministic and structured outputs:
-
-```python
-import assemblyai as aai
-
-audio_url = "https://assembly.ai/meeting.mp4"
-transcript = aai.Transcriber().transcribe(audio_url)
-
-result = transcript.lemur.summarize(
-    final_model=aai.LemurModel.claude3_5_sonnet,
-    context="A GitLab meeting to discuss logistics",
-    answer_format="TLDR"
-)
-
-print(result.response)
-```
-
-</details>
-
-<details>
-  <summary>Use LeMUR to ask questions about your audio data</summary>
-
-```python
-import assemblyai as aai
-
-audio_file = "https://assembly.ai/sports_injuries.mp3"
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(audio_file)
-
-prompt = "What is a runner's knee?"
-
-result = transcript.lemur.task(
-    prompt, final_model=aai.LemurModel.claude3_5_sonnet
-)
-
-print(result.response)
-```
-
-Or use the specialized Q&A endpoint that requires no prompt engineering and facilitates more deterministic and structured outputs:
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/customer.mp3")
-
-# ask some questions
-questions = [
-    aai.LemurQuestion(question="What car was the customer interested in?"),
-    aai.LemurQuestion(question="What price range is the customer looking for?"),
-]
-
-result = transcript.lemur.question(
-  final_model=aai.LemurModel.claude3_5_sonnet,
-  questions=questions)
-
-for q in result.response:
-    print(f"Question: {q.question}")
-    print(f"Answer: {q.answer}")
-```
-
-</details>
-
-<details>
-  <summary>Use LeMUR with customized input text</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-config = aai.TranscriptionConfig(
-  speaker_labels=True,
-)
-transcript = transcriber.transcribe("https://example.org/customer.mp3", config=config)
-
-# Example converting speaker label utterances into LeMUR input text
-text = ""
-
-for utt in transcript.utterances:
-    text += f"Speaker {utt.speaker}:\n{utt.text}\n"
-
-result = aai.Lemur().task(
-  "You are a helpful coach. Provide an analysis of the transcript "
-  "and offer areas to improve with exact quotes. Include no preamble. "
-  "Start with an overall summary then get into the examples with feedback.",
-  input_text=text,
-  final_model=aai.LemurModel.claude3_5_sonnet
-)
-
-print(result.response)
-```
-
-</details>
-
-<details>
-  <summary>Apply LeMUR to multiple transcripts</summary>
-
-```python
-import assemblyai as aai
-
-transcriber = aai.Transcriber()
-transcript_group = transcriber.transcribe_group(
-    [
-        "https://example.org/customer1.mp3",
-        "https://example.org/customer2.mp3",
-    ],
-)
-
-result = transcript_group.lemur.task(
-  context="These are calls of customers asking for cars. Summarize all calls and create a TLDR.",
-  final_model=aai.LemurModel.claude3_5_sonnet
-)
-
-print(result.response)
-```
-
-</details>
-
-<details>
-  <summary>Delete data previously sent to LeMUR</summary>
-
-```python
-import assemblyai as aai
-
-# Create a transcript and a corresponding LeMUR request that may contain senstive information.
-transcriber = aai.Transcriber()
-transcript_group = transcriber.transcribe_group(
-  [
-    "https://example.org/customer1.mp3",
-  ],
-)
-
-result = transcript_group.lemur.summarize(
-  context="Customers providing sensitive, personally identifiable information",
-  answer_format="TLDR"
-)
-
-# Get the request ID from the LeMUR response
-request_id = result.request_id
-
-# Now we can delete the data about this request
-deletion_result = aai.Lemur.purge_request_data(request_id)
-print(deletion_result)
-```
-
-</details>
-
----
-
-### **Audio Intelligence Examples**
+### **Speech Understanding Examples**
 
 <details>
   <summary>PII Redact a transcript</summary>
@@ -442,22 +372,27 @@ print(deletion_result)
 ```python
 import assemblyai as aai
 
-config = aai.TranscriptionConfig()
-config.set_redact_pii(
-  # What should be redacted
-  policies=[
-      aai.PIIRedactionPolicy.credit_card_number,
-      aai.PIIRedactionPolicy.email_address,
-      aai.PIIRedactionPolicy.location,
-      aai.PIIRedactionPolicy.person_name,
-      aai.PIIRedactionPolicy.phone_number,
-  ],
-  # How it should be redacted
-  substitution=aai.PIISubstitutionPolicy.hash,
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+).set_redact_pii(
+    policies=[
+        aai.PIIRedactionPolicy.person_name,
+        aai.PIIRedactionPolicy.organization,
+        aai.PIIRedactionPolicy.occupation,
+    ],
+    substitution=aai.PIISubstitutionPolicy.hash,
 )
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe("https://example.org/audio.mp3", config)
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
+
+print(transcript.text)
 ```
 
 To request a copy of the original audio file with the redacted information "beeped" out, set `redact_pii_audio=True` in the config.
@@ -466,20 +401,32 @@ Once the `Transcript` object is returned, you can access the URL of the redacted
 ```python
 import assemblyai as aai
 
-transcript = aai.Transcriber().transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(
-    redact_pii=True,
-    redact_pii_policies=[aai.PIIRedactionPolicy.person_name],
-    redact_pii_audio=True
-  )
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+).set_redact_pii(
+    policies=[
+        aai.PIIRedactionPolicy.person_name,
+        aai.PIIRedactionPolicy.organization,
+        aai.PIIRedactionPolicy.occupation,
+    ],
+    substitution=aai.PIISubstitutionPolicy.hash,
+    redact_audio=True
 )
 
-redacted_audio_url = transcript.get_redacted_audio_url()
-transcript.save_redacted_audio("redacted_audio.mp3")
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
+
+print(transcript.text)
+print(transcript.get_redacted_audio_url())
 ```
 
-[Read more about PII redaction here.](https://www.assemblyai.com/docs/Models/pii_redaction)
+[Read more about PII redaction here.](https://www.assemblyai.com/docs/pii-redaction)
 
 </details>
 <details>
@@ -488,20 +435,25 @@ transcript.save_redacted_audio("redacted_audio.mp3")
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(auto_chapters=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    auto_chapters=True
 )
 
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
+
 for chapter in transcript.chapters:
-  print(f"Summary: {chapter.summary}")  # A one paragraph summary of the content spoken during this timeframe
-  print(f"Start: {chapter.start}, End: {chapter.end}")  # Timestamps (in milliseconds) of the chapter
-  print(f"Healine: {chapter.headline}")  # A single sentence summary of the content spoken during this timeframe
-  print(f"Gist: {chapter.gist}")  # An ultra-short summary, just a few words, of the content spoken during this timeframe
+  print(f"{chapter.start}-{chapter.end}: {chapter.headline}")
 ```
 
-[Read more about auto chapters here.](https://www.assemblyai.com/docs/Models/auto_chapters)
+[Read more about auto chapters here.](https://www.assemblyai.com/docs/speech-understanding/auto-chapters)
 
 </details>
 
@@ -511,16 +463,26 @@ for chapter in transcript.chapters:
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(summarization=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+  speech_models=["universal-3-pro", "universal-2"],
+  language_detection=True,
+  summarization=True,
+  summary_model=aai.SummarizationModel.informative,
+  summary_type=aai.SummarizationType.bullets
 )
 
+transcript = aai.Transcriber().transcribe(audio_file, config)
+
+print(f"Transcript ID: ", transcript.id)
 print(transcript.summary)
 ```
 
-By default, the summarization model will be `informative` and the summarization type will be `bullets`. [Read more about summarization models and types here](https://www.assemblyai.com/docs/Models/summarization#types-and-models).
+By default, the summarization model will be `informative` and the summarization type will be `bullets`. [Read more about summarization models and types here](https://www.assemblyai.com/docs/speech-understanding/summarization).
 
 To change the model and/or type, pass additional parameters to the `TranscriptionConfig`:
 
@@ -539,37 +501,41 @@ config=aai.TranscriptionConfig(
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(content_safety=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    content_safety=True
 )
 
+transcript = aai.Transcriber().transcribe(audio_file, config)
 
-# Get the parts of the transcript which were flagged as sensitive
+print(f"Transcript ID:", transcript.id)
+
 for result in transcript.content_safety.results:
-  print(result.text)  # sensitive text snippet
-  print(result.timestamp.start)
-  print(result.timestamp.end)
+    print(result.text)
+    print(f"Timestamp: {result.timestamp.start} - {result.timestamp.end}")
 
-  for label in result.labels:
-    print(label.label)  # content safety category
-    print(label.confidence) # model's confidence that the text is in this category
-    print(label.severity) # severity of the text in relation to the category
+    # Get category, confidence, and severity.
+    for label in result.labels:
+        print(f"{label.label} - {label.confidence} - {label.severity}")  # content safety category
 
-# Get the confidence of the most common labels in relation to the entire audio file
+# Get the confidence of the most common labels in relation to the entire audio file.
 for label, confidence in transcript.content_safety.summary.items():
-  print(f"{confidence * 100}% confident that the audio contains {label}")
+    print(f"{confidence * 100}% confident that the audio contains {label}")
 
-# Get the overall severity of the most common labels in relation to the entire audio file
+# Get the overall severity of the most common labels in relation to the entire audio file.
 for label, severity_confidence in transcript.content_safety.severity_score_summary.items():
-  print(f"{severity_confidence.low * 100}% confident that the audio contains low-severity {label}")
-  print(f"{severity_confidence.medium * 100}% confident that the audio contains mid-severity {label}")
-  print(f"{severity_confidence.high * 100}% confident that the audio contains high-severity {label}")
-
+    print(f"{severity_confidence.low * 100}% confident that the audio contains low-severity {label}")
+    print(f"{severity_confidence.medium * 100}% confident that the audio contains medium-severity {label}")
+    print(f"{severity_confidence.high * 100}% confident that the audio contains high-severity {label}")
 ```
 
-[Read more about the content safety categories.](https://www.assemblyai.com/docs/Models/content_moderation#all-labels-supported-by-the-model)
+[Read more about the content safety categories.](https://www.assemblyai.com/docs/content-moderation)
 
 By default, the content safety model will only include labels with a confidence greater than 0.5 (50%). To change this, pass `content_safety_confidence` (as an integer percentage between 25 and 100, inclusive) to the `TranscriptionConfig`:
 
@@ -587,17 +553,25 @@ config=aai.TranscriptionConfig(
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(sentiment_analysis=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    sentiment_analysis=True
 )
 
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
+
 for sentiment_result in transcript.sentiment_analysis:
-  print(sentiment_result.text)
-  print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
-  print(sentiment_result.confidence)
-  print(f"Timestamp: {sentiment_result.start} - {sentiment_result.end}")
+    print(sentiment_result.text)
+    print(sentiment_result.sentiment)  # POSITIVE, NEUTRAL, or NEGATIVE
+    print(sentiment_result.confidence)
+    print(f"Timestamp: {sentiment_result.start} - {sentiment_result.end}")
 ```
 
 If `speaker_labels` is also enabled, then each sentiment analysis result will also include a `speaker` field.
@@ -613,7 +587,7 @@ for sentiment_result in transcript.sentiment_analysis:
   print(sentiment_result.speaker)
 ```
 
-[Read more about sentiment analysis here.](https://www.assemblyai.com/docs/Models/sentiment_analysis)
+[Read more about sentiment analysis here.](https://www.assemblyai.com/docs/speech-understanding/sentiment-analysis)
 
 </details>
 <details>
@@ -622,19 +596,27 @@ for sentiment_result in transcript.sentiment_analysis:
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(entity_detection=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    entity_detection=True
 )
 
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
+
 for entity in transcript.entities:
-  print(entity.text) # i.e. "Dan Gilbert"
-  print(entity.entity_type) # i.e. EntityType.person
-  print(f"Timestamp: {entity.start} - {entity.end}")
+    print(entity.text)
+    print(entity.entity_type)
+    print(f"Timestamp: {entity.start} - {entity.end}\n")
 ```
 
-[Read more about entity detection here.](https://www.assemblyai.com/docs/Models/entity_detection)
+[Read more about entity detection here.](https://www.assemblyai.com/docs/speech-understanding/entity-detection)
 
 </details>
 <details>
@@ -643,26 +625,33 @@ for entity in transcript.entities:
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(iab_categories=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    iab_categories=True
 )
+
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
 
 # Get the parts of the transcript that were tagged with topics
 for result in transcript.iab_categories.results:
-  print(result.text)
-  print(f"Timestamp: {result.timestamp.start} - {result.timestamp.end}")
-  for label in result.labels:
-    print(label.label)  # topic
-    print(label.relevance)  # how relevant the label is for the portion of text
+    print(result.text)
+    print(f"Timestamp: {result.timestamp.start} - {result.timestamp.end}")
+    for label in result.labels:
+        print(f"{label.label} ({label.relevance})")
 
 # Get a summary of all topics in the transcript
-for label, relevance in transcript.iab_categories.summary.items():
-  print(f"Audio is {relevance * 100}% relevant to {label}")
+for topic, relevance in transcript.iab_categories.summary.items():
+    print(f"Audio is {relevance * 100}% relevant to {topic}")
 ```
 
-[Read more about IAB classification here.](https://www.assemblyai.com/docs/Models/iab_classification)
+[Read more about IAB classification here.](https://www.assemblyai.com/docs/speech-understanding/topic-detection)
 
 </details>
 <details>
@@ -671,22 +660,25 @@ for label, relevance in transcript.iab_categories.summary.items():
 ```python
 import assemblyai as aai
 
-transcriber = aai.Transcriber()
-transcript = transcriber.transcribe(
-  "https://example.org/audio.mp3",
-  config=aai.TranscriptionConfig(auto_highlights=True)
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# audio_file = "./local_file.mp3"
+audio_file = "https://assembly.ai/wildfires.mp3"
+
+config = aai.TranscriptionConfig(
+    speech_models=["universal-3-pro", "universal-2"],
+    language_detection=True,
+    auto_highlights=True
 )
 
-for result in transcript.auto_highlights.results:
-  print(result.text) # the important phrase
-  print(result.rank) # relevancy of the phrase
-  print(result.count) # number of instances of the phrase
-  for timestamp in result.timestamps:
-    print(f"Timestamp: {timestamp.start} - {timestamp.end}")
+transcript = aai.Transcriber().transcribe(audio_file, config)
+print(f"Transcript ID:", transcript.id)
 
+for result in transcript.auto_highlights.results:
+    print(f"Highlight: {result.text}, Count: {result.count}, Rank: {result.rank}, Timestamps: {result.timestamps}")
 ```
 
-[Read more about auto highlights here.](https://www.assemblyai.com/docs/Models/key_phrases)
+[Read more about auto highlights here.](https://www.assemblyai.com/docs/speech-understanding/key-phrases)
 
 </details>
 
@@ -694,12 +686,19 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-[Read more about our streaming service.](https://www.assemblyai.com/docs/getting-started/transcribe-streaming-audio)
+[Read more about our streaming service.](https://www.assemblyai.com/docs/streaming/universal-3-pro)
 
 <details>
   <summary>Stream your microphone in real-time</summary>
-
+  
+```bash
+pip install -U assemblyai
+```
+  
 ```python
+import logging
+from typing import Type
+
 import assemblyai as aai
 from assemblyai.streaming.v3 import (
     BeginEvent,
@@ -708,76 +707,58 @@ from assemblyai.streaming.v3 import (
     StreamingError,
     StreamingEvents,
     StreamingParameters,
-    StreamingSessionParameters,
-    TerminationEvent,
     TurnEvent,
+    TerminationEvent,
 )
+
+api_key = "<YOUR_API_KEY>"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def on_begin(self: Type[StreamingClient], event: BeginEvent):
-  "This function is called when the connection has been established."
-
-  print("Session ID:", event.id)
+    print(f"Session started: {event.id}")
 
 def on_turn(self: Type[StreamingClient], event: TurnEvent):
-  "This function is called when a new transcript has been received."
-
-  print(event.transcript, end="\r\n")
+    print(f"{event.transcript} ({event.end_of_turn})")
 
 def on_terminated(self: Type[StreamingClient], event: TerminationEvent):
-  "This function is called when an error occurs."
-
-  print(
-    f"Session terminated: {event.audio_duration_seconds} seconds of audio processed"
-  )
+    print(
+        f"Session terminated: {event.audio_duration_seconds} seconds of audio processed"
+    )
 
 def on_error(self: Type[StreamingClient], error: StreamingError):
-  "This function is called when the connection has been closed."
+    print(f"Error occurred: {error}")
 
-  print(f"Error occurred: {error}")
+def main():
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key=api_key,
+            api_host="streaming.assemblyai.com",
+        )
+    )
 
+    client.on(StreamingEvents.Begin, on_begin)
+    client.on(StreamingEvents.Turn, on_turn)
+    client.on(StreamingEvents.Termination, on_terminated)
+    client.on(StreamingEvents.Error, on_error)
 
-# Create the streaming client
-transcriber = StreamingClient(
-  StreamingClientOptions(
-    api_key="YOUR_API_KEY",
-  )
-)
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model="u3-rt-pro",
+        )
+    )
 
-client.on(StreamingEvents.Begin, on_begin)
-client.on(StreamingEvents.Turn, on_turn)
-client.on(StreamingEvents.Termination, on_terminated)
-client.on(StreamingEvents.Error, on_error)
+    try:
+        client.stream(
+            aai.extras.MicrophoneStream(sample_rate=16000)
+        )
+    finally:
+        client.disconnect(terminate=True)
 
-# Start the connection
-client.connect(
-  StreamingParameters(
-    sample_rate=16_000,
-    formatted_finals=True,
-  )
-)
-
-# Open a microphone stream
-microphone_stream = aai.extras.MicrophoneStream()
-
-# Press CTRL+C to abort
-transcriber.stream(microphone_stream)
-
-transcriber.disconnect()
-```
-
-</details>
-
-<details>
-  <summary>Transcribe a local audio file in real-time</summary>
-
-```python
-# Only WAV/PCM16 single channel supported for now
-file_stream = aai.extras.stream_file(
-  filepath="audio.wav",
-  sample_rate=44_100,
-)
-
-transcriber.stream(file_stream)
+if __name__ == "__main__":
+    main()
 ```
 
 </details>
@@ -794,6 +775,9 @@ You'll find the `Settings` class with all default values in [types.py](./assembl
 ```python
 import assemblyai as aai
 
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
+
 # The HTTP timeout in seconds for general requests, default is 30.0
 aai.settings.http_timeout = 60.0
 
@@ -809,7 +793,7 @@ aai.settings.polling_interval = 10.0
 
 Visit our Playground to try our all of our Speech AI models and LeMUR for free:
 
-- [Playground](https://www.assemblyai.com/playground)
+- [Playground](https://www.assemblyai.com/dashboard/playground/)
 
 # Advanced
 
@@ -852,7 +836,7 @@ transcriber = aai.Transcriber(config=config)
 transcriber.transcribe(
     "https://example.com/audio.mp3",
     # overrides the above configuration on the `Transcriber` with the following
-    config=aai.TranscriptionConfig(dual_channel=True, disfluencies=True)
+    config=aai.TranscriptionConfig(speech_models=["universal-3-pro", "universal-2"], multichannel=True, disfluencies=True)
 )
 ```
 
@@ -899,6 +883,9 @@ By default we poll the `Transcript`'s status each `3s`. In case you would like t
 ```python
 import assemblyai as aai
 
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
+
 aai.settings.polling_interval = 1.0
 ```
 
@@ -910,6 +897,9 @@ If you previously created a transcript, you can use its ID to retrieve it later.
 
 ```python
 import assemblyai as aai
+
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
 
 transcript = aai.Transcript.get_by_id("<TRANSCRIPT_ID>")
 
@@ -923,6 +913,9 @@ You can also retrieve multiple existing transcripts and combine them into a sing
 
 ```python
 import assemblyai as aai
+
+aai.settings.base_url = "https://api.assemblyai.com"
+aai.settings.api_key = "YOUR_API_KEY"
 
 transcript_group = aai.TranscriptGroup.get_by_ids(["<TRANSCRIPT_ID_1>", "<TRANSCRIPT_ID_2>"])
 
