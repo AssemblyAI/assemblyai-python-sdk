@@ -909,7 +909,7 @@ print(transcript.text)
 
 ### Retrieving Multiple Transcripts as a Group
 
-You can also retrieve multiple existing transcripts and combine them into a single `TranscriptGroup` object. This allows you to perform operations on the transcript group as a single unit, such as querying the combined transcripts with LeMUR.
+You can also retrieve multiple existing transcripts and combine them into a single `TranscriptGroup` object. This allows you to perform operations on the transcript group as a single unit.
 
 ```python
 import assemblyai as aai
@@ -919,9 +919,6 @@ aai.settings.api_key = "YOUR_API_KEY"
 
 transcript_group = aai.TranscriptGroup.get_by_ids(["<TRANSCRIPT_ID_1>", "<TRANSCRIPT_ID_2>"])
 
-summary = transcript_group.lemur.summarize(context="Customers asking for cars", answer_format="TLDR")
-
-print(summary)
 ```
 
 ### Retrieving Transcripts Asynchronously
