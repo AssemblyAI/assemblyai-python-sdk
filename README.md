@@ -29,12 +29,14 @@ With a single API call, get access to AI models built on the latest AI breakthro
     - [**Core Examples**](#core-examples)
     - [**Speech Understanding Examples**](#speech-understanding-examples)
     - [**Streaming Examples**](#streaming-examples)
-  - [Playgrounds](#playgrounds)
+    - [**Change the default settings**](#change-the-default-settings)
+  - [Playground](#playground)
 - [Advanced](#advanced)
   - [How the SDK handles Default Configurations](#how-the-sdk-handles-default-configurations)
     - [Defining Defaults](#defining-defaults)
     - [Overriding Defaults](#overriding-defaults)
   - [Synchronous vs Asynchronous](#synchronous-vs-asynchronous)
+  - [Getting the HTTP status code](#getting-the-http-status-code)
   - [Polling Intervals](#polling-intervals)
   - [Retrieving Existing Transcripts](#retrieving-existing-transcripts)
     - [Retrieving a Single Transcript](#retrieving-a-single-transcript)
@@ -690,11 +692,11 @@ for result in transcript.auto_highlights.results:
 
 <details>
   <summary>Stream your microphone in real-time</summary>
-  
+
 ```bash
 pip install -U assemblyai
 ```
-  
+
 ```python
 import logging
 from typing import Type

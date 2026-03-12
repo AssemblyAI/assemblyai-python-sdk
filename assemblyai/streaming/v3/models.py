@@ -119,7 +119,7 @@ class SpeechModel(str, Enum):
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
-    speech_model: Optional[SpeechModel] = None
+    speech_model: SpeechModel
     language_detection: Optional[bool] = None
     inactivity_timeout: Optional[int] = None
     webhook_url: Optional[str] = None
