@@ -155,7 +155,7 @@ class DeprecatedLanguageCodeMeta(EnumMeta):
         ]
         if item in languages:
             warn(
-                "LanuageCode Enum is deprecated and will be removed in 1.0.0. Use a string instead.",
+                "LanguageCode Enum is deprecated and will be removed in 1.0.0. Use a string instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -165,7 +165,7 @@ class DeprecatedLanguageCodeMeta(EnumMeta):
 
 class LanguageCode(str, Enum, metaclass=DeprecatedLanguageCodeMeta):
     """
-    DeprecationWarning: LanuageCode is deprecated and will be removed in 1.0.0. Use a string instead.
+    DeprecationWarning: LanguageCode is deprecated and will be removed in 1.0.0. Use a string instead.
 
     Supported languages for transcribing audio.
     """
@@ -937,6 +937,9 @@ class RawTranscriptionConfig(BaseModel):
     temperature: Optional[float] = None
     "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
 
+    remove_audio_tags: Optional[str] = None
+    "When set to 'all', removes all bracketed audio/speaker tags (e.g. [MUSIC], [Speaker: A]) from the transcript. Only supported for Universal-3 Pro."
+
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
@@ -1007,6 +1010,7 @@ class TranscriptionConfig:
         speech_models: Optional[List[str]] = None,
         prompt: Optional[str] = None,
         temperature: Optional[float] = None,
+        remove_audio_tags: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
         keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
         speech_understanding: Optional[SpeechUnderstandingRequest] = None,
@@ -1054,6 +1058,7 @@ class TranscriptionConfig:
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
             speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting)
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
+            remove_audio_tags: When set to 'all', removes all bracketed audio/speaker tags from the transcript. Only supported for Universal-3 Pro.
             keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.
         """
         self._raw_transcription_config = (
@@ -1109,6 +1114,7 @@ class TranscriptionConfig:
         self.speech_models = speech_models
         self.prompt = prompt
         self.temperature = temperature
+        self.remove_audio_tags = remove_audio_tags
         self.keyterms_prompt = keyterms_prompt
         self.keyterms_prompt_options = keyterms_prompt_options
         self.speech_understanding = speech_understanding
@@ -1169,6 +1175,16 @@ class TranscriptionConfig:
     def temperature(self, temperature: Optional[float]) -> None:
         "Sets the temperature to use for the transcription."
         self._raw_transcription_config.temperature = temperature
+
+    @property
+    def remove_audio_tags(self) -> Optional[str]:
+        "When set to 'all', removes all bracketed audio/speaker tags from the transcript."
+        return self._raw_transcription_config.remove_audio_tags
+
+    @remove_audio_tags.setter
+    def remove_audio_tags(self, remove_audio_tags: Optional[str]) -> None:
+        "Sets remove_audio_tags for the transcription."
+        self._raw_transcription_config.remove_audio_tags = remove_audio_tags
 
     @property
     def keyterms_prompt(self) -> Optional[List[str]]:
@@ -1780,7 +1796,7 @@ class TranscriptionConfig:
         Args:
             replacement: A dictionary that contains the replacement object (see below example).
                 For each key-value pair, the key is the 'to' field, and the value is the 'from' field.
-            override: If `True` `replacement` gets overriden with the given `replacement` argument, otherwise merged.
+            override: If `True` `replacement` gets overridden with the given `replacement` argument, otherwise merged.
 
         Example:
             ```
@@ -2378,6 +2394,9 @@ class TranscriptResponse(BaseTranscript):
 
     temperature: Optional[float] = None
     "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
+
+    remove_audio_tags: Optional[str] = None
+    "When set to 'all', removes all bracketed audio/speaker tags (e.g. [MUSIC], [Speaker: A]) from the transcript. Only supported for Universal-3 Pro."
 
     keyterms_prompt: Optional[List[str]] = None
     "When Slam-1 is enabled, the list of key terms used to generate the transcript"
