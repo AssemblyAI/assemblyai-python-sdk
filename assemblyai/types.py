@@ -961,6 +961,9 @@ class RawTranscriptionConfig(BaseModel):
     speech_understanding: Optional[SpeechUnderstandingRequest] = None
     "Speech understanding configuration for LLM Gateway features"
 
+    domain: Optional[str] = None
+    "The domain to use for the transcription (e.g. 'medical-v1')."
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1014,6 +1017,7 @@ class TranscriptionConfig:
         keyterms_prompt: Optional[List[str]] = None,
         keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
         speech_understanding: Optional[SpeechUnderstandingRequest] = None,
+        domain: Optional[str] = None,
     ) -> None:
         """
         Args:
@@ -1060,6 +1064,7 @@ class TranscriptionConfig:
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
             remove_audio_tags: When set to 'all', removes all bracketed audio/speaker tags from the transcript. Only supported for Universal-3 Pro.
             keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.
+            domain: The domain to use for the transcription (e.g. 'medical-v1').
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -1118,6 +1123,7 @@ class TranscriptionConfig:
         self.keyterms_prompt = keyterms_prompt
         self.keyterms_prompt_options = keyterms_prompt_options
         self.speech_understanding = speech_understanding
+        self.domain = domain
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -1221,6 +1227,16 @@ class TranscriptionConfig:
     ) -> None:
         "Sets the speech understanding configuration for LLM Gateway features."
         self._raw_transcription_config.speech_understanding = speech_understanding
+
+    @property
+    def domain(self) -> Optional[str]:
+        "The domain used for the transcription."
+        return self._raw_transcription_config.domain
+
+    @domain.setter
+    def domain(self, domain: Optional[str]) -> None:
+        "Set the domain for the transcription."
+        self._raw_transcription_config.domain = domain
 
     @property
     def punctuate(self) -> Optional[bool]:
@@ -2321,11 +2337,23 @@ class BaseTranscript(BaseModel):
     speech_understanding: Optional[SpeechUnderstandingRequest] = None
     "Speech understanding configuration for LLM Gateway features"
 
+    domain: Optional[str] = None
+    "The domain used for the transcription."
+
 
 class TranscriptRequest(BaseTranscript):
     """
     Transcript request schema
     """
+
+
+class TranscriptMetadata(BaseModel):
+    "Metadata returned from the transcription API."
+
+    domain_used: Optional[str] = None
+    "The domain that was actually used for the transcription."
+    warning: Optional[str] = None
+    "An optional warning message, if applicable."
 
 
 class TranscriptResponse(BaseTranscript):
@@ -2406,6 +2434,9 @@ class TranscriptResponse(BaseTranscript):
 
     translated_texts: Optional[Dict[str, str]] = None
     "Translations of the full transcript text when translation is enabled"
+
+    metadata: Optional[TranscriptMetadata] = None
+    "Metadata returned by the transcription API."
 
     def __init__(self, **data: Any):
         # cleanup the response before creating the object
