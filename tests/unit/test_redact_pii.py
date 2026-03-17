@@ -95,6 +95,63 @@ def test_redact_pii_enabled_with_optional_params(httpx_mock: HTTPXMock):
     assert request_body.get("redact_pii_sub") == sub_type
 
 
+def test_redact_pii_audio_options(httpx_mock: HTTPXMock):
+    """
+    Tests that `redact_pii_audio_options` is included in the request body
+    when provided alongside `redact_pii_audio`.
+    """
+    policies = [
+        aai.types.PIIRedactionPolicy.person_name,
+    ]
+    audio_options = aai.RedactPiiAudioOptions(
+        override_audio_redaction_method=aai.PIIRedactedAudioMethod.silence,
+    )
+
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            redact_pii=True,
+            redact_pii_audio=True,
+            redact_pii_audio_options=audio_options,
+            redact_pii_policies=policies,
+        ),
+    )
+
+    assert request_body.get("redact_pii") is True
+    assert request_body.get("redact_pii_audio") is True
+    assert request_body.get("redact_pii_audio_options") == {
+        "override_audio_redaction_method": "silence",
+    }
+
+
+def test_redact_pii_audio_options_excluded_when_disabled(httpx_mock: HTTPXMock):
+    """
+    Tests that `redact_pii_audio_options` is excluded from the request body
+    when `redact_pii` is not enabled.
+    """
+    audio_options = aai.RedactPiiAudioOptions(
+        override_audio_redaction_method=aai.PIIRedactedAudioMethod.silence,
+    )
+
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            redact_pii=False,
+            redact_pii_audio=True,
+            redact_pii_audio_options=audio_options,
+            redact_pii_policies=[aai.types.PIIRedactionPolicy.date],
+        ),
+    )
+
+    assert request_body.get("redact_pii_audio_options") is None
+
+
 def test_redact_pii_fails_without_policies(httpx_mock: HTTPXMock):
     """
     Tests that enabling `redact_pii` without specifying any policies
@@ -136,6 +193,7 @@ def test_redact_pii_params_excluded_when_disabled(httpx_mock: HTTPXMock):
 
     assert request_body.get("redact_pii") is None
     assert request_body.get("redact_pii_audio") is None
+    assert request_body.get("redact_pii_audio_options") is None
     assert request_body.get("redact_pii_policies") is None
     assert request_body.get("redact_pii_sub") is None
 
