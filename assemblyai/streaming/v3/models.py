@@ -116,11 +116,19 @@ class SpeechModel(str, Enum):
         return self.value
 
 
+class StreamingDomain(str, Enum):
+    medical = "medical-v1"
+
+    def __str__(self):
+        return self.value
+
+
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
     speech_model: SpeechModel
     language_detection: Optional[bool] = None
+    domain: Optional[StreamingDomain] = None
     inactivity_timeout: Optional[int] = None
     webhook_url: Optional[str] = None
     webhook_auth_header_name: Optional[str] = None
