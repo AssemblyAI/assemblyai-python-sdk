@@ -2358,6 +2358,9 @@ class BaseTranscript(BaseModel):
     temperature: Optional[float] = None
     "Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic."
 
+    remove_audio_tags: Optional[str] = None
+    "When set to 'all', removes all bracketed audio/speaker tags (e.g. [MUSIC], [Speaker: A]) from the transcript. Only supported for Universal-3 Pro."
+
     keyterms_prompt: Optional[List[str]] = None
     "The list of key terms used to generate the transcript with the Slam-1 speech model. Can't be used together with `prompt`."
 
