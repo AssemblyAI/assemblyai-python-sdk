@@ -928,3 +928,7 @@ transcript_group = aai.TranscriptGroup.get_by_ids(["<TRANSCRIPT_ID_1>", "<TRANSC
 Both `Transcript.get_by_id` and `TranscriptGroup.get_by_ids` have asynchronous counterparts, `Transcript.get_by_id_async` and `TranscriptGroup.get_by_ids_async`, respectively. These functions immediately return a `Future` object, rather than blocking until the transcript(s) are retrieved.
 
 See the above section on [Synchronous vs Asynchronous](#synchronous-vs-asynchronous) for more information.
+
+## Claude Code
+
+This repository includes a [`CLAUDE.md`](CLAUDE.md) file that provides context to [Claude Code](https://docs.anthropic.com/en/docs/claude-code) about this SDK — key classes, common patterns, and gotchas. When you open this repo in Claude Code, it automatically reads this file to give better assistance.
