@@ -497,3 +497,65 @@ def test_speech_model_used_field_missing():
 
     # The field should be None when not present
     assert transcript_response.speech_model_used is None
+
+
+def test_metadata_warnings_present():
+    """
+    Tests that metadata.warnings is properly deserialized when present.
+    """
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    mock_transcript_response["metadata"] = {
+        "domain_used": None,
+        "warnings": [
+            {
+                "message": "Skipped medical-v1 correction because the language is not supported"
+            },
+        ],
+    }
+
+    transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
+
+    assert transcript_response.metadata is not None
+    assert transcript_response.metadata.warnings is not None
+    assert len(transcript_response.metadata.warnings) == 1
+    assert (
+        transcript_response.metadata.warnings[0].message
+        == "Skipped medical-v1 correction because the language is not supported"
+    )
+    assert transcript_response.metadata.domain_used is None
+
+
+def test_metadata_warnings_key_missing():
+    """
+    Tests that metadata without a warnings key deserializes correctly.
+    """
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    mock_transcript_response["metadata"] = {
+        "domain_used": None,
+    }
+
+    transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
+
+    assert transcript_response.metadata is not None
+    assert transcript_response.metadata.warnings is None
+    assert transcript_response.metadata.domain_used is None
+
+
+def test_metadata_not_present():
+    """
+    Tests that a response without metadata at all deserializes correctly.
+    """
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    if "metadata" in mock_transcript_response:
+        del mock_transcript_response["metadata"]
+
+    transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
+
+    assert transcript_response.metadata is None
