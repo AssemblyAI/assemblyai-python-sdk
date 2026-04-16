@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from pytest_mock import MockFixture
 
 from assemblyai.streaming.v3 import (
+    NoiseSuppressionModel,
     SpeechModel,
     SpeechStartedEvent,
     StreamingClient,
@@ -141,10 +142,10 @@ def test_client_connect_all_parameters(mocker: MockFixture):
 
     expected_headers = {
         "end_of_turn_confidence_threshold": params.end_of_turn_confidence_threshold,
-        "min_end_of_turn_silence_when_confident": params.min_end_of_turn_silence_when_confident,
         "max_turn_silence": params.max_turn_silence,
         "sample_rate": params.sample_rate,
         "speech_model": str(params.speech_model),
+        "min_turn_silence": params.min_end_of_turn_silence_when_confident,
     }
 
     assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
@@ -154,6 +155,162 @@ def test_client_connect_all_parameters(mocker: MockFixture):
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
     assert actual_open_timeout == 15
+
+
+def test_client_connect_with_noise_suppression(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        noise_suppression_model=NoiseSuppressionModel.near_field,
+        noise_suppression_threshold=0.5,
+    )
+    client.connect(params)
+
+    expected_headers = {
+        "sample_rate": params.sample_rate,
+        "speech_model": str(params.speech_model),
+        "noise_suppression_model": str(params.noise_suppression_model),
+        "noise_suppression_threshold": params.noise_suppression_threshold,
+    }
+
+    assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_headers)}"
+
+
+def test_api_host_accepts_ws_scheme(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="ws://127.0.0.1:8080")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+    )
+    client.connect(params)
+
+    assert actual_url.startswith("ws://127.0.0.1:8080/v3/ws?")
+    assert "wss://ws://" not in actual_url
+
+
+def test_api_host_defaults_to_wss_when_scheme_missing(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+    )
+    client.connect(params)
+
+    assert actual_url.startswith("wss://api.example.com/v3/ws?")
+
+
+def test_deprecated_min_turn_silence_is_normalized(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        min_end_of_turn_silence_when_confident=200,
+    )
+    client.connect(params)
+
+    assert "min_turn_silence=200" in actual_url
+    assert "min_end_of_turn_silence_when_confident" not in actual_url
+
+
+def test_min_turn_silence_conflict_prefers_new_name(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        min_end_of_turn_silence_when_confident=200,
+        min_turn_silence=500,
+    )
+    client.connect(params)
+
+    assert "min_turn_silence=500" in actual_url
+    assert "min_turn_silence=200" not in actual_url
+    assert "min_end_of_turn_silence_when_confident" not in actual_url
 
 
 def test_client_send_audio(mocker: MockFixture):
@@ -272,7 +429,8 @@ def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
     # The expected URL should contain all the parameters
     assert "sample_rate=8000" in actual_url
     assert "speech_model=u3-pro" in actual_url
-    assert "min_end_of_turn_silence_when_confident=200" in actual_url
+    assert "min_turn_silence=200" in actual_url
+    assert "min_end_of_turn_silence_when_confident" not in actual_url
     assert "prompt=Transcribe" in actual_url
     assert "keyterms_prompt=" in actual_url  # keyterms_prompt is JSON-encoded
 
