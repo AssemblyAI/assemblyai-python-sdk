@@ -123,6 +123,14 @@ class StreamingDomain(str, Enum):
         return self.value
 
 
+class NoiseSuppressionModel(str, Enum):
+    near_field = "near-field"
+    far_field = "far-field"
+
+    def __str__(self):
+        return self.value
+
+
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
@@ -136,6 +144,8 @@ class StreamingParameters(StreamingSessionParameters):
     llm_gateway: Optional[LLMGatewayConfig] = None
     speaker_labels: Optional[bool] = None
     max_speakers: Optional[int] = None
+    noise_suppression_model: Optional[NoiseSuppressionModel] = None
+    noise_suppression_threshold: Optional[float] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):

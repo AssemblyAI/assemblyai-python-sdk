@@ -42,6 +42,28 @@ def _dump_model(model: BaseModel):
     return model.dict(exclude_none=True)
 
 
+def _normalize_min_turn_silence(params_dict: dict) -> dict:
+    """Collapse `min_end_of_turn_silence_when_confident` into `min_turn_silence` so only
+    one wire key is ever sent. Emits deprecation warnings."""
+    old = params_dict.pop("min_end_of_turn_silence_when_confident", None)
+    if old is None:
+        return params_dict
+    if "min_turn_silence" in params_dict:
+        logger.warning(
+            "[Deprecation Warning] Both `min_end_of_turn_silence_when_confident` and "
+            "`min_turn_silence` are set. Using `min_turn_silence`; "
+            "`min_end_of_turn_silence_when_confident` is deprecated."
+        )
+    else:
+        logger.warning(
+            "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is "
+            "deprecated and will be removed in a future release. Please use "
+            "`min_turn_silence` instead."
+        )
+        params_dict["min_turn_silence"] = old
+    return params_dict
+
+
 def _dump_model_json(model: BaseModel):
     if hasattr(model, "model_dump_json"):
         return model.model_dump_json(exclude_none=True)
@@ -73,22 +95,13 @@ class StreamingClient:
         self._stop_event = threading.Event()
 
     def connect(self, params: StreamingParameters) -> None:
-        # Check for deprecated parameters and log warnings
-        if (
-            params.min_end_of_turn_silence_when_confident is not None
-            and params.min_turn_silence is None
-        ):
-            logger.warning(
-                "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is deprecated and will be removed in a future release. "
-                "Please use `min_turn_silence` instead."
-            )
         if params.speech_model == "u3-pro":
             logger.warning(
                 "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
                 "Please use `u3-rt-pro` instead."
             )
 
-        params_dict = _dump_model(params)
+        params_dict = _normalize_min_turn_silence(_dump_model(params))
 
         # JSON-encode list and dict parameters for proper API compatibility (e.g., keyterms_prompt, llm_gateway)
         for key, value in params_dict.items():
@@ -99,7 +112,11 @@ class StreamingClient:
 
         params_encoded = urlencode(params_dict)
 
-        uri = f"wss://{self._options.api_host}/v3/ws?{params_encoded}"
+        host = self._options.api_host
+        if host.startswith(("ws://", "wss://")):
+            uri = f"{host}/v3/ws?{params_encoded}"
+        else:
+            uri = f"wss://{host}/v3/ws?{params_encoded}"
         headers = {
             "Authorization": self._options.token
             if self._options.token
@@ -147,16 +164,8 @@ class StreamingClient:
             self._write_queue.put(chunk)
 
     def set_params(self, params: StreamingSessionParameters):
-        # Check for deprecated parameters and log warnings
-        if (
-            params.min_end_of_turn_silence_when_confident is not None
-            and params.min_turn_silence is None
-        ):
-            logger.warning(
-                "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is deprecated and will be removed in a future release. "
-                "Please use `min_turn_silence` instead."
-            )
-        message = UpdateConfiguration(**_dump_model(params))
+        message_dict = _normalize_min_turn_silence(_dump_model(params))
+        message = UpdateConfiguration(**message_dict)
         self._write_queue.put(message)
 
     def force_endpoint(self):
