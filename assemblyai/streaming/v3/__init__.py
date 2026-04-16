@@ -14,6 +14,7 @@ from .models import (
     StreamingSessionParameters,
     TerminationEvent,
     TurnEvent,
+    WarningEvent,
     Word,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "StreamingSessionParameters",
     "TerminationEvent",
     "TurnEvent",
+    "WarningEvent",
     "Word",
 ]
