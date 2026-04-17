@@ -31,6 +31,7 @@ from .models import (
     TerminationEvent,
     TurnEvent,
     UpdateConfiguration,
+    WarningEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,8 @@ class StreamingClient:
 
             if isinstance(message, ErrorEvent):
                 self._handle_error(message)
+            elif isinstance(message, WarningEvent):
+                self._handle_warning(message)
             elif message:
                 self._handle_message(message)
             else:
@@ -250,6 +253,10 @@ class StreamingClient:
                 return SpeechStartedEvent.model_validate(data)
             elif event_type == StreamingEvents.LLMGatewayResponse:
                 return LLMGatewayResponseEvent.model_validate(data)
+            elif event_type == StreamingEvents.Error:
+                return ErrorEvent.model_validate(data)
+            elif event_type == StreamingEvents.Warning:
+                return WarningEvent.model_validate(data)
             else:
                 return None
         elif "error" in data:
@@ -266,6 +273,13 @@ class StreamingClient:
             return StreamingEvents[message_type]
         except KeyError:
             return None
+
+    def _handle_warning(self, warning: WarningEvent):
+        logger.warning(
+            "Streaming warning (code=%s): %s", warning.warning_code, warning.warning
+        )
+        for handler in self._handlers[StreamingEvents.Warning]:
+            handler(self, warning)
 
     def _handle_error(
         self,
@@ -291,6 +305,7 @@ class StreamingClient:
         if isinstance(error, ErrorEvent):
             return StreamingError(
                 message=error.error,
+                code=error.error_code,
             )
         elif isinstance(error, websockets.exceptions.ConnectionClosed):
             if (

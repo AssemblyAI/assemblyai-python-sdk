@@ -55,7 +55,15 @@ class SpeechStartedEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
+    type: Literal["Error"] = "Error"
+    error_code: Optional[int] = None
     error: str
+
+
+class WarningEvent(BaseModel):
+    type: Literal["Warning"] = "Warning"
+    warning_code: int
+    warning: str
 
 
 class LLMGatewayResponseEvent(BaseModel):
@@ -71,6 +79,7 @@ EventMessage = Union[
     TurnEvent,
     SpeechStartedEvent,
     ErrorEvent,
+    WarningEvent,
     LLMGatewayResponseEvent,
 ]
 
@@ -201,4 +210,5 @@ class StreamingEvents(Enum):
     Turn = "Turn"
     SpeechStarted = "SpeechStarted"
     Error = "Error"
+    Warning = "Warning"
     LLMGatewayResponse = "LLMGatewayResponse"
