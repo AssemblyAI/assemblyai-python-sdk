@@ -198,6 +198,110 @@ def test_redact_pii_params_excluded_when_disabled(httpx_mock: HTTPXMock):
     assert request_body.get("redact_pii_sub") is None
 
 
+def test_redact_pii_return_unredacted_default_absent(httpx_mock: HTTPXMock):
+    """
+    Tests that `redact_pii_return_unredacted` is absent from the request body
+    when not explicitly set, even when `redact_pii` is enabled.
+    """
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            redact_pii=True,
+            redact_pii_policies=[aai.types.PIIRedactionPolicy.date],
+        ),
+    )
+
+    assert request_body.get("redact_pii_return_unredacted") is None
+
+
+def test_redact_pii_return_unredacted_in_request(httpx_mock: HTTPXMock):
+    """
+    Tests that setting `return_unredacted=True` on `set_redact_pii` puts
+    `redact_pii_return_unredacted=True` in the submission request body.
+    """
+    config = aai.TranscriptionConfig().set_redact_pii(
+        policies=[aai.types.PIIRedactionPolicy.date],
+        return_unredacted=True,
+    )
+
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=config,
+    )
+
+    assert request_body.get("redact_pii") is True
+    assert request_body.get("redact_pii_return_unredacted") is True
+
+
+def test_redact_pii_return_unredacted_cleared_on_disable():
+    """
+    Tests that calling `set_redact_pii(enable=False)` after enabling with
+    `return_unredacted=True` clears the flag from the raw config.
+    """
+    config = aai.TranscriptionConfig().set_redact_pii(
+        policies=[aai.types.PIIRedactionPolicy.date],
+        return_unredacted=True,
+    )
+    assert config.redact_pii_return_unredacted is True
+
+    config.set_redact_pii(enable=False)
+    assert config.redact_pii_return_unredacted is None
+
+
+def test_unredacted_response_fields_surface_on_transcript(httpx_mock: HTTPXMock):
+    """
+    Tests that `unredacted_text`, `unredacted_words`, and `unredacted_utterances`
+    in the API response are accessible via the `Transcript` wrapper.
+    """
+    base_response = factories.generate_dict_factory(
+        TranscriptWithPIIRedactionResponseFactory
+    )()
+    unredacted_words = [{"text": "hello", "start": 0, "end": 500, "confidence": 0.99}]
+    unredacted_utterances = [
+        {
+            "text": "hello world",
+            "start": 0,
+            "end": 1000,
+            "confidence": 0.99,
+            "speaker": "A",
+            "words": [
+                {"text": "hello", "start": 0, "end": 500, "confidence": 0.99},
+                {"text": "world", "start": 500, "end": 1000, "confidence": 0.99},
+            ],
+        }
+    ]
+    mock_response = {
+        **base_response,
+        "redact_pii_return_unredacted": True,
+        "unredacted_text": "hello world",
+        "unredacted_words": unredacted_words,
+        "unredacted_utterances": unredacted_utterances,
+    }
+
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=mock_response,
+        config=aai.TranscriptionConfig().set_redact_pii(
+            policies=[aai.types.PIIRedactionPolicy.date],
+            return_unredacted=True,
+        ),
+    )
+
+    assert transcript.unredacted_text == "hello world"
+    assert transcript.unredacted_words is not None
+    assert len(transcript.unredacted_words) == 1
+    assert transcript.unredacted_words[0].text == "hello"
+    assert transcript.unredacted_utterances is not None
+    assert len(transcript.unredacted_utterances) == 1
+    assert transcript.unredacted_utterances[0].text == "hello world"
+
+
 def __get_redacted_audio_api_url(transcript: aai.Transcript) -> str:
     return (
         f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript.id}/redacted-audio"

@@ -492,6 +492,30 @@ class Transcript(types.Sourcable):
         return self._impl.transcript.utterances
 
     @property
+    def unredacted_text(self) -> Optional[str]:
+        "The unredacted transcript text, when `redact_pii_return_unredacted` was enabled."
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.unredacted_text
+
+    @property
+    def unredacted_words(self) -> Optional[List[types.Word]]:
+        "The unredacted list of words, when `redact_pii_return_unredacted` was enabled."
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.unredacted_words
+
+    @property
+    def unredacted_utterances(self) -> Optional[List[types.Utterance]]:
+        "The unredacted list of utterances, when `redact_pii_return_unredacted` was enabled."
+        if not self._impl.transcript:
+            raise ValueError("The internal Transcript object is None.")
+
+        return self._impl.transcript.unredacted_utterances
+
+    @property
     def confidence(self) -> Optional[float]:
         "The confidence our model has in the transcribed text, between 0 and 1"
         if not self._impl.transcript:

@@ -876,6 +876,8 @@ class RawTranscriptionConfig(BaseModel):
     "The list of PII Redaction policies to enable."
     redact_pii_sub: Optional[PIISubstitutionPolicy] = None
     "The replacement logic for detected PII."
+    redact_pii_return_unredacted: Optional[bool] = None
+    "If `redact_pii` is enabled, also return the unredacted text/words/utterances alongside the redacted fields."
 
     speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
@@ -1008,6 +1010,7 @@ class TranscriptionConfig:
         redact_pii_audio_options: Optional[RedactPiiAudioOptions] = None,
         redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
+        redact_pii_return_unredacted: Optional[bool] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
         speaker_options: Optional[SpeakerOptions] = None,
@@ -1060,6 +1063,7 @@ class TranscriptionConfig:
             redact_pii_audio_options: Options for controlling PII audio redaction behavior (e.g., override the redaction method to silence).
             redact_pii_policies: The list of PII Redaction policies to enable.
             redact_pii_sub: The replacement logic for detected PII.
+            redact_pii_return_unredacted: If `redact_pii` is enabled, also return the unredacted text/words/utterances on the transcript response. Requires `redact_pii=True`.
             speaker_labels: Enable Speaker Diarization.
             speakers_expected: The number of speakers you expect to hear in your audio file. Up to 10 speakers are supported.
             speaker_options: Advanced options for controlling speaker diarization parameters, including min and max speakers expected.
@@ -1117,6 +1121,7 @@ class TranscriptionConfig:
             redact_pii_audio_options,
             redact_pii_policies,
             redact_pii_sub,
+            redact_pii_return_unredacted,
         )
         self.set_speaker_diarization(speaker_labels, speakers_expected, speaker_options)
         self.set_content_safety(content_safety, content_safety_confidence)
@@ -1396,6 +1401,12 @@ class TranscriptionConfig:
         "Returns the replacement logic for detected PII."
 
         return self._raw_transcription_config.redact_pii_sub
+
+    @property
+    def redact_pii_return_unredacted(self) -> Optional[bool]:
+        "Returns whether the unredacted text/words/utterances should also be returned alongside redacted fields."
+
+        return self._raw_transcription_config.redact_pii_return_unredacted
 
     @property
     def speaker_labels(self) -> Optional[bool]:
@@ -1797,6 +1808,7 @@ class TranscriptionConfig:
         redact_audio_options: Optional[RedactPiiAudioOptions] = None,
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
+        return_unredacted: Optional[bool] = None,
     ) -> Self:
         """
         Enables Personal Identifiable Information (PII) Redaction feature.
@@ -1808,6 +1820,7 @@ class TranscriptionConfig:
             redact_audio_options: Options for controlling PII audio redaction behavior (e.g., override the redaction method to silence).
             policies: A list of PII redaction policies to enable.
             substitution: The replacement logic for detected PII (`PIISubstutionPolicy.hash` by default).
+            return_unredacted: Also return the unredacted text/words/utterances on the transcript response. Only valid when redaction is enabled.
         """
 
         if not enable:
@@ -1817,6 +1830,7 @@ class TranscriptionConfig:
             self._raw_transcription_config.redact_pii_audio_options = None
             self._raw_transcription_config.redact_pii_policies = None
             self._raw_transcription_config.redact_pii_sub = None
+            self._raw_transcription_config.redact_pii_return_unredacted = None
 
             return self
 
@@ -1829,6 +1843,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.redact_pii_audio_options = redact_audio_options
         self._raw_transcription_config.redact_pii_policies = policies
         self._raw_transcription_config.redact_pii_sub = substitution
+        self._raw_transcription_config.redact_pii_return_unredacted = return_unredacted
 
         return self
 
@@ -2280,6 +2295,8 @@ class BaseTranscript(BaseModel):
     "The list of PII Redaction policies to enable."
     redact_pii_sub: Optional[PIISubstitutionPolicy] = None
     "The replacement logic for detected PII."
+    redact_pii_return_unredacted: Optional[bool] = None
+    "If `redact_pii` is enabled, also return the unredacted text/words/utterances alongside the redacted fields."
 
     speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
@@ -2423,6 +2440,15 @@ class TranscriptResponse(BaseTranscript):
 
     utterances: Optional[List[Utterance]] = None
     "When `dual_channel`, `multichannel`,  or `speaker_labels` is enabled, a list of turn-by-turn utterances"
+
+    unredacted_text: Optional[str] = None
+    "The unredacted transcript text. Returned only when `redact_pii_return_unredacted` was set with `redact_pii`."
+
+    unredacted_words: Optional[List[Word]] = None
+    "The unredacted list of individual words. Returned only when `redact_pii_return_unredacted` was set with `redact_pii`."
+
+    unredacted_utterances: Optional[List[Utterance]] = None
+    "The unredacted list of utterances. Returned only when `redact_pii_return_unredacted` was set with `redact_pii` and channel/speaker modes are enabled."
 
     confidence: Optional[float] = None
     "The confidence our model has in the transcribed text, between 0.0 and 1.0"
