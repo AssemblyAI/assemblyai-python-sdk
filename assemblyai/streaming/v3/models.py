@@ -182,6 +182,11 @@ class StreamingError(Exception):
 
 
 StreamingErrorCodes = {
+    3005: "Server error",
+    3006: "Input validation error",
+    3007: "Audio chunk duration violation",
+    3008: "Session expired: maximum session duration exceeded",
+    3009: "Too many concurrent sessions",
     4000: "Sample rate must be a positive integer",
     4001: "Not Authorized",
     4002: "Insufficient Funds",

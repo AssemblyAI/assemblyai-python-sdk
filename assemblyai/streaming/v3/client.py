@@ -308,11 +308,7 @@ class StreamingClient:
                 code=error.error_code,
             )
         elif isinstance(error, websockets.exceptions.ConnectionClosed):
-            if (
-                error.code >= 4000
-                and error.code <= 4999
-                and error.code in StreamingErrorCodes
-            ):
+            if error.code in StreamingErrorCodes:
                 error_message = StreamingErrorCodes[error.code]
             else:
                 error_message = error.reason
