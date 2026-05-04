@@ -22,6 +22,7 @@ class Word(BaseModel):
     confidence: float
     text: str
     word_is_final: bool
+    speaker: Optional[str] = None
 
 
 class TurnEvent(BaseModel):
@@ -140,6 +141,67 @@ class NoiseSuppressionModel(str, Enum):
         return self.value
 
 
+class StreamingPiiSubstitution(str, Enum):
+    hash = "hash"
+    entity_name = "entity_name"
+
+    def __str__(self):
+        return self.value
+
+
+class StreamingPiiPolicy(str, Enum):
+    account_number = "account_number"
+    banking_information = "banking_information"
+    blood_type = "blood_type"
+    credit_card_number = "credit_card_number"
+    credit_card_expiration = "credit_card_expiration"
+    credit_card_cvv = "credit_card_cvv"
+    date = "date"
+    date_interval = "date_interval"
+    date_of_birth = "date_of_birth"
+    drivers_license = "drivers_license"
+    drug = "drug"
+    duration = "duration"
+    email_address = "email_address"
+    event = "event"
+    filename = "filename"
+    gender_sexuality = "gender_sexuality"
+    gender = "gender"
+    healthcare_number = "healthcare_number"
+    injury = "injury"
+    ip_address = "ip_address"
+    language = "language"
+    location = "location"
+    marital_status = "marital_status"
+    medical_condition = "medical_condition"
+    medical_process = "medical_process"
+    money_amount = "money_amount"
+    nationality = "nationality"
+    number_sequence = "number_sequence"
+    passport_number = "passport_number"
+    password = "password"
+    person_age = "person_age"
+    person_name = "person_name"
+    phone_number = "phone_number"
+    physical_attribute = "physical_attribute"
+    political_affiliation = "political_affiliation"
+    occupation = "occupation"
+    organization = "organization"
+    organization_medical_facility = "organization_medical_facility"
+    religion = "religion"
+    sexuality = "sexuality"
+    statistics = "statistics"
+    time = "time"
+    url = "url"
+    us_social_security_number = "us_social_security_number"
+    username = "username"
+    vehicle_id = "vehicle_id"
+    zodiac_sign = "zodiac_sign"
+
+    def __str__(self):
+        return self.value
+
+
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
@@ -153,8 +215,17 @@ class StreamingParameters(StreamingSessionParameters):
     llm_gateway: Optional[LLMGatewayConfig] = None
     speaker_labels: Optional[bool] = None
     max_speakers: Optional[int] = None
+    voice_focus: Optional[NoiseSuppressionModel] = None
+    voice_focus_threshold: Optional[float] = None
+    # Deprecated: use voice_focus / voice_focus_threshold instead.
     noise_suppression_model: Optional[NoiseSuppressionModel] = None
     noise_suppression_threshold: Optional[float] = None
+    continuous_partials: Optional[bool] = None
+    customer_support_audio_capture: Optional[bool] = None
+    include_partial_turns: Optional[bool] = None
+    redact_pii: Optional[bool] = None
+    redact_pii_policies: Optional[List[StreamingPiiPolicy]] = None
+    redact_pii_sub: Optional[StreamingPiiSubstitution] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
