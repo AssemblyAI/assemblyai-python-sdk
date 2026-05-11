@@ -110,6 +110,46 @@ def _user_agent() -> str:
     )
 
 
+def _emit_param_warnings(params: StreamingParameters) -> None:
+    if params.speech_model == "u3-pro":
+        logger.warning(
+            "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
+            "Please use `u3-rt-pro` instead."
+        )
+    if params.customer_support_audio_capture:
+        logger.warning(
+            "`customer_support_audio_capture=True` will record session audio. "
+            "Only enable this when explicitly coordinating with AssemblyAI support."
+        )
+
+
+def _build_uri(host: str, params: StreamingParameters) -> str:
+    params_dict = _normalize_voice_focus(
+        _normalize_min_turn_silence(_dump_model(params))
+    )
+    # JSON-encode list and dict parameters for proper API compatibility (e.g.,
+    # keyterms_prompt, llm_gateway)
+    for key, value in params_dict.items():
+        if isinstance(value, list):
+            params_dict[key] = json.dumps(value)
+        elif isinstance(value, dict):
+            params_dict[key] = json.dumps(value)
+
+    params_encoded = urlencode(params_dict)
+
+    if host.startswith(("ws://", "wss://")):
+        return f"{host}/v3/ws?{params_encoded}"
+    return f"wss://{host}/v3/ws?{params_encoded}"
+
+
+def _build_headers(options: StreamingClientOptions) -> Dict[str, str]:
+    return {
+        "Authorization": options.token or options.api_key or "",
+        "User-Agent": _user_agent(),
+        "AssemblyAI-Version": "2025-05-12",
+    }
+
+
 class StreamingClient:
     def __init__(self, options: StreamingClientOptions):
         self._options = options
@@ -138,43 +178,10 @@ class StreamingClient:
         self._websocket = None
 
     def connect(self, params: StreamingParameters) -> None:
-        if params.speech_model == "u3-pro":
-            logger.warning(
-                "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
-                "Please use `u3-rt-pro` instead."
-            )
+        _emit_param_warnings(params)
 
-        if params.customer_support_audio_capture:
-            logger.warning(
-                "`customer_support_audio_capture=True` will record session audio. "
-                "Only enable this when explicitly coordinating with AssemblyAI support."
-            )
-
-        params_dict = _normalize_voice_focus(
-            _normalize_min_turn_silence(_dump_model(params))
-        )
-
-        # JSON-encode list and dict parameters for proper API compatibility (e.g., keyterms_prompt, llm_gateway)
-        for key, value in params_dict.items():
-            if isinstance(value, list):
-                params_dict[key] = json.dumps(value)
-            elif isinstance(value, dict):
-                params_dict[key] = json.dumps(value)
-
-        params_encoded = urlencode(params_dict)
-
-        host = self._options.api_host
-        if host.startswith(("ws://", "wss://")):
-            uri = f"{host}/v3/ws?{params_encoded}"
-        else:
-            uri = f"wss://{host}/v3/ws?{params_encoded}"
-        headers = {
-            "Authorization": self._options.token
-            if self._options.token
-            else self._options.api_key,
-            "User-Agent": _user_agent(),
-            "AssemblyAI-Version": "2025-05-12",
-        }
+        uri = _build_uri(self._options.api_host, params)
+        headers = _build_headers(self._options)
 
         try:
             self._websocket = websocket_connect(

@@ -1,3 +1,4 @@
+from .async_client import AsyncStreamingClient
 from .client import StreamingClient
 from .models import (
     BeginEvent,
@@ -21,6 +22,7 @@ from .models import (
 )
 
 __all__ = [
+    "AsyncStreamingClient",
     "BeginEvent",
     "Encoding",
     "EventMessage",
