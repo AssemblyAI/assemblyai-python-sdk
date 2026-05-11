@@ -20,15 +20,18 @@ import websockets
 from pydantic import BaseModel
 
 # Prefer the new asyncio client API (websockets >= 13). Fall back to the legacy
-# top-level ``websockets.connect`` for older versions that the SDK still
-# supports per ``setup.py`` (``websockets>=11.0``). Both surfaces expose
-# ``send`` / ``recv`` / ``close`` coroutines with the same semantics.
+# top-level connect for older versions the SDK still supports per ``setup.py``
+# (``websockets>=11.0``). The two APIs differ only in the header-kwarg name
+# (``additional_headers`` vs ``extra_headers``); the ``websocket_connect_async``
+# wrapper below papers that over so tests and callers see one entry point.
 try:
-    from websockets.asyncio.client import connect as websocket_connect_async
+    from websockets.asyncio.client import connect as _ws_connect
+
+    _WS_HEADER_KW = "additional_headers"
 except ImportError:  # pragma: no cover - exercised on websockets <13 only
-    from websockets.client import (
-        connect as websocket_connect_async,  # type: ignore[no-redef]
-    )
+    from websockets.client import connect as _ws_connect  # type: ignore[no-redef]
+
+    _WS_HEADER_KW = "extra_headers"
 
 from assemblyai import __version__
 
@@ -63,6 +66,14 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def websocket_connect_async(uri: str, additional_headers):
+    """Open a websocket connection using whichever ``websockets`` API is
+    available. Returns the underlying ``Connect`` awaitable so callers may
+    ``await`` it directly (or wrap in ``asyncio.wait_for``). Module-level
+    indirection so tests can patch a single attribute."""
+    return _ws_connect(uri, **{_WS_HEADER_KW: additional_headers})
 
 
 class AsyncStreamingClient:
