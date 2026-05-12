@@ -105,6 +105,7 @@ class StreamingSessionParameters(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     filter_profanity: Optional[bool] = None
     prompt: Optional[str] = None
+    interruption_delay: Optional[int] = None
 
 
 class Encoding(str, Enum):
