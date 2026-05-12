@@ -82,14 +82,20 @@ def _patch_connect(mocker: MockFixture, fake_ws):
 
 
 async def _wait_for_tasks(client: AsyncStreamingClient, timeout: float = 2.0) -> None:
-    """Wait until both read/write tasks have exited and stop is set."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
+    """Wait until both read/write tasks have exited and stop is set. Raises
+    ``AssertionError`` on timeout so stalls fail tests deterministically
+    instead of silently passing."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
         read_done = client._read_task is None or client._read_task.done()
         write_done = client._write_task is None or client._write_task.done()
         if read_done and write_done and client._stop_event.is_set():
             return
         await asyncio.sleep(0.01)
+    raise AssertionError(
+        f"AsyncStreamingClient read/write tasks did not finish within {timeout}s"
+    )
 
 
 async def test_client_connect_builds_uri_and_headers(mocker: MockFixture):
@@ -488,3 +494,85 @@ async def test_create_temporary_token(mocker: MockFixture):
         expires_in_seconds=60, max_session_duration_seconds=600
     )
     assert token == "tmp-tok"
+
+    # Clean up the (un-mocked) AsyncClient so the test doesn't emit
+    # "unclosed transport" warnings.
+    await client._client.aclose()
+
+
+async def test_connect_twice_raises(mocker: MockFixture):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    with pytest.raises(RuntimeError, match="already connected"):
+        await client.connect(_default_params())
+
+    await client.disconnect()
+
+
+async def test_disconnect_closes_http_client(mocker: MockFixture):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    closed = []
+
+    async def fake_aclose(self):
+        closed.append(True)
+
+    mocker.patch("httpx.AsyncClient.aclose", new=fake_aclose)
+
+    await client.disconnect()
+
+    assert closed == [True]
+
+
+async def test_write_side_close_is_dispatched_when_read_short_circuits_on_stop(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
+    """Regression: if the read task observes ``_stop_event`` at the top of its
+    loop (e.g. after processing a buffered message) before its next ``recv()``
+    raises, the write task must still dispatch the connection-closed event.
+    Previously the write task only set stop and exited, so this close went
+    unreported."""
+    caplog.set_level(logging.ERROR)
+
+    close_exc = ConnectionClosed(rcvd=Close(1011, "send-side close"), sent=None)
+    fake_ws = _FakeAsyncWebSocket(send_raises=close_exc)
+    _patch_connect(mocker, fake_ws)
+
+    received = []
+
+    def on_error(_client, err):
+        received.append(err)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Error, on_error)
+    await client.connect(_default_params())
+
+    # Queue a write so the write task hits send() and raises ConnectionClosed.
+    await client.stream(b"\x00" * 32)
+
+    # Wait for write task to finish dispatching the close.
+    for _ in range(200):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+
+    assert (
+        len(received) == 1
+    ), f"expected exactly one on_error from write-side close, got {received}"
+    assert received[0].code == 1011
+
+    await client.disconnect()

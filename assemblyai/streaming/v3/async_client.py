@@ -114,6 +114,14 @@ class AsyncStreamingClient:
         self._write_task: Optional[asyncio.Task] = None
 
     async def connect(self, params: StreamingParameters) -> None:
+        if self._websocket is not None or (
+            self._read_task is not None and not self._read_task.done()
+        ):
+            raise RuntimeError(
+                "AsyncStreamingClient is already connected; "
+                "create a new instance for a new connection."
+            )
+
         _emit_param_warnings(params)
 
         uri = _build_uri(self._options.api_host, params)
@@ -176,6 +184,7 @@ class AsyncStreamingClient:
                 logger.exception("Streaming task raised during disconnect")
 
         await self._close_websocket()
+        await self._client.aclose()
 
     async def _close_websocket(self) -> None:
         if not self._websocket:
@@ -246,12 +255,16 @@ class AsyncStreamingClient:
                     await self._websocket.send(_dump_model_json(data))
                 else:
                     raise ValueError(f"Attempted to send invalid message: {type(data)}")
-            except websockets.exceptions.ConnectionClosed:
-                # The read task's ``await ws.recv()`` will raise ConnectionClosed
-                # too as soon as the socket transitions to closed — let it
-                # handle dispatch so all on_error calls happen on a single task
-                # (no cross-task dedup race).
-                self._stop_event.set()
+            except websockets.exceptions.ConnectionClosed as exc:
+                # Dispatch the close directly from the write task. The read
+                # task may short-circuit on ``_stop_event`` at the top of its
+                # loop (e.g. while a buffered message was processed between
+                # ``recv()`` calls) and never observe the close in ``recv()``,
+                # so the write task can't rely on it to dispatch.
+                # ``_report_connection_closed`` is idempotent — its flag check
+                # + set is synchronous (no ``await`` between them), so if the
+                # read task also raises ``ConnectionClosed`` it'll be a no-op.
+                await self._report_connection_closed(exc)
                 return
 
             if is_terminate:
@@ -465,3 +478,9 @@ class _AsyncHTTPClient:
         response = await self._http_client.get("/v3/token", params=params)
         response.raise_for_status()
         return response.json()["token"]
+
+    async def aclose(self) -> None:
+        try:
+            await self._http_client.aclose()
+        except Exception as exc:
+            logger.debug("Error closing async HTTP client: %s", exc)
