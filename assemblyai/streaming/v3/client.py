@@ -206,7 +206,10 @@ class StreamingClient:
         logger.debug("Connected to WebSocket server")
 
     def disconnect(self, terminate: bool = False) -> None:
-        if terminate and not self._stop_event.is_set():
+        # Enqueue Terminate even when stop is already set: `_write_message`
+        # bypasses the stop gate for TerminateSession so the frame still
+        # reaches the server when the write thread is alive.
+        if terminate:
             self._write_queue.put(TerminateSession())
 
         self._stop_event.set()
@@ -341,7 +344,10 @@ class StreamingClient:
         event_type = StreamingEvents[message.type]
 
         for handler in self._handlers[event_type]:
-            handler(self, message)
+            try:
+                handler(self, message)
+            except Exception:
+                logger.exception("on_%s handler raised", event_type.name.lower())
 
     def _parse_message(self, data: Dict[str, Any]) -> Optional[EventMessage]:
         if "type" in data:
@@ -385,7 +391,10 @@ class StreamingClient:
             "Streaming warning (code=%s): %s", warning.warning_code, warning.warning
         )
         for handler in self._handlers[StreamingEvents.Warning]:
-            handler(self, warning)
+            try:
+                handler(self, warning)
+            except Exception:
+                logger.exception("on_warning handler raised")
 
     def _report_server_error(self, error: ErrorEvent) -> None:
         self._server_error_reported = True
@@ -395,6 +404,13 @@ class StreamingClient:
         )
         logger.error("Streaming error: %s (code=%s)", error.error, error.error_code)
         self._dispatch_error(streaming_error)
+        # Tear down locally so a server that sends Error without a trailing
+        # close frame doesn't leave the read loop spinning in recv(timeout=1)
+        # forever. `_close_websocket` is idempotent; if the trailing close
+        # does arrive, `_report_connection_closed` will dedup via
+        # `_server_error_reported`.
+        self._close_websocket()
+        self._stop_event.set()
 
     def _report_connection_closed(
         self,

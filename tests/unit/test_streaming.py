@@ -650,6 +650,37 @@ def test_client_connect_with_continuous_partials(mocker: MockFixture):
     assert "continuous_partials=True" in actual_url
 
 
+def test_client_connect_with_interruption_delay(mocker: MockFixture):
+    # Given: client + interruption_delay=500 (U3-Pro early-partial override)
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.u3_rt_pro,
+        interruption_delay=500,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: parameter reaches the URL
+    assert "interruption_delay=500" in actual_url
+
+
 def test_customer_support_audio_capture_warns_when_enabled(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ):
@@ -986,7 +1017,10 @@ def test_error_event_then_close_fires_only_once(
         seed_chunks=[b"\x00" * 320] * 50,
     )
 
-    # Then: exactly one on_error with the rich server-error content.
+    # Then: exactly one on_error with the rich server-error content. The
+    # local websocket has been closed (by _report_server_error). Whether the
+    # trailing close-frame race produces an additional "Connection closed"
+    # log depends on scheduling, but dedup ensures no second on_error fires.
     assert len(received) == 1, (
         f"expected exactly 1 error, got {len(received)}: {received}"
     )
@@ -1001,19 +1035,10 @@ def test_error_event_then_close_fires_only_once(
         for rec in caplog.records
         if "Streaming error" in rec.message and "4001" in rec.message
     ]
-    close_logs = [
-        rec
-        for rec in caplog.records
-        if "Connection closed" in rec.message and "4001" in rec.message
-    ]
     assert len(error_logs) == 1, (
         f"expected exactly 1 Streaming-error log, got {len(error_logs)}"
     )
     assert error_logs[0].levelno == logging.ERROR
-    assert len(close_logs) == 1, (
-        f"expected exactly 1 Connection-closed log, got {len(close_logs)}"
-    )
-    assert close_logs[0].levelno == logging.ERROR
 
     client.disconnect(terminate=True)
 
@@ -1202,5 +1227,153 @@ def test_write_thread_close_is_drained_by_read_thread(mocker: MockFixture):
         f"expected exactly 1 error from drained pending close, got: {received}"
     )
     assert received[0].code == 1011
+
+    client.disconnect()
+
+
+def test_server_error_without_trailing_close_exits_read_loop(mocker: MockFixture):
+    # Given: server sends an Error frame and then nothing (no close). Without
+    # _report_server_error setting _stop_event, the read loop would call
+    # recv(timeout=1) forever after dispatching the error.
+    error_json = json.dumps(
+        {"type": "Error", "error": "Server boom", "error_code": 5001}
+    )
+    fake_ws = _FakeWebSocket(recv_script=[error_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Error, lambda c, e: received.append(e))
+
+    # When: connect and let the read thread dispatch the Error
+    _connect_and_wait(client, _default_params())
+
+    # Then: error was dispatched once and the read thread exited despite the
+    # absence of a trailing close frame.
+    assert len(received) == 1
+    assert received[0].code == 5001
+    assert client._stop_event.is_set()
+    assert not client._read_thread.is_alive()
+    assert not client._write_thread.is_alive()
+
+    client.disconnect(terminate=True)
+
+
+def test_disconnect_terminate_enqueues_when_stop_already_set(mocker: MockFixture):
+    # Given: a client whose _stop_event is already set (e.g. after a server
+    # error invoked _report_server_error). Threads were never started, so the
+    # only observable side-effect of disconnect(terminate=True) is the queue.
+    fake_ws = _FakeWebSocket(recv_script=[])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client._websocket = fake_ws
+    client._stop_event.set()
+
+    # When: disconnect(terminate=True) runs after stop is already set
+    client.disconnect(terminate=True)
+
+    # Then: TerminateSession was enqueued unconditionally; the disconnect-side
+    # guard no longer silently swallows the terminate intent.
+    assert client._write_queue.qsize() == 1
+    msg = client._write_queue.get_nowait()
+    assert isinstance(msg, TerminateSession)
+
+
+def test_message_handler_exception_does_not_kill_read_thread(mocker: MockFixture):
+    # Given: a Turn handler that raises, followed by a Termination event. If
+    # the exception escapes _handle_message, the read thread dies before
+    # processing the Termination event.
+    turn_json = json.dumps(
+        {
+            "type": "Turn",
+            "turn_order": 1,
+            "turn_is_formatted": True,
+            "end_of_turn": True,
+            "transcript": "hi",
+            "end_of_turn_confidence": 0.9,
+            "words": [],
+        }
+    )
+    termination_json = json.dumps(
+        {
+            "type": "Termination",
+            "audio_duration_seconds": 1,
+            "session_duration_seconds": 1,
+        }
+    )
+    fake_ws = _FakeWebSocket(recv_script=[turn_json, termination_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    turns = []
+    terminations = []
+
+    def bad_turn_handler(self_, msg):
+        turns.append(msg)
+        raise RuntimeError("boom")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Turn, bad_turn_handler)
+    client.on(StreamingEvents.Termination, lambda c, e: terminations.append(e))
+
+    # When: connect; the read thread processes the Turn (handler raises) then
+    # the Termination (which sets _stop_event and exits the loop)
+    _connect_and_wait(client, _default_params())
+
+    # Then: read thread survived the raising handler and processed Termination.
+    assert len(turns) == 1
+    assert len(terminations) == 1
+    assert client._stop_event.is_set()
+    assert not client._read_thread.is_alive()
+
+    client.disconnect()
+
+
+def test_warning_handler_exception_does_not_kill_read_thread(mocker: MockFixture):
+    # Given: a Warning handler that raises, followed by a clean close.
+    warning_json = json.dumps(
+        {"type": "Warning", "warning": "session ending soon", "warning_code": 1234}
+    )
+    clean_close = ConnectionClosed(rcvd=Close(1000, "session ended"), sent=None)
+    fake_ws = _FakeWebSocket(recv_script=[warning_json, clean_close])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    warnings_received = []
+    errors_received = []
+
+    def bad_warning_handler(self_, w):
+        warnings_received.append(w)
+        raise RuntimeError("boom")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Warning, bad_warning_handler)
+    client.on(StreamingEvents.Error, lambda c, e: errors_received.append(e))
+
+    # When: connect; the read thread processes the warning (handler raises)
+    # then the clean close
+    _connect_and_wait(client, _default_params())
+
+    # Then: warning was delivered, read thread survived, clean close completed
+    # without dispatching an error.
+    assert len(warnings_received) == 1
+    assert errors_received == []
+    assert client._stop_event.is_set()
+    assert not client._read_thread.is_alive()
 
     client.disconnect()
