@@ -603,6 +603,10 @@ class LanguageDetectionOptions(BaseModel):
         None,
         description="If True, route German language requests as Swiss German audio. Only applies when language_detection is enabled and German is detected.",
     )
+    language_detection_model: Optional[str] = Field(
+        None,
+        description="The language detection model to use.",
+    )
 
 
 class CodeSwitchingLanguage(BaseModel):
