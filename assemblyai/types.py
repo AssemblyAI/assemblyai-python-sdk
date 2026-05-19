@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 try:
     # pydantic v2 import
-    from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
+    from pydantic import BaseModel, ConfigDict, Field, field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
     pydantic_v2 = True
@@ -34,7 +34,7 @@ except ImportError:
         ) from None
 
     # pydantic v1 import (fallback for Python < 3.14)
-    from pydantic.v1 import UUID4, BaseModel, BaseSettings, ConfigDict, Field, validator
+    from pydantic.v1 import BaseModel, BaseSettings, ConfigDict, Field, validator
 
     pydantic_v2 = False
 
@@ -2951,163 +2951,3 @@ class LemurPurgeResponse(BaseModel):
 
     deleted: bool
     "The result of the LeMUR purge request"
-
-
-class RealtimeMessageTypes(str, Enum):
-    """
-    The type of message received from the real-time API
-    """
-
-    partial_transcript = "PartialTranscript"
-    final_transcript = "FinalTranscript"
-    session_begins = "SessionBegins"
-    session_terminated = "SessionTerminated"
-    session_information = "SessionInformation"
-
-
-class AudioEncoding(str, Enum):
-    """
-    The encoding of the audio data
-    """
-
-    pcm_s16le = "pcm_s16le"
-    pcm_mulaw = "pcm_mulaw"
-
-
-class RealtimeCreateTemporaryTokenRequest(BaseModel):
-    expires_in: int
-    "The amount of time until the token expires in seconds"
-
-
-class RealtimeCreateTemporaryTokenResponse(BaseModel):
-    token: str
-    "The temporary authentication token for real-time transcription"
-
-
-class RealtimeSessionOpened(BaseModel):
-    """
-    Once a real-time session is opened, the client will receive this message
-    """
-
-    message_type: RealtimeMessageTypes = RealtimeMessageTypes.session_begins
-
-    session_id: UUID4
-    "Unique identifier for the established session."
-
-    expires_at: datetime
-    "Timestamp when this session will expire."
-
-
-class RealtimeWord(BaseModel):
-    """
-    A word in a real-time transcript
-    """
-
-    start: int
-    "Start time of word relative to session start, in milliseconds"
-
-    end: int
-    "End time of word relative to session start, in milliseconds"
-
-    confidence: float
-    "The confidence score of the word, between 0 and 1"
-
-    text: str
-    "The word itself"
-
-
-class RealtimeTranscript(BaseModel):
-    """
-    Base class for real-time transcript messages.
-    """
-
-    message_type: RealtimeMessageTypes
-    "Describes the type of message"
-
-    audio_start: int
-    "Start time of audio sample relative to session start, in milliseconds"
-
-    audio_end: int
-    "End time of audio sample relative to session start, in milliseconds"
-
-    confidence: float
-    "The confidence score of the entire transcription, between 0 and 1"
-
-    text: str
-    "The transcript for your audio"
-
-    words: List[RealtimeWord]
-    """
-    An array of objects, with the information for each word in the transcription text.
-    Will include the `start`/`end` time (in milliseconds) of the word, the `confidence` score of the word,
-    and the `text` (i.e. the word itself)
-    """
-
-    created: datetime
-    "Timestamp when this message was created"
-
-
-class RealtimePartialTranscript(RealtimeTranscript):
-    """
-    As you send audio data to the service, the service will immediately start responding with partial transcripts.
-    """
-
-    message_type: RealtimeMessageTypes = RealtimeMessageTypes.partial_transcript
-
-
-class RealtimeFinalTranscript(RealtimeTranscript):
-    """
-    After you've received your partial results, our model will continue to analyze incoming audio and,
-    when it detects the end of an "utterance" (usually a pause in speech), it will finalize the results
-    sent to you so far with higher accuracy, as well as add punctuation and casing to the transcription text.
-    """
-
-    message_type: RealtimeMessageTypes = RealtimeMessageTypes.final_transcript
-
-    punctuated: bool
-    "Whether the transcript has been punctuated and cased"
-
-    text_formatted: bool
-    "Whether the transcript has been formatted (e.g. Dollar -> $)"
-
-
-class RealtimeSessionInformation(BaseModel):
-    """
-    If `on_extra_session_information` is set, the client receives this message
-    right before receiving the session termination message.
-    """
-
-    message_type: RealtimeMessageTypes = RealtimeMessageTypes.session_information
-
-    audio_duration_seconds: float
-    "The duration of the audio in seconds"
-
-
-class RealtimeError(AssemblyAIError):
-    """
-    Real-time error message
-    """
-
-
-RealtimeErrorMapping = {
-    4000: "Sample rate must be a positive integer",
-    4001: "Not Authorized",
-    4002: "Insufficient Funds",
-    4003: """This feature is paid-only and requires you to add a credit card.
-    Please visit https://app.assemblyai.com/ to add a credit card to your account""",
-    4004: "Session Not Found",
-    4008: "Session Expired",
-    4010: "Session Previously Closed",
-    4029: "Client sent audio too fast",
-    4030: "Session is handled by another websocket",
-    4031: "Session idle for too long",
-    4032: "Audio duration is too short",
-    4033: "Audio duration is too long",
-    4034: "Audio too small to transcode",
-    4100: "Endpoint received invalid JSON",
-    4101: "Endpoint received a message with an invalid schema",
-    4102: "This account has exceeded the number of allowed streams",
-    4103: "The session has been reconnected. This websocket is no longer valid.",
-    4104: "Could not parse word boost parameter",
-    1013: "Temporary server condition forced blocking client's request",
-}

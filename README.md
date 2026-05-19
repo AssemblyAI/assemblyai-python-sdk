@@ -699,79 +699,187 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-[Read more about our streaming service.](https://www.assemblyai.com/docs/streaming/universal-3-pro)
+Real-time speech-to-text via WebSocket against the `u3-rt-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
+
+**Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncStreamingClient` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
+
+[Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/universal-3-pro)
 
 <details>
-  <summary>Stream your microphone in real-time</summary>
+  <summary>Stream a local file (sync)</summary>
+
+```python
+import assemblyai as aai
+from assemblyai.streaming.v3 import (
+    BeginEvent, StreamingClient, StreamingClientOptions, StreamingError,
+    StreamingEvents, StreamingParameters, TerminationEvent, TurnEvent,
+)
+
+def on_begin(client, event: BeginEvent):
+    print(f"Session started: {event.id}")
+
+def on_turn(client, event: TurnEvent):
+    print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
+
+def on_terminated(client, event: TerminationEvent):
+    print(f"Done: {event.audio_duration_seconds}s of audio processed")
+
+def on_error(client, error: StreamingError):
+    print(f"Error: {error} (code={error.code})")
+
+client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client.on(StreamingEvents.Begin, on_begin)
+client.on(StreamingEvents.Turn, on_turn)
+client.on(StreamingEvents.Termination, on_terminated)
+client.on(StreamingEvents.Error, on_error)
+
+client.connect(StreamingParameters(
+    sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+))
+try:
+    client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
+finally:
+    client.disconnect(terminate=True)
+```
+
+</details>
+
+<details>
+  <summary>Stream your microphone (sync)</summary>
+
+`MicrophoneStream` requires PyAudio:
 
 ```bash
-pip install -U assemblyai
+pip install -U "assemblyai[extras]"
 ```
 
 ```python
-import logging
-from typing import Type
-
 import assemblyai as aai
 from assemblyai.streaming.v3 import (
-    BeginEvent,
-    StreamingClient,
-    StreamingClientOptions,
-    StreamingError,
-    StreamingEvents,
-    StreamingParameters,
-    TurnEvent,
-    TerminationEvent,
+    StreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
 )
 
-api_key = "<YOUR_API_KEY>"
+def on_turn(client, event):
+    print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client.on(StreamingEvents.Turn, on_turn)
+client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
 
-def on_begin(self: Type[StreamingClient], event: BeginEvent):
-    print(f"Session started: {event.id}")
+try:
+    client.stream(aai.extras.MicrophoneStream(sample_rate=16000))
+finally:
+    client.disconnect(terminate=True)
+```
 
-def on_turn(self: Type[StreamingClient], event: TurnEvent):
-    print(f"{event.transcript} ({event.end_of_turn})")
+</details>
 
-def on_terminated(self: Type[StreamingClient], event: TerminationEvent):
-    print(
-        f"Session terminated: {event.audio_duration_seconds} seconds of audio processed"
-    )
+<details>
+  <summary>Stream a local file (async)</summary>
 
-def on_error(self: Type[StreamingClient], error: StreamingError):
-    print(f"Error occurred: {error}")
+`AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Don't pass `extras.stream_file` directly (it uses blocking `time.sleep`); pace from an async generator instead.
 
-def main():
-    client = StreamingClient(
-        StreamingClientOptions(
-            api_key=api_key,
-            api_host="streaming.assemblyai.com",
-        )
-    )
+```python
+import asyncio
+from assemblyai.streaming.v3 import (
+    AsyncStreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
+)
 
-    client.on(StreamingEvents.Begin, on_begin)
-    client.on(StreamingEvents.Turn, on_turn)
-    client.on(StreamingEvents.Termination, on_terminated)
-    client.on(StreamingEvents.Error, on_error)
+async def stream_file_async(path: str, sample_rate: int, chunk_duration: float = 0.3):
+    bytes_per_chunk = int(sample_rate * chunk_duration) * 2
+    with open(path, "rb") as f:
+        while chunk := f.read(bytes_per_chunk):
+            yield chunk
+            await asyncio.sleep(chunk_duration)
 
-    client.connect(
-        StreamingParameters(
-            sample_rate=16000,
-            speech_model="u3-rt-pro",
-        )
-    )
+async def on_turn(client, event):
+    print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
 
-    try:
-        client.stream(
-            aai.extras.MicrophoneStream(sample_rate=16000)
-        )
-    finally:
-        client.disconnect(terminate=True)
+async def main():
+    async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
+        client.on(StreamingEvents.Turn, on_turn)
+        await client.connect(StreamingParameters(
+            sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+        ))
+        await client.stream(stream_file_async("audio.wav", 16000))
 
-if __name__ == "__main__":
-    main()
+asyncio.run(main())
+```
+
+</details>
+
+<details>
+  <summary>Handle errors</summary>
+
+Server-side errors arrive on the `Error` event rather than being raised. The handler receives a `StreamingError` (an `Exception` subclass) with `.code: int | None` — **not** the wire `ErrorEvent` class.
+
+`StreamingErrorCodes` is a `dict[int, str]` mapping wire codes to human-readable messages. Use `.get(...)` for lookup:
+
+```python
+from assemblyai.streaming.v3 import StreamingErrorCodes
+
+def on_error(client, error):
+    message = StreamingErrorCodes.get(error.code, str(error))
+    print(f"Streaming error {error.code}: {message}")
+```
+
+Common codes: `4001` Not Authorized, `4002` Insufficient Funds, `4029` Client sent audio too fast, `4031` Session idle for too long.
+
+</details>
+
+<details>
+  <summary>Change settings mid-session</summary>
+
+`set_params` updates an active session. Typical use: enable turn formatting (punctuation, casing) only on confirmed end-of-turn so partial transcripts stay raw:
+
+```python
+from assemblyai.streaming.v3 import StreamingSessionParameters
+
+def on_turn(client, event):
+    if event.end_of_turn and not event.turn_is_formatted:
+        client.set_params(StreamingSessionParameters(format_turns=True))
+```
+
+For voice agents, `force_endpoint()` flushes the current turn — useful when an external signal (UI button, barge-in detection) determines the user has stopped speaking before VAD does:
+
+```python
+client.force_endpoint()  # ends the current turn immediately
+```
+
+</details>
+
+<details>
+  <summary>Temporary tokens for browser / edge clients</summary>
+
+Don't ship your API key to browsers. Mint a short-lived token server-side and pass it to the client.
+
+**Sync server (Flask / WSGI / scripts):**
+```python
+client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+token = client.create_temporary_token(expires_in_seconds=60)
+# Send `token` to the browser, which connects with options(token=token).
+```
+
+**Async server (FastAPI / asyncio):** always wrap in `async with` even though you don't call `connect()` — `create_temporary_token` lazily opens an `httpx.AsyncClient` pool. The context manager closes it on exit; without it you leak a pool every request.
+
+```python
+from fastapi import FastAPI
+from assemblyai.streaming.v3 import AsyncStreamingClient, StreamingClientOptions
+
+app = FastAPI()
+MASTER_KEY = "<YOUR_API_KEY>"
+
+@app.get("/streaming-token")
+async def streaming_token():
+    async with AsyncStreamingClient(StreamingClientOptions(api_key=MASTER_KEY)) as client:
+        return {"token": await client.create_temporary_token(expires_in_seconds=60)}
+```
+
+**Browser / edge client:** pass the token via `StreamingClientOptions(token=...)`:
+
+```python
+client = StreamingClient(StreamingClientOptions(token="<TOKEN_FROM_SERVER>"))
+client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
 ```
 
 </details>
