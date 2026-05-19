@@ -106,6 +106,7 @@ class StreamingSessionParameters(BaseModel):
     filter_profanity: Optional[bool] = None
     prompt: Optional[str] = None
     interruption_delay: Optional[int] = None
+    turn_left_pad_ms: Optional[int] = None
 
 
 class Encoding(str, Enum):

@@ -1,3 +1,4 @@
+from .async_client import AsyncStreamingClient
 from .client import StreamingClient
 from .models import (
     BeginEvent,
@@ -9,6 +10,7 @@ from .models import (
     SpeechStartedEvent,
     StreamingClientOptions,
     StreamingError,
+    StreamingErrorCodes,
     StreamingEvents,
     StreamingParameters,
     StreamingPiiPolicy,
@@ -21,6 +23,7 @@ from .models import (
 )
 
 __all__ = [
+    "AsyncStreamingClient",
     "BeginEvent",
     "Encoding",
     "EventMessage",
@@ -31,6 +34,7 @@ __all__ = [
     "StreamingClient",
     "StreamingClientOptions",
     "StreamingError",
+    "StreamingErrorCodes",
     "StreamingEvents",
     "StreamingParameters",
     "StreamingPiiPolicy",

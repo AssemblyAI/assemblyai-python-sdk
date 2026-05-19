@@ -1,35 +1,36 @@
 import json
 import logging
 import queue
-import sys
 import threading
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Union
-from urllib.parse import urlencode
+from typing import Any, Dict, Generator, Iterable, Optional, Union
 
 import httpx
 import websockets
 from pydantic import BaseModel
 from websockets.sync.client import connect as websocket_connect
 
-from assemblyai import __version__
-
+from ._base import (
+    _BaseStreamingClient,
+    _build_headers,
+    _build_uri,
+    _dump_model,
+    _dump_model_json,
+    _emit_param_warnings,
+    _normalize_min_turn_silence,
+    _user_agent,
+)
 from .models import (
-    BeginEvent,
     ErrorEvent,
     EventMessage,
     ForceEndpoint,
-    LLMGatewayResponseEvent,
     OperationMessage,
-    SpeechStartedEvent,
     StreamingClientOptions,
     StreamingError,
-    StreamingErrorCodes,
     StreamingEvents,
     StreamingParameters,
     StreamingSessionParameters,
     TerminateSession,
     TerminationEvent,
-    TurnEvent,
     UpdateConfiguration,
     WarningEvent,
 )
@@ -37,144 +38,34 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-def _dump_model(model: BaseModel):
-    if hasattr(model, "model_dump"):
-        return model.model_dump(exclude_none=True)
-    return model.dict(exclude_none=True)
-
-
-def _parse_model(model_class, data):
-    if hasattr(model_class, "model_validate"):
-        return model_class.model_validate(data)
-    return model_class.parse_obj(data)
-
-
-def _normalize_min_turn_silence(params_dict: dict) -> dict:
-    """Collapse `min_end_of_turn_silence_when_confident` into `min_turn_silence` so only
-    one wire key is ever sent. Emits deprecation warnings."""
-    old = params_dict.pop("min_end_of_turn_silence_when_confident", None)
-    if old is None:
-        return params_dict
-    if "min_turn_silence" in params_dict:
-        logger.warning(
-            "[Deprecation Warning] Both `min_end_of_turn_silence_when_confident` and "
-            "`min_turn_silence` are set. Using `min_turn_silence`; "
-            "`min_end_of_turn_silence_when_confident` is deprecated."
-        )
-    else:
-        logger.warning(
-            "[Deprecation Warning] `min_end_of_turn_silence_when_confident` is "
-            "deprecated and will be removed in a future release. Please use "
-            "`min_turn_silence` instead."
-        )
-        params_dict["min_turn_silence"] = old
-    return params_dict
-
-
-def _normalize_voice_focus(params_dict: dict) -> dict:
-    """Collapse `noise_suppression_model` / `noise_suppression_threshold` into
-    `voice_focus` / `voice_focus_threshold` so only the new wire keys are sent.
-    Emits deprecation warnings."""
-    for old_key, new_key in (
-        ("noise_suppression_model", "voice_focus"),
-        ("noise_suppression_threshold", "voice_focus_threshold"),
-    ):
-        old = params_dict.pop(old_key, None)
-        if old is None:
-            continue
-        if new_key in params_dict:
-            logger.warning(
-                f"[Deprecation Warning] Both `{old_key}` and `{new_key}` are set. "
-                f"Using `{new_key}`; `{old_key}` is deprecated."
-            )
-        else:
-            logger.warning(
-                f"[Deprecation Warning] `{old_key}` is deprecated and will be removed "
-                f"in a future release. Please use `{new_key}` instead."
-            )
-            params_dict[new_key] = old
-    return params_dict
-
-
-def _dump_model_json(model: BaseModel):
-    if hasattr(model, "model_dump_json"):
-        return model.model_dump_json(exclude_none=True)
-    return model.json(exclude_none=True)
-
-
-def _user_agent() -> str:
-    vi = sys.version_info
-    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
-    return (
-        f"AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
-    )
-
-
-class StreamingClient:
+class StreamingClient(_BaseStreamingClient):
     def __init__(self, options: StreamingClientOptions):
-        self._options = options
+        super().__init__(options)
 
         self._client = _HTTPClient(api_host=options.api_host, api_key=options.api_key)
-
-        self._handlers: Dict[StreamingEvents, List[Callable]] = {}
-
-        for event in StreamingEvents.__members__.values():
-            self._handlers[event] = []
 
         self._write_queue: queue.Queue[OperationMessage] = queue.Queue()
         self._write_thread = threading.Thread(target=self._write_message)
         self._read_thread = threading.Thread(target=self._read_message)
         self._stop_event = threading.Event()
-        # Both flags are read and set only on the read thread (or on the main
-        # thread before workers start, for handshake errors). Plain bools are
-        # sufficient — no cross-thread synchronization is needed.
-        self._connection_closed_reported = False
-        self._server_error_reported = False
         # Deliberate single-slot shared-memory handoff: the write thread parks
         # a ConnectionClosed here and the read thread drains it. Synchronization
         # is provided by `_stop_event.set()` (write side) + `recv(timeout=1)`
         # (read side), which together give a happens-before within ~1s.
         self._pending_close_error: Optional[Exception] = None
-        self._websocket = None
 
     def connect(self, params: StreamingParameters) -> None:
-        if params.speech_model == "u3-pro":
-            logger.warning(
-                "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
-                "Please use `u3-rt-pro` instead."
-            )
+        """Open the WebSocket session and start the read/write threads.
 
-        if params.customer_support_audio_capture:
-            logger.warning(
-                "`customer_support_audio_capture=True` will record session audio. "
-                "Only enable this when explicitly coordinating with AssemblyAI support."
-            )
+        Blocks until the handshake completes. If the server rejects the
+        handshake (auth error, etc.) ``Error`` is dispatched to any
+        ``on(StreamingEvents.Error, ...)`` handler rather than raised, so
+        registration order matters: call ``on()`` before ``connect()``.
+        """
+        _emit_param_warnings(params)
 
-        params_dict = _normalize_voice_focus(
-            _normalize_min_turn_silence(_dump_model(params))
-        )
-
-        # JSON-encode list and dict parameters for proper API compatibility (e.g., keyterms_prompt, llm_gateway)
-        for key, value in params_dict.items():
-            if isinstance(value, list):
-                params_dict[key] = json.dumps(value)
-            elif isinstance(value, dict):
-                params_dict[key] = json.dumps(value)
-
-        params_encoded = urlencode(params_dict)
-
-        host = self._options.api_host
-        if host.startswith(("ws://", "wss://")):
-            uri = f"{host}/v3/ws?{params_encoded}"
-        else:
-            uri = f"wss://{host}/v3/ws?{params_encoded}"
-        headers = {
-            "Authorization": self._options.token
-            if self._options.token
-            else self._options.api_key,
-            "User-Agent": _user_agent(),
-            "AssemblyAI-Version": "2025-05-12",
-        }
+        uri = _build_uri(self._options.api_host, params)
+        headers = _build_headers(self._options)
 
         try:
             self._websocket = websocket_connect(
@@ -206,6 +97,14 @@ class StreamingClient:
         logger.debug("Connected to WebSocket server")
 
     def disconnect(self, terminate: bool = False) -> None:
+        """Stop the read/write threads and close the WebSocket.
+
+        Pass ``terminate=True`` for a graceful close — the client sends a
+        ``TerminateSession`` frame and waits for the server's
+        ``TerminationEvent`` (which reports total audio duration). Without
+        ``terminate=True`` the WebSocket is closed without notifying the
+        server.
+        """
         # Enqueue Terminate even when stop is already set: `_write_message`
         # bypasses the stop gate for TerminateSession so the frame still
         # reaches the server when the write thread is alive.
@@ -236,6 +135,13 @@ class StreamingClient:
     def stream(
         self, data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]]
     ) -> None:
+        """Send audio bytes to the server.
+
+        Accepts a raw ``bytes`` buffer or any (sync) iterable of ``bytes``.
+        Returns once all chunks are enqueued — the write thread does the
+        actual sending. After ``disconnect()`` (or a connection drop) this
+        becomes a silent no-op.
+        """
         if self._stop_event.is_set():
             return
 
@@ -256,10 +162,6 @@ class StreamingClient:
     def force_endpoint(self):
         message = ForceEndpoint()
         self._write_queue.put(message)
-
-    def on(self, event: StreamingEvents, handler: Callable) -> None:
-        if event in StreamingEvents.__members__.values() and callable(handler):
-            self._handlers[event].append(handler)
 
     def _write_message(self) -> None:
         while True:
@@ -335,7 +237,7 @@ class StreamingClient:
             elif message:
                 self._handle_message(message)
             else:
-                logger.warning(f"Unsupported event type: {message_json['type']}")
+                logger.warning(f"Unsupported event type: {message_json.get('type')}")
 
     def _handle_message(self, message: EventMessage) -> None:
         if isinstance(message, TerminationEvent):
@@ -348,43 +250,6 @@ class StreamingClient:
                 handler(self, message)
             except Exception:
                 logger.exception("on_%s handler raised", event_type.name.lower())
-
-    def _parse_message(self, data: Dict[str, Any]) -> Optional[EventMessage]:
-        if "type" in data:
-            message_type = data.get("type")
-
-            event_type = self._parse_event_type(message_type)
-
-            if event_type == StreamingEvents.Begin:
-                return _parse_model(BeginEvent, data)
-            elif event_type == StreamingEvents.Termination:
-                return _parse_model(TerminationEvent, data)
-            elif event_type == StreamingEvents.Turn:
-                return _parse_model(TurnEvent, data)
-            elif event_type == StreamingEvents.SpeechStarted:
-                return _parse_model(SpeechStartedEvent, data)
-            elif event_type == StreamingEvents.LLMGatewayResponse:
-                return _parse_model(LLMGatewayResponseEvent, data)
-            elif event_type == StreamingEvents.Error:
-                return _parse_model(ErrorEvent, data)
-            elif event_type == StreamingEvents.Warning:
-                return _parse_model(WarningEvent, data)
-            else:
-                return None
-        elif "error" in data:
-            return _parse_model(ErrorEvent, data)
-
-        return None
-
-    @staticmethod
-    def _parse_event_type(message_type: Optional[Any]) -> Optional[StreamingEvents]:
-        if not isinstance(message_type, str):
-            return None
-
-        try:
-            return StreamingEvents[message_type]
-        except KeyError:
-            return None
 
     def _handle_warning(self, warning: WarningEvent):
         logger.warning(
@@ -460,29 +325,6 @@ class StreamingClient:
             except Exception:
                 logger.exception("on_error handler raised")
 
-    @staticmethod
-    def _build_connection_closed_error(
-        error: Union[
-            StreamingError,
-            ErrorEvent,
-            websockets.exceptions.ConnectionClosed,
-            OSError,
-        ],
-    ) -> Optional[StreamingError]:
-        if isinstance(error, StreamingError):
-            return error
-        if isinstance(error, ErrorEvent):
-            return StreamingError(message=error.error, code=error.error_code)
-        if isinstance(error, websockets.exceptions.ConnectionClosed):
-            if error.code == 1000:
-                return None
-            if error.code is not None and error.code in StreamingErrorCodes:
-                message = StreamingErrorCodes[error.code]
-            else:
-                message = error.reason or f"Connection closed (code={error.code})"
-            return StreamingError(message=message, code=error.code)
-        return StreamingError(message=f"Connection failed: {error}")
-
     def create_temporary_token(
         self,
         expires_in_seconds: int,
@@ -496,11 +338,7 @@ class StreamingClient:
 
 class _HTTPClient:
     def __init__(self, api_host: str, api_key: Optional[str] = None):
-        vi = sys.version_info
-        python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
-        user_agent = f"{httpx._client.USER_AGENT} AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
-
-        headers = {"User-Agent": user_agent}
+        headers = {"User-Agent": f"{httpx._client.USER_AGENT} {_user_agent()}"}
 
         if api_key:
             headers["Authorization"] = api_key
@@ -515,12 +353,12 @@ class _HTTPClient:
         expires_in_seconds: int,
         max_session_duration_seconds: Optional[int] = None,
     ) -> str:
-        params: Dict[str, Any] = {}
+        # ``expires_in_seconds`` is required per the type; always forward it
+        # so passing ``0`` reaches the server (where it can be validated)
+        # instead of being silently dropped by a falsy check.
+        params: Dict[str, Any] = {"expires_in_seconds": expires_in_seconds}
 
-        if expires_in_seconds:
-            params["expires_in_seconds"] = expires_in_seconds
-
-        if max_session_duration_seconds:
+        if max_session_duration_seconds is not None:
             params["max_session_duration_seconds"] = max_session_duration_seconds
 
         response = self._http_client.get(

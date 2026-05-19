@@ -681,6 +681,37 @@ def test_client_connect_with_interruption_delay(mocker: MockFixture):
     assert "interruption_delay=500" in actual_url
 
 
+def test_client_connect_with_turn_left_pad_ms(mocker: MockFixture):
+    # Given: client + turn_left_pad_ms=1024 (U3-Pro left-pad window override)
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.u3_rt_pro,
+        turn_left_pad_ms=1024,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: parameter reaches the URL
+    assert "turn_left_pad_ms=1024" in actual_url
+
+
 def test_customer_support_audio_capture_warns_when_enabled(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ):

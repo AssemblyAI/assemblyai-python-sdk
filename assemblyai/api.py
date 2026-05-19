@@ -9,8 +9,6 @@ ENDPOINT_TRANSCRIPT = "/v2/transcript"
 ENDPOINT_UPLOAD = "/v2/upload"
 ENDPOINT_LEMUR_BASE = "/lemur/v3"
 ENDPOINT_LEMUR = f"{ENDPOINT_LEMUR_BASE}/generate"
-ENDPOINT_REALTIME_WEBSOCKET = "/v2/realtime/ws"
-ENDPOINT_REALTIME_TOKEN = "/v2/realtime/token"
 
 
 def _get_error_message(response: httpx.Response) -> str:
@@ -415,24 +413,3 @@ def lemur_get_response_data(
         return types.LemurQuestionResponse.parse_obj(json_data)
 
     return types.LemurStringResponse.parse_obj(json_data)
-
-
-def create_temporary_token(
-    client: httpx.Client,
-    request: types.RealtimeCreateTemporaryTokenRequest,
-    http_timeout: Optional[float],
-) -> str:
-    response = client.post(
-        f"{ENDPOINT_REALTIME_TOKEN}",
-        json=request.dict(exclude_none=True),
-        timeout=http_timeout,
-    )
-
-    if response.status_code != httpx.codes.OK:
-        raise types.AssemblyAIError(
-            f"Failed to create temporary token: {_get_error_message(response)}",
-            response.status_code,
-        )
-
-    data = types.RealtimeCreateTemporaryTokenResponse.parse_obj(response.json())
-    return data.token
