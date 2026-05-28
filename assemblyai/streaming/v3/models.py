@@ -74,6 +74,21 @@ class LLMGatewayResponseEvent(BaseModel):
     data: Any
 
 
+class SpeakerRevisionEvent(BaseModel):
+    """Server-side correction to a previously-emitted Turn's speaker labels.
+
+    Emitted after offline reclustering refines the live tentative labels.
+    Match by `turn_order` against the original Turn; replace its per-word
+    speaker assignments (and the turn-level `speaker_label`) with these.
+    Text and word timestamps are unchanged from the original Turn.
+    """
+
+    type: Literal["SpeakerRevision"] = "SpeakerRevision"
+    turn_order: int
+    speaker_label: Optional[str] = None
+    words: List[Word] = []
+
+
 EventMessage = Union[
     BeginEvent,
     TerminationEvent,
@@ -82,6 +97,7 @@ EventMessage = Union[
     ErrorEvent,
     WarningEvent,
     LLMGatewayResponseEvent,
+    SpeakerRevisionEvent,
 ]
 
 
@@ -290,3 +306,4 @@ class StreamingEvents(Enum):
     Error = "Error"
     Warning = "Warning"
     LLMGatewayResponse = "LLMGatewayResponse"
+    SpeakerRevision = "SpeakerRevision"
