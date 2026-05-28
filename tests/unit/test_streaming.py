@@ -13,6 +13,7 @@ from websockets.frames import Close
 
 from assemblyai.streaming.v3 import (
     NoiseSuppressionModel,
+    SpeakerRevisionEvent,
     SpeechModel,
     SpeechStartedEvent,
     StreamingClient,
@@ -909,6 +910,88 @@ def test_turn_event_with_word_speakers():
 
     # Then: each word's speaker is preserved
     assert [w.speaker for w in event.words] == ["A", "B"]
+
+
+def test_speaker_revision_event_parses():
+    # Given: a SpeakerRevision payload as emitted by the server (revision words
+    # use the same Word schema as Turn — start/end/confidence/text/word_is_final/speaker)
+    data = {
+        "type": "SpeakerRevision",
+        "turn_order": 3,
+        "speaker_label": "B",
+        "words": [
+            {
+                "start": 1000,
+                "end": 1200,
+                "confidence": 0.9,
+                "text": "hello",
+                "word_is_final": True,
+                "speaker": "B",
+            },
+            {
+                "start": 1210,
+                "end": 1400,
+                "confidence": 0.88,
+                "text": "world",
+                "word_is_final": True,
+                "speaker": "A",
+            },
+        ],
+    }
+
+    # When: parsed
+    event = SpeakerRevisionEvent.parse_obj(data)
+
+    # Then: the revision carries the corrected per-word and turn-level speakers
+    assert event.type == "SpeakerRevision"
+    assert event.turn_order == 3
+    assert event.speaker_label == "B"
+    assert [w.speaker for w in event.words] == ["B", "A"]
+
+
+def test_speaker_revision_event_dispatched_to_handler(mocker: MockFixture):
+    # Given: a SpeakerRevision frame on the wire and a handler registered
+    revision_json = json.dumps(
+        {
+            "type": "SpeakerRevision",
+            "turn_order": 5,
+            "speaker_label": "A",
+            "words": [
+                {
+                    "start": 500,
+                    "end": 700,
+                    "confidence": 0.95,
+                    "text": "yes",
+                    "word_is_final": True,
+                    "speaker": "A",
+                },
+            ],
+        }
+    )
+    fake_ws = _FakeWebSocket(recv_script=[revision_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.SpeakerRevision, lambda _c, event: received.append(event))
+
+    # When: the client reads the frame
+    client.connect(_default_params())
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not received:
+        time.sleep(0.02)
+    client.disconnect(terminate=False)
+
+    # Then: the handler is invoked with a parsed SpeakerRevisionEvent
+    assert len(received) == 1
+    assert isinstance(received[0], SpeakerRevisionEvent)
+    assert received[0].turn_order == 5
+    assert received[0].speaker_label == "A"
+    assert [w.speaker for w in received[0].words] == ["A"]
 
 
 def test_speech_model_required():
