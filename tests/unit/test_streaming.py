@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from urllib.parse import urlencode
 
 import pytest
-from pydantic import ValidationError
 from pytest_mock import MockFixture
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.frames import Close
@@ -19,12 +18,14 @@ from assemblyai.streaming.v3 import (
     StreamingClient,
     StreamingClientOptions,
     StreamingEvents,
+    StreamingMode,
     StreamingParameters,
     StreamingPiiPolicy,
     StreamingPiiSubstitution,
     TurnEvent,
     Word,
 )
+from assemblyai.streaming.v3._base import _build_uri
 from assemblyai.streaming.v3.models import TerminateSession
 
 
@@ -243,6 +244,37 @@ def test_client_connect_with_voice_focus(mocker: MockFixture):
     assert "voice_focus_threshold=0.5" in actual_url
     assert "noise_suppression_model" not in actual_url
     assert "noise_suppression_threshold" not in actual_url
+
+
+def test_client_connect_with_mode(mocker: MockFixture):
+    # Given: client + mode parameter
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.u3_rt_pro,
+        mode=StreamingMode.max_accuracy,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the mode wire param is present with its underscore value
+    assert "mode=max_accuracy" in actual_url
 
 
 def test_noise_suppression_deprecated_alias_migrates_to_voice_focus(
@@ -568,6 +600,7 @@ def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
         speech_model=SpeechModel.u3_pro,
         min_end_of_turn_silence_when_confident=200,
         prompt="Transcribe this audio with beautiful punctuation and formatting.",
+        agent_context="What is your account number?",
         keyterms_prompt=["yes", "no", "okay"],
     )
 
@@ -579,6 +612,7 @@ def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
     assert "min_turn_silence=200" in actual_url
     assert "min_end_of_turn_silence_when_confident" not in actual_url
     assert "prompt=Transcribe" in actual_url
+    assert "agent_context=What" in actual_url
     assert "keyterms_prompt=" in actual_url  # keyterms_prompt is JSON-encoded
 
     assert actual_additional_headers["Authorization"] == "test"
@@ -913,28 +947,38 @@ def test_turn_event_with_word_speakers():
 
 
 def test_speaker_revision_event_parses():
-    # Given: a SpeakerRevision payload as emitted by the server (revision words
-    # use the same Word schema as Turn — start/end/confidence/text/word_is_final/speaker)
+    # Given: a SpeakerRevision payload as emitted by the server — one message
+    # per recluster resolve carrying a list of revised turns. Revision words
+    # use the same Word schema as Turn (start/end/confidence/text/word_is_final/speaker).
     data = {
         "type": "SpeakerRevision",
-        "turn_order": 3,
-        "speaker_label": "B",
-        "words": [
+        "revisions": [
             {
-                "start": 1000,
-                "end": 1200,
-                "confidence": 0.9,
-                "text": "hello",
-                "word_is_final": True,
-                "speaker": "B",
+                "turn_order": 3,
+                "speaker_label": "B",
+                "words": [
+                    {
+                        "start": 1000,
+                        "end": 1200,
+                        "confidence": 0.9,
+                        "text": "hello",
+                        "word_is_final": True,
+                        "speaker": "B",
+                    },
+                    {
+                        "start": 1210,
+                        "end": 1400,
+                        "confidence": 0.88,
+                        "text": "world",
+                        "word_is_final": True,
+                        "speaker": "A",
+                    },
+                ],
             },
             {
-                "start": 1210,
-                "end": 1400,
-                "confidence": 0.88,
-                "text": "world",
-                "word_is_final": True,
-                "speaker": "A",
+                "turn_order": 7,
+                "speaker_label": "A",
+                "words": [],
             },
         ],
     }
@@ -942,11 +986,13 @@ def test_speaker_revision_event_parses():
     # When: parsed
     event = SpeakerRevisionEvent.parse_obj(data)
 
-    # Then: the revision carries the corrected per-word and turn-level speakers
+    # Then: each revision carries the corrected per-word and turn-level speakers
     assert event.type == "SpeakerRevision"
-    assert event.turn_order == 3
-    assert event.speaker_label == "B"
-    assert [w.speaker for w in event.words] == ["B", "A"]
+    assert [r.turn_order for r in event.revisions] == [3, 7]
+    assert event.revisions[0].speaker_label == "B"
+    assert [w.speaker for w in event.revisions[0].words] == ["B", "A"]
+    assert event.revisions[1].speaker_label == "A"
+    assert event.revisions[1].words == []
 
 
 def test_speaker_revision_event_dispatched_to_handler(mocker: MockFixture):
@@ -954,16 +1000,20 @@ def test_speaker_revision_event_dispatched_to_handler(mocker: MockFixture):
     revision_json = json.dumps(
         {
             "type": "SpeakerRevision",
-            "turn_order": 5,
-            "speaker_label": "A",
-            "words": [
+            "revisions": [
                 {
-                    "start": 500,
-                    "end": 700,
-                    "confidence": 0.95,
-                    "text": "yes",
-                    "word_is_final": True,
-                    "speaker": "A",
+                    "turn_order": 5,
+                    "speaker_label": "A",
+                    "words": [
+                        {
+                            "start": 500,
+                            "end": 700,
+                            "confidence": 0.95,
+                            "text": "yes",
+                            "word_is_final": True,
+                            "speaker": "A",
+                        },
+                    ],
                 },
             ],
         }
@@ -989,15 +1039,23 @@ def test_speaker_revision_event_dispatched_to_handler(mocker: MockFixture):
     # Then: the handler is invoked with a parsed SpeakerRevisionEvent
     assert len(received) == 1
     assert isinstance(received[0], SpeakerRevisionEvent)
-    assert received[0].turn_order == 5
-    assert received[0].speaker_label == "A"
-    assert [w.speaker for w in received[0].words] == ["A"]
+    assert len(received[0].revisions) == 1
+    assert received[0].revisions[0].turn_order == 5
+    assert received[0].revisions[0].speaker_label == "A"
+    assert [w.speaker for w in received[0].revisions[0].words] == ["A"]
 
 
-def test_speech_model_required():
-    """Test that omitting speech_model raises a validation error."""
-    with pytest.raises(ValidationError):
-        StreamingParameters(sample_rate=16000)
+def test_speech_model_optional():
+    """Test that omitting speech_model is valid and excluded from the wire URI."""
+    # Given: streaming parameters with no speech_model
+    params = StreamingParameters(sample_rate=16000)
+
+    # When: the params are constructed and serialized to a connection URI
+    uri = _build_uri("wss://example.com/v3/ws", params)
+
+    # Then: speech_model defaults to None and is not sent to the server
+    assert params.speech_model is None
+    assert "speech_model" not in uri
 
 
 def test_speech_started_event():
