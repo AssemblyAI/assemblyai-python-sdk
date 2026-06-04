@@ -794,6 +794,45 @@ async def test_set_params_enqueues_update_configuration(mocker: MockFixture):
     await client.disconnect()
 
 
+async def test_set_params_with_agent_context(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with agent_context mid-stream
+    await client.set_params(
+        StreamingSessionParameters(agent_context="What is your account number?")
+    )
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying agent_context is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["agent_context"] == "What is your account number?"
+
+    await client.disconnect()
+
+
 async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)

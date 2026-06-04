@@ -74,19 +74,29 @@ class LLMGatewayResponseEvent(BaseModel):
     data: Any
 
 
-class SpeakerRevisionEvent(BaseModel):
-    """Server-side correction to a previously-emitted Turn's speaker labels.
+class SpeakerRevisionItem(BaseModel):
+    """A single Turn whose speaker labels were revised by reclustering.
 
-    Emitted after offline reclustering refines the live tentative labels.
     Match by `turn_order` against the original Turn; replace its per-word
-    speaker assignments (and the turn-level `speaker_label`) with these.
-    Text and word timestamps are unchanged from the original Turn.
+    speaker assignments (and the turn-level `speaker_label`) with these. Text
+    and word timestamps are unchanged from the original Turn.
     """
 
-    type: Literal["SpeakerRevision"] = "SpeakerRevision"
     turn_order: int
     speaker_label: Optional[str] = None
     words: List[Word] = []
+
+
+class SpeakerRevisionEvent(BaseModel):
+    """Server-side correction to previously-emitted Turns' speaker labels.
+
+    Emitted once per offline-recluster resolve. `revisions` carries one entry
+    per earlier Turn whose label actually changed (unchanged turns are
+    omitted). Apply each entry by matching its `turn_order`.
+    """
+
+    type: Literal["SpeakerRevision"] = "SpeakerRevision"
+    revisions: List[SpeakerRevisionItem] = []
 
 
 EventMessage = Union[
@@ -121,6 +131,7 @@ class StreamingSessionParameters(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     filter_profanity: Optional[bool] = None
     prompt: Optional[str] = None
+    agent_context: Optional[str] = None
     interruption_delay: Optional[int] = None
     turn_left_pad_ms: Optional[int] = None
 
@@ -137,6 +148,7 @@ class SpeechModel(str, Enum):
     universal_streaming_multilingual = "universal-streaming-multilingual"
     universal_streaming_english = "universal-streaming-english"
     u3_rt_pro = "u3-rt-pro"
+    u3_rt_pro_beta_1 = "u3-rt-pro-beta-1"
     whisper_rt = "whisper-rt"
     u3_pro = "u3-pro"  # Deprecated: Use u3_rt_pro instead
 
@@ -154,6 +166,15 @@ class StreamingDomain(str, Enum):
 class NoiseSuppressionModel(str, Enum):
     near_field = "near-field"
     far_field = "far-field"
+
+    def __str__(self):
+        return self.value
+
+
+class StreamingMode(str, Enum):
+    max_accuracy = "max_accuracy"
+    min_latency = "min_latency"
+    balanced = "balanced"
 
     def __str__(self):
         return self.value
@@ -223,7 +244,7 @@ class StreamingPiiPolicy(str, Enum):
 class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
-    speech_model: SpeechModel
+    speech_model: Optional[SpeechModel] = None
     language_detection: Optional[bool] = None
     domain: Optional[StreamingDomain] = None
     inactivity_timeout: Optional[int] = None
@@ -244,6 +265,7 @@ class StreamingParameters(StreamingSessionParameters):
     redact_pii: Optional[bool] = None
     redact_pii_policies: Optional[List[StreamingPiiPolicy]] = None
     redact_pii_sub: Optional[StreamingPiiSubstitution] = None
+    mode: Optional[StreamingMode] = None
 
 
 class UpdateConfiguration(StreamingSessionParameters):
