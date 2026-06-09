@@ -84,6 +84,28 @@ class LemurError(AssemblyAIError):
     """
 
 
+class SyncTranscriptError(AssemblyAIError):
+    """
+    Error raised when a synchronous transcription request fails.
+
+    Carries the server's machine-readable `error_code` (e.g. `bad_audio`,
+    `audio_too_large`, `capacity_exceeded`, `inference_timeout`) when present,
+    and `retry_after` (seconds) for 429/503 responses that include a
+    `Retry-After` header.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        error_code: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
+        super().__init__(message, status_code)
+        self.error_code = error_code
+        self.retry_after = retry_after
+
+
 class Sourcable:
     """
     A base class for all sourcable objects
@@ -105,6 +127,12 @@ class Settings(BaseSettings):
 
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
+
+    sync_base_url: str = "https://sync.assemblyai.com"
+    "The base URL for the synchronous transcription API (used by `SyncTranscriber`)"
+
+    sync_http_timeout: float = 60.0
+    "The HTTP timeout for synchronous transcription requests. Kept above the server's 30s deadline so the client doesn't race it."
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
@@ -2951,3 +2979,110 @@ class LemurPurgeResponse(BaseModel):
 
     deleted: bool
     "The result of the LeMUR purge request"
+
+
+# Caps mirror the sync service's `config` part so an oversized request fails
+# locally with a clear message instead of a 400 round trip.
+_SYNC_MAX_PROMPT_LEN = 4096
+_SYNC_MAX_WORD_BOOST_LEN = 2048
+
+
+class SyncSpeechModel(str, Enum):
+    """Speech models available on the synchronous transcription API."""
+
+    u3_sync_pro = "u3-sync-pro"
+
+
+class SyncTranscriptionConfig(BaseModel):
+    """
+    Options for a synchronous transcription request.
+
+    `prompt`, `word_boost`, and `language_code` shape the transcript;
+    `sample_rate` and `channels` are required only for raw PCM audio (WAV
+    carries them in its header). `model` selects the sync speech model and is
+    sent as the `X-AAI-Model` routing header, not in the request body.
+    """
+
+    model: str = SyncSpeechModel.u3_sync_pro.value
+    "The sync speech model to route to. Sent as the `X-AAI-Model` header."
+
+    prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
+    "Custom transcription instruction prepended to the model's system prompt. Max 4096 characters."
+
+    word_boost: Optional[List[str]] = None
+    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
+
+    language_code: Optional[Union[str, List[str]]] = None
+    """ISO 639-1 language code, or a list of codes for multilingual audio (e.g.
+    `"es"` or `["en", "es"]`). Steers the default transcription prompt toward
+    the named language(s); ignored when `prompt` is set. Defaults to English.
+    Supported: en, es, de, fr, it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he,
+    ja, ur, zh."""
+
+    sample_rate: Optional[int] = None
+    "Source sample rate in Hz. Required for raw PCM audio; ignored for WAV."
+
+    channels: Optional[int] = None
+    "Channel count (1 mono, 2 stereo). Required for raw PCM audio; ignored for WAV."
+
+    if pydantic_v2:
+
+        @field_validator("word_boost")
+        @classmethod
+        def _normalize_word_boost(cls, v):
+            if not v:
+                return None
+            terms = [t.strip() for t in v if t and t.strip()]
+            total = sum(len(t) for t in terms)
+            if total > _SYNC_MAX_WORD_BOOST_LEN:
+                raise ValueError(
+                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                )
+            return terms or None
+
+    else:
+
+        @validator("word_boost")
+        def _normalize_word_boost(cls, v):
+            if not v:
+                return None
+            terms = [t.strip() for t in v if t and t.strip()]
+            total = sum(len(t) for t in terms)
+            if total > _SYNC_MAX_WORD_BOOST_LEN:
+                raise ValueError(
+                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                )
+            return terms or None
+
+
+class SyncWord(BaseModel):
+    """A single word from a synchronous transcript, with timing and confidence."""
+
+    text: str
+    start_ms: int
+    "Word start time in milliseconds."
+    end_ms: int
+    "Word end time in milliseconds."
+    confidence: float
+
+
+class SyncTranscriptResponse(BaseModel):
+    """The result of a synchronous transcription request."""
+
+    text: str
+    "The full transcript text."
+
+    words: List[SyncWord] = Field(default_factory=list)
+    "Per-word timing and confidence."
+
+    confidence: float
+    "Overall transcript confidence in the range 0-1."
+
+    audio_duration_ms: int
+    "Total audio duration in milliseconds."
+
+    inference_time_ms: float
+    "Model inference time in milliseconds. Excludes auth, decode, and queue wait."
+
+    session_id: str
+    "Server-generated UUID for this request. Record it to correlate with support."

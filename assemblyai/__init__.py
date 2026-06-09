@@ -2,6 +2,7 @@ from . import extras
 from .__version__ import __version__
 from .client import Client
 from .lemur import Lemur
+from .sync import SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
 from .types import (
     AssemblyAIError,
@@ -63,6 +64,11 @@ from .types import (
     StatusResult,
     SummarizationModel,
     SummarizationType,
+    SyncSpeechModel,
+    SyncTranscriptError,
+    SyncTranscriptionConfig,
+    SyncTranscriptResponse,
+    SyncWord,
     Timestamp,
     TranscriptError,
     TranscriptionConfig,
@@ -138,6 +144,12 @@ __all__ = [
     "StatusResult",
     "SummarizationModel",
     "SummarizationType",
+    "SyncSpeechModel",
+    "SyncTranscriber",
+    "SyncTranscriptError",
+    "SyncTranscriptionConfig",
+    "SyncTranscriptResponse",
+    "SyncWord",
     "Timestamp",
     "Transcriber",
     "TranscriptionConfig",
