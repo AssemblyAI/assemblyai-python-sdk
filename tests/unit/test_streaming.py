@@ -277,6 +277,37 @@ def test_client_connect_with_mode(mocker: MockFixture):
     assert "mode=max_accuracy" in actual_url
 
 
+def test_client_connect_with_language_code(mocker: MockFixture):
+    # Given: client + language_code parameter
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.u3_rt_pro,
+        language_code="es",
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the language_code wire param is forwarded
+    assert "language_code=es" in actual_url
+
+
 def test_noise_suppression_deprecated_alias_migrates_to_voice_focus(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ):

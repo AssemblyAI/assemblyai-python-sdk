@@ -83,6 +83,54 @@ def test_transcribe_sends_prompt_and_word_boost(httpx_mock: HTTPXMock):
     assert b'"model"' not in body
 
 
+def test_transcribe_sends_conversation_context_list(httpx_mock: HTTPXMock):
+    # Given a mocked sync endpoint
+    _mock_ok(httpx_mock)
+
+    # When transcribing with prior conversation turns (oldest first)
+    config = aai.SyncTranscriptionConfig(
+        conversation_context=[
+            "I'd like to book a flight to Denver.",
+            "  Sure, what date were you thinking?  ",
+            "",
+        ],
+    )
+    aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes", config=config)
+
+    # Then the config JSON part carries the turns, stripped with empties dropped
+    body = httpx_mock.get_requests()[0].read()
+    assert b'name="config"' in body
+    assert b'"conversation_context"' in body
+    assert b"I'd like to book a flight to Denver." in body
+    assert b"Sure, what date were you thinking?" in body
+
+
+def test_transcribe_coerces_conversation_context_string(httpx_mock: HTTPXMock):
+    # Given a mocked sync endpoint
+    _mock_ok(httpx_mock)
+
+    # When conversation_context is a bare string (single prior turn)
+    config = aai.SyncTranscriptionConfig(
+        conversation_context="Sure, what date were you thinking?"
+    )
+
+    # Then it is normalized to a one-turn list
+    assert config.conversation_context == ["Sure, what date were you thinking?"]
+
+    # And it ships as a JSON array in the config part
+    aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes", config=config)
+    body = httpx_mock.get_requests()[0].read()
+    assert b'"conversation_context"' in body
+    assert b'"Sure, what date were you thinking?"' in body
+
+
+def test_conversation_context_rejects_too_many_chars():
+    # Given conversation_context whose total length exceeds the cap,
+    # When/Then constructing the config raises a validation error
+    with pytest.raises(Exception):
+        aai.SyncTranscriptionConfig(conversation_context=["a" * 5000])
+
+
 def test_transcribe_sends_single_language_code(httpx_mock: HTTPXMock):
     # Given a mocked sync endpoint
     _mock_ok(httpx_mock)
