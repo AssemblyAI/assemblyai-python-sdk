@@ -245,6 +245,7 @@ class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
     speech_model: Optional[SpeechModel] = None
+    language_code: Optional[str] = None
     language_detection: Optional[bool] = None
     domain: Optional[StreamingDomain] = None
     inactivity_timeout: Optional[int] = None

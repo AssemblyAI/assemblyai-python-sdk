@@ -2985,6 +2985,32 @@ class LemurPurgeResponse(BaseModel):
 # locally with a clear message instead of a 400 round trip.
 _SYNC_MAX_PROMPT_LEN = 4096
 _SYNC_MAX_WORD_BOOST_LEN = 2048
+_SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
+_SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
+
+
+def _normalize_conversation_context(v):
+    """Coerce a single string to a one-turn list, strip + drop empties, cap.
+
+    Shared by the pydantic v1 and v2 validators on ``SyncTranscriptionConfig``.
+    """
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = [v]
+    turns = [t.strip() for t in v if t and t.strip()]
+    if len(turns) > _SYNC_MAX_CONVERSATION_CONTEXT_TURNS:
+        raise ValueError(
+            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_TURNS} "
+            f"turns (got {len(turns)})"
+        )
+    total = sum(len(t) for t in turns)
+    if total > _SYNC_MAX_CONVERSATION_CONTEXT_LEN:
+        raise ValueError(
+            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_LEN} "
+            f"characters (got {total})"
+        )
+    return turns or None
 
 
 class SyncSpeechModel(str, Enum):
@@ -2997,10 +3023,11 @@ class SyncTranscriptionConfig(BaseModel):
     """
     Options for a synchronous transcription request.
 
-    `prompt`, `word_boost`, and `language_code` shape the transcript;
-    `sample_rate` and `channels` are required only for raw PCM audio (WAV
-    carries them in its header). `model` selects the sync speech model and is
-    sent as the `X-AAI-Model` routing header, not in the request body.
+    `prompt`, `word_boost`, `conversation_context`, and `language_code` shape
+    the transcript; `sample_rate` and `channels` are required only for raw PCM
+    audio (WAV carries them in its header). `model` selects the sync speech
+    model and is sent as the `X-AAI-Model` routing header, not in the request
+    body.
     """
 
     model: str = SyncSpeechModel.u3_sync_pro.value
@@ -3011,6 +3038,16 @@ class SyncTranscriptionConfig(BaseModel):
 
     word_boost: Optional[List[str]] = None
     "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
+
+    conversation_context: Optional[Union[str, List[str]]] = None
+    """Prior turns from the same conversation, in chronological order (oldest
+    first, most recent last). Gives the model the dialogue that preceded this
+    audio so it transcribes the clip with better continuity and proper-noun
+    consistency. Include turns from either side of the conversation (e.g. a
+    voice agent's replies) as separate entries; entries carry no speaker labels.
+    A single string is accepted and treated as one turn. Max 100 turns / 4096
+    characters total; when the prompt exceeds the model token budget the oldest
+    turns are dropped first, so put the most recent turn last."""
 
     language_code: Optional[Union[str, List[str]]] = None
     """ISO 639-1 language code, or a list of codes for multilingual audio (e.g.
@@ -3040,6 +3077,11 @@ class SyncTranscriptionConfig(BaseModel):
                 )
             return terms or None
 
+        @field_validator("conversation_context")
+        @classmethod
+        def _normalize_conversation_context(cls, v):
+            return _normalize_conversation_context(v)
+
     else:
 
         @validator("word_boost")
@@ -3053,6 +3095,10 @@ class SyncTranscriptionConfig(BaseModel):
                     f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
                 )
             return terms or None
+
+        @validator("conversation_context")
+        def _normalize_conversation_context(cls, v):
+            return _normalize_conversation_context(v)
 
 
 class SyncWord(BaseModel):
