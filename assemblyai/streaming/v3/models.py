@@ -38,10 +38,19 @@ class TurnEvent(BaseModel):
     speaker_label: Optional[str] = None
 
 
+class SessionConfiguration(BaseModel):
+    # `mode` stays a plain str so a new server-side mode value can't fail
+    # validation and drop the whole BeginEvent.
+    model: Optional[str] = None
+    mode: Optional[str] = None
+    api_version: Optional[str] = None
+
+
 class BeginEvent(BaseModel):
     type: Literal["Begin"] = "Begin"
     id: str
     expires_at: datetime
+    configuration: Optional[SessionConfiguration] = None
 
 
 class TerminationEvent(BaseModel):
@@ -285,6 +294,18 @@ class StreamingClientOptions(BaseModel):
     api_host: str = "streaming.assemblyai.com"
     api_key: Optional[str] = None
     token: Optional[str] = None
+    # Seconds to wait for the WebSocket handshake to complete before treating
+    # the attempt as failed.
+    connect_timeout: float = 1.0
+    # Additional handshake attempts after the first one fails on a transient
+    # error (timeout, network drop). 0 disables retries. HTTP-level rejections
+    # (auth, quota, bad request) are never retried.
+    max_connection_retries: int = 2
+    # Seconds to wait between handshake attempts.
+    connection_retry_delay: float = 0.5
+    # Seconds disconnect(terminate=True) waits for the server's
+    # TerminationEvent (and any final Turn) before tearing down.
+    terminate_timeout: float = 5.0
 
 
 class StreamingError(Exception):

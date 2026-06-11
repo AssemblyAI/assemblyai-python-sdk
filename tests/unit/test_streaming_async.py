@@ -210,8 +210,12 @@ async def test_disconnect_terminate_sends_terminate_then_closes(mocker: MockFixt
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)
 
+    # Short terminate_timeout: this fake server never replies with a
+    # TerminationEvent, so disconnect's graceful wait should time out fast.
     client = AsyncStreamingClient(
-        StreamingClientOptions(api_key="test", api_host="api.example.com")
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", terminate_timeout=0.2
+        )
     )
     await client.connect(_default_params())
 
@@ -222,6 +226,41 @@ async def test_disconnect_terminate_sends_terminate_then_closes(mocker: MockFixt
     ]
     assert len(sent_terminate) == 1
     assert fake_ws.close_call_count >= 1
+
+
+async def test_disconnect_terminate_waits_for_termination_event(mocker: MockFixture):
+    # Given: a server that replies to the Terminate frame with a
+    # TerminationEvent (as in production).
+    termination_json = json.dumps(
+        {
+            "type": "Termination",
+            "audio_duration_seconds": 12,
+            "session_duration_seconds": 13,
+        }
+    )
+
+    class _TerminateAwareAsyncWS(_FakeAsyncWebSocket):
+        async def send(self, data) -> None:
+            await super().send(data)
+            if isinstance(data, str) and '"Terminate"' in data:
+                self.push_message(termination_json)
+
+    fake_ws = _TerminateAwareAsyncWS()
+    _patch_connect(mocker, fake_ws)
+    received = []
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Termination, lambda c, e: received.append(e))
+    await client.connect(_default_params())
+
+    # When: disconnecting gracefully
+    await client.disconnect(terminate=True)
+
+    # Then: the TerminationEvent was dispatched before disconnect returned.
+    assert len(received) == 1
+    assert received[0].audio_duration_seconds == 12
 
 
 async def test_begin_event_dispatched_to_handler(mocker: MockFixture):
@@ -1190,3 +1229,128 @@ async def test_write_side_close_is_dispatched_when_read_short_circuits_on_stop(
     assert received[0].code == 1011
 
     await client.disconnect()
+
+
+_ASYNC_CONNECT_PATH = (
+    "assemblyai.streaming.v3.async_client."
+    "websocket_connect_async"
+)
+
+
+async def test_connect_retries_transient_failure_then_succeeds(mocker: MockFixture):
+    # Given: the handshake fails twice transiently, then succeeds (default 2
+    # retries → 3 attempts).
+    fake_ws = _FakeAsyncWebSocket()
+    attempts = {"n": 0}
+
+    async def flaky_connect(uri, additional_headers=None, **_kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise TimeoutError()
+        return fake_ws
+
+    mocker.patch(_ASYNC_CONNECT_PATH, new=flaky_connect)
+    errors = []
+    client = AsyncStreamingClient(
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", connection_retry_delay=0
+        )
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When: connect() retries through the transient failures.
+    await client.connect(_default_params())
+
+    # Then: it makes three attempts, binds the websocket, and reports no error.
+    assert attempts["n"] == 3
+    assert client._websocket is fake_ws
+    assert errors == []
+
+    await client.disconnect()
+
+
+async def test_connect_exhausts_retries_then_reports_error(mocker: MockFixture):
+    # Given: the handshake fails transiently on every attempt.
+    attempts = {"n": 0}
+
+    async def failing_connect(*_args, **_kwargs):
+        attempts["n"] += 1
+        raise TimeoutError()
+
+    mocker.patch(_ASYNC_CONNECT_PATH, new=failing_connect)
+    errors = []
+    client = AsyncStreamingClient(
+        StreamingClientOptions(
+            api_key="test",
+            api_host="api.example.com",
+            max_connection_retries=2,
+            connection_retry_delay=0,
+        )
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When: connect() exhausts all attempts.
+    await client.connect(_default_params())
+
+    # Then: it makes 1 + max_connection_retries attempts and dispatches one error.
+    assert attempts["n"] == 3
+    assert len(errors) == 1
+
+
+async def test_connect_timeout_is_honored_then_retried(mocker: MockFixture):
+    # Given: a handshake that hangs past the (tiny) configured connect_timeout.
+    attempts = {"n": 0}
+
+    async def hanging_connect(*_args, **_kwargs):
+        attempts["n"] += 1
+        await asyncio.sleep(10)
+
+    mocker.patch(_ASYNC_CONNECT_PATH, new=hanging_connect)
+    errors = []
+    client = AsyncStreamingClient(
+        StreamingClientOptions(
+            api_key="test",
+            api_host="api.example.com",
+            connect_timeout=0.01,
+            max_connection_retries=1,
+            connection_retry_delay=0,
+        )
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When: connect() aborts each hung attempt at the timeout and retries once.
+    await client.connect(_default_params())
+
+    # Then: both attempts time out and a single error is reported.
+    assert attempts["n"] == 2
+    assert len(errors) == 1
+
+
+async def test_connect_does_not_retry_invalid_status(mocker: MockFixture):
+    # Given: the server rejects the handshake at the HTTP layer (401).
+    attempts = {"n": 0}
+    response = type("R", (), {"status_code": 401})()
+
+    async def failing_connect(*_args, **_kwargs):
+        attempts["n"] += 1
+        raise InvalidStatus(response=response)
+
+    mocker.patch(_ASYNC_CONNECT_PATH, new=failing_connect)
+    errors = []
+    client = AsyncStreamingClient(
+        StreamingClientOptions(
+            api_key="test",
+            api_host="api.example.com",
+            max_connection_retries=5,
+            connection_retry_delay=0,
+        )
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When: connect() is called.
+    await client.connect(_default_params())
+
+    # Then: the HTTP rejection is not retried — a single attempt, single error.
+    assert attempts["n"] == 1
+    assert len(errors) == 1
+    assert errors[0].code == 401

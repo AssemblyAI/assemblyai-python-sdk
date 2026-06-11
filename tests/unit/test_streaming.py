@@ -11,6 +11,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.frames import Close
 
 from assemblyai.streaming.v3 import (
+    BeginEvent,
     NoiseSuppressionModel,
     SpeakerRevisionEvent,
     SpeechModel,
@@ -76,7 +77,7 @@ def test_client_connect(mocker: MockFixture):
     assert actual_additional_headers["AssemblyAI-Version"] == "2025-05-12"
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
-    assert actual_open_timeout == 15
+    assert actual_open_timeout == 1.0
 
 
 def test_client_connect_with_token(mocker: MockFixture):
@@ -118,7 +119,7 @@ def test_client_connect_with_token(mocker: MockFixture):
     assert actual_additional_headers["AssemblyAI-Version"] == "2025-05-12"
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
-    assert actual_open_timeout == 15
+    assert actual_open_timeout == 1.0
 
 
 def test_client_connect_all_parameters(mocker: MockFixture):
@@ -168,7 +169,7 @@ def test_client_connect_all_parameters(mocker: MockFixture):
     assert actual_additional_headers["AssemblyAI-Version"] == "2025-05-12"
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
-    assert actual_open_timeout == 15
+    assert actual_open_timeout == 1.0
 
 
 def test_client_connect_with_redact_pii(mocker: MockFixture):
@@ -600,7 +601,7 @@ def test_client_connect_with_webhook(mocker: MockFixture):
 
     assert actual_url == f"wss://api.example.com/v3/ws?{urlencode(expected_params)}"
     assert actual_additional_headers["Authorization"] == "test"
-    assert actual_open_timeout == 15
+    assert actual_open_timeout == 1.0
 
 
 def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
@@ -650,7 +651,7 @@ def test_client_connect_with_u3_pro_and_prompt(mocker: MockFixture):
     assert actual_additional_headers["AssemblyAI-Version"] == "2025-05-12"
     assert "AssemblyAI/1.0" in actual_additional_headers["User-Agent"]
 
-    assert actual_open_timeout == 15
+    assert actual_open_timeout == 1.0
 
 
 def test_client_connect_with_speaker_labels(mocker: MockFixture):
@@ -1100,6 +1101,64 @@ def test_speech_started_event():
     assert event.timestamp == 1280
 
 
+def test_begin_event_parses_configuration():
+    # Given: a Begin message with the server's configuration object
+    data = {
+        "type": "Begin",
+        "id": "abc",
+        "expires_at": 1781207829,
+        "configuration": {
+            "model": "u3-rt-pro",
+            "mode": "balanced",
+            "api_version": "2025-05-12",
+        },
+    }
+
+    # When: parsing the event model
+    event = BeginEvent(**data)
+
+    # Then: configuration fields are exposed instead of silently dropped
+    assert event.configuration is not None
+    assert event.configuration.model == "u3-rt-pro"
+    assert event.configuration.mode == "balanced"
+    assert event.configuration.api_version == "2025-05-12"
+
+
+def test_begin_event_without_configuration():
+    # Given: a Begin message without configuration (older server)
+    event = BeginEvent(id="abc", expires_at=1781207829)
+
+    # Then: configuration defaults to None
+    assert event.configuration is None
+
+
+def test_begin_event_tolerates_unknown_mode_and_null_fields():
+    # Given: a Begin message with a mode value the SDK doesn't know yet and a
+    # null mode variant (non-u3-pro models send mode: null)
+    event = BeginEvent(
+        id="abc",
+        expires_at=1781207829,
+        configuration={
+            "model": "u9-rt",
+            "mode": "warpspeed",
+            "api_version": "2099-01-01",
+        },
+    )
+    event_null = BeginEvent(
+        id="abc",
+        expires_at=1781207829,
+        configuration={
+            "model": "universal-streaming-english",
+            "mode": None,
+            "api_version": "2025-05-12",
+        },
+    )
+
+    # Then: neither fails validation (a new server mode must not drop BeginEvent)
+    assert event.configuration.mode == "warpspeed"
+    assert event_null.configuration.mode is None
+
+
 class _FakeWebSocket:
     """Programmable sync websocket stand-in for driving StreamingClient in tests."""
 
@@ -1466,6 +1525,75 @@ def test_server_error_without_trailing_close_exits_read_loop(mocker: MockFixture
     client.disconnect(terminate=True)
 
 
+def test_disconnect_terminate_waits_for_termination_event(mocker: MockFixture):
+    # Given: a server that delivers the final TerminationEvent only after the
+    # client's Terminate frame arrives (as in production, where Termination
+    # lands ~0.5-1.3s after Terminate).
+    termination_json = json.dumps(
+        {
+            "type": "Termination",
+            "audio_duration_seconds": 12,
+            "session_duration_seconds": 13,
+        }
+    )
+
+    class _TerminateAwareWS(_FakeWebSocket):
+        def recv(self, timeout=None):
+            if not any(isinstance(s, str) and '"Terminate"' in s for s in self.sent):
+                raise TimeoutError()
+            return super().recv(timeout)
+
+    fake_ws = _TerminateAwareWS(recv_script=[termination_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Termination, lambda c, e: received.append(e))
+    client.connect(_default_params())
+
+    # When: disconnecting gracefully
+    client.disconnect(terminate=True)
+
+    # Then: the TerminationEvent was dispatched before disconnect returned,
+    # and both worker threads exited.
+    assert len(received) == 1
+    assert received[0].audio_duration_seconds == 12
+    assert not client._read_thread.is_alive()
+    assert not client._write_thread.is_alive()
+
+
+def test_disconnect_terminate_times_out_when_no_termination(mocker: MockFixture):
+    # Given: a server that never sends a TerminationEvent and a short
+    # terminate_timeout.
+    fake_ws = _FakeWebSocket(recv_script=[])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", terminate_timeout=0.3
+        )
+    )
+    client.connect(_default_params())
+
+    # When: disconnecting gracefully
+    start = time.monotonic()
+    client.disconnect(terminate=True)
+    elapsed = time.monotonic() - start
+
+    # Then: disconnect honored the bounded wait instead of hanging, still sent
+    # the Terminate frame, and tore down both threads.
+    assert 0.3 <= elapsed < 2.0
+    assert any(isinstance(s, str) and '"Terminate"' in s for s in fake_ws.sent)
+    assert not client._read_thread.is_alive()
+    assert not client._write_thread.is_alive()
+
+
 def test_disconnect_terminate_enqueues_when_stop_already_set(mocker: MockFixture):
     # Given: a client whose _stop_event is already set (e.g. after a server
     # error invoked _report_server_error). Threads were never started, so the
@@ -1580,3 +1708,135 @@ def test_warning_handler_exception_does_not_kill_read_thread(mocker: MockFixture
     assert not client._read_thread.is_alive()
 
     client.disconnect()
+
+
+def test_client_connect_uses_configured_timeout(mocker: MockFixture):
+    # Given: a client configured with a custom connect_timeout.
+    actual_open_timeout = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_open_timeout
+        actual_open_timeout = open_timeout
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", connect_timeout=5.0
+        )
+    )
+
+    # When: connect() opens the handshake.
+    client.connect(_default_params())
+
+    # Then: the configured timeout is forwarded to the websocket handshake.
+    assert actual_open_timeout == 5.0
+
+
+def test_client_connect_retries_transient_failure_then_succeeds(mocker: MockFixture):
+    # Given: the handshake fails twice transiently, then succeeds (default 2
+    # retries → 3 attempts).
+    fake_ws = object()  # rw threads disabled, so the websocket is never driven
+    connect_mock = mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        side_effect=[TimeoutError(), TimeoutError(), fake_ws],
+    )
+    _disable_rw_threads(mocker)
+    errors = []
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", connection_retry_delay=0
+        )
+    )
+    client.on(StreamingEvents.Error, lambda s, e: errors.append(e))
+
+    # When: connect() retries through the transient failures.
+    client.connect(_default_params())
+
+    # Then: it makes three attempts, binds the websocket, and reports no error.
+    assert connect_mock.call_count == 3
+    assert client._websocket is fake_ws
+    assert errors == []
+
+
+def test_client_connect_exhausts_retries_then_reports_error(mocker: MockFixture):
+    # Given: the handshake fails transiently on every attempt.
+    connect_mock = mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        side_effect=TimeoutError(),
+    )
+    _disable_rw_threads(mocker)
+    errors = []
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test",
+            api_host="api.example.com",
+            max_connection_retries=2,
+            connection_retry_delay=0,
+        )
+    )
+    client.on(StreamingEvents.Error, lambda s, e: errors.append(e))
+
+    # When: connect() exhausts all attempts.
+    client.connect(_default_params())
+
+    # Then: it makes 1 + max_connection_retries attempts and dispatches one error.
+    assert connect_mock.call_count == 3
+    assert len(errors) == 1
+
+
+def test_client_connect_does_not_retry_invalid_status(mocker: MockFixture):
+    # Given: the server rejects the handshake at the HTTP layer (401).
+    response = SimpleNamespace(status_code=401)
+    connect_mock = mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        side_effect=InvalidStatus(response=response),
+    )
+    _disable_rw_threads(mocker)
+    errors = []
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test",
+            api_host="api.example.com",
+            max_connection_retries=5,
+            connection_retry_delay=0,
+        )
+    )
+    client.on(StreamingEvents.Error, lambda s, e: errors.append(e))
+
+    # When: connect() is called.
+    client.connect(_default_params())
+
+    # Then: the HTTP rejection is not retried — a single attempt, single error.
+    assert connect_mock.call_count == 1
+    assert len(errors) == 1
+    assert errors[0].code == 401
+
+
+def test_client_connect_retries_disabled(mocker: MockFixture):
+    # Given: retries disabled (max_connection_retries=0).
+    connect_mock = mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        side_effect=TimeoutError(),
+    )
+    _disable_rw_threads(mocker)
+    errors = []
+    client = StreamingClient(
+        StreamingClientOptions(
+            api_key="test", api_host="api.example.com", max_connection_retries=0
+        )
+    )
+    client.on(StreamingEvents.Error, lambda s, e: errors.append(e))
+
+    # When: connect() fails transiently.
+    client.connect(_default_params())
+
+    # Then: exactly one attempt is made and the error is reported.
+    assert connect_mock.call_count == 1
+    assert len(errors) == 1

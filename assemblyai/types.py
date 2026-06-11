@@ -3101,24 +3101,13 @@ class SyncTranscriptionConfig(BaseModel):
             return _normalize_conversation_context(v)
 
 
-class SyncWord(BaseModel):
-    """A single word from a synchronous transcript, with timing and confidence."""
-
-    text: str
-    start_ms: int
-    "Word start time in milliseconds."
-    end_ms: int
-    "Word end time in milliseconds."
-    confidence: float
-
-
 class SyncTranscriptResponse(BaseModel):
     """The result of a synchronous transcription request."""
 
     text: str
     "The full transcript text."
 
-    words: List[SyncWord] = Field(default_factory=list)
+    words: List[Word] = Field(default_factory=list)
     "Per-word timing and confidence."
 
     confidence: float
@@ -3126,9 +3115,6 @@ class SyncTranscriptResponse(BaseModel):
 
     audio_duration_ms: int
     "Total audio duration in milliseconds."
-
-    inference_time_ms: float
-    "Model inference time in milliseconds. Excludes auth, decode, and queue wait."
 
     session_id: str
     "Server-generated UUID for this request. Record it to correlate with support."
