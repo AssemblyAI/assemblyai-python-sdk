@@ -12,10 +12,16 @@ jobs:
   test:
     name: Python ${{ matrix.py }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # pip>=24.1 rejects legacy dep metadata (e.g. pytest-httpx's `pytest (<8.*,>=6.*)`)
+      # and backtracks through dozens of versions, stalling the matrix 30+ min.
+      # Seed each tox venv with the last pip that tolerates it.
+      VIRTUALENV_PIP: "24.0"
     strategy:
       fail-fast: false
       matrix:
         py:
+          - "3.12"
           - "3.11"
           - "3.10"
           - "3.9"

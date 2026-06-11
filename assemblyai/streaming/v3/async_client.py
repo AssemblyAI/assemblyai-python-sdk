@@ -132,35 +132,52 @@ class AsyncStreamingClient(_BaseStreamingClient):
 
         uri = _build_uri(self._options.api_host, params)
         headers = _build_headers(self._options)
+        options = self._options
 
-        try:
-            self._websocket = await asyncio.wait_for(
-                websocket_connect_async(uri, additional_headers=headers),
-                timeout=15,
-            )
-        except websockets.exceptions.InvalidStatus as exc:
-            status_code = getattr(getattr(exc, "response", None), "status_code", None)
-            await self._report_connection_closed(
-                StreamingError(
-                    message=f"WebSocket handshake rejected (HTTP {status_code})",
-                    code=status_code,
+        for attempt in range(options.max_connection_retries + 1):
+            try:
+                self._websocket = await asyncio.wait_for(
+                    websocket_connect_async(uri, additional_headers=headers),
+                    timeout=options.connect_timeout,
                 )
-            )
-            # Single-use design: a failed handshake terminates the client. Close
-            # the HTTP client now so users who treat ``on_error`` as the
-            # terminal signal don't leak the httpx pool.
-            await self._client.aclose()
-            return
-        except (
-            websockets.exceptions.InvalidHandshake,
-            websockets.exceptions.ConnectionClosed,
-            OSError,
-            asyncio.TimeoutError,
-            TimeoutError,
-        ) as exc:
-            await self._report_connection_closed(exc)
-            await self._client.aclose()
-            return
+                break
+            except websockets.exceptions.InvalidStatus as exc:
+                # HTTP-level rejection (auth, quota, bad request): a retry would
+                # hit the same response, so fail fast.
+                status_code = getattr(
+                    getattr(exc, "response", None), "status_code", None
+                )
+                await self._report_connection_closed(
+                    StreamingError(
+                        message=f"WebSocket handshake rejected (HTTP {status_code})",
+                        code=status_code,
+                    )
+                )
+                # Single-use design: a failed handshake terminates the client.
+                # Close the HTTP client now so users who treat ``on_error`` as
+                # the terminal signal don't leak the httpx pool.
+                await self._client.aclose()
+                return
+            except (
+                websockets.exceptions.InvalidHandshake,
+                websockets.exceptions.ConnectionClosed,
+                OSError,
+                asyncio.TimeoutError,
+                TimeoutError,
+            ) as exc:
+                if attempt < options.max_connection_retries:
+                    logger.debug(
+                        "WebSocket connect attempt %d/%d failed (%s); retrying",
+                        attempt + 1,
+                        options.max_connection_retries + 1,
+                        exc,
+                    )
+                    if options.connection_retry_delay > 0:
+                        await asyncio.sleep(options.connection_retry_delay)
+                    continue
+                await self._report_connection_closed(exc)
+                await self._client.aclose()
+                return
 
         self._read_task = asyncio.create_task(
             self._read_loop(), name="AsyncStreamingClient._read_loop"
@@ -188,6 +205,22 @@ class AsyncStreamingClient(_BaseStreamingClient):
             # cancel the awaited task on timeout, unlike ``wait_for``.
             if self._write_task is not None and not self._write_task.done():
                 await asyncio.wait({self._write_task}, timeout=2.0)
+            # Don't stop the read task yet — the server sends the final Turn
+            # and TerminationEvent after receiving Terminate. Every terminal
+            # path sets ``_stop_event``, so waiting on it here lets those
+            # messages dispatch before teardown.
+            if (
+                self._read_task is not None
+                and not self._read_task.done()
+                and asyncio.current_task() is not self._read_task
+            ):
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self._options.terminate_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    pass
 
         self._stop_event.set()
 

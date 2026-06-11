@@ -2,6 +2,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from typing import Any, Dict, Generator, Iterable, Optional, Union
 
 import httpx
@@ -57,8 +58,11 @@ class StreamingClient(_BaseStreamingClient):
     def connect(self, params: StreamingParameters) -> None:
         """Open the WebSocket session and start the read/write threads.
 
-        Blocks until the handshake completes. If the server rejects the
-        handshake (auth error, etc.) ``Error`` is dispatched to any
+        Blocks until the handshake completes. A transient handshake failure
+        (timeout, network drop) is retried up to
+        ``options.max_connection_retries`` times before the failure is
+        reported. If the server rejects the handshake at the HTTP layer (auth
+        error, etc.) ``Error`` is dispatched to any
         ``on(StreamingEvents.Error, ...)`` handler rather than raised, so
         registration order matters: call ``on()`` before ``connect()``.
         """
@@ -66,30 +70,47 @@ class StreamingClient(_BaseStreamingClient):
 
         uri = _build_uri(self._options.api_host, params)
         headers = _build_headers(self._options)
+        options = self._options
 
-        try:
-            self._websocket = websocket_connect(
-                uri,
-                additional_headers=headers,
-                open_timeout=15,
-            )
-        except websockets.exceptions.InvalidStatus as exc:
-            status_code = getattr(getattr(exc, "response", None), "status_code", None)
-            self._report_connection_closed(
-                StreamingError(
-                    message=f"WebSocket handshake rejected (HTTP {status_code})",
-                    code=status_code,
+        for attempt in range(options.max_connection_retries + 1):
+            try:
+                self._websocket = websocket_connect(
+                    uri,
+                    additional_headers=headers,
+                    open_timeout=options.connect_timeout,
                 )
-            )
-            return
-        except (
-            websockets.exceptions.InvalidHandshake,
-            websockets.exceptions.ConnectionClosed,
-            OSError,
-            TimeoutError,
-        ) as exc:
-            self._report_connection_closed(exc)
-            return
+                break
+            except websockets.exceptions.InvalidStatus as exc:
+                # HTTP-level rejection (auth, quota, bad request): a retry
+                # would hit the same response, so fail fast.
+                status_code = getattr(
+                    getattr(exc, "response", None), "status_code", None
+                )
+                self._report_connection_closed(
+                    StreamingError(
+                        message=f"WebSocket handshake rejected (HTTP {status_code})",
+                        code=status_code,
+                    )
+                )
+                return
+            except (
+                websockets.exceptions.InvalidHandshake,
+                websockets.exceptions.ConnectionClosed,
+                OSError,
+                TimeoutError,
+            ) as exc:
+                if attempt < options.max_connection_retries:
+                    logger.debug(
+                        "WebSocket connect attempt %d/%d failed (%s); retrying",
+                        attempt + 1,
+                        options.max_connection_retries + 1,
+                        exc,
+                    )
+                    if options.connection_retry_delay > 0:
+                        time.sleep(options.connection_retry_delay)
+                    continue
+                self._report_connection_closed(exc)
+                return
 
         self._write_thread.start()
         self._read_thread.start()
@@ -100,16 +121,26 @@ class StreamingClient(_BaseStreamingClient):
         """Stop the read/write threads and close the WebSocket.
 
         Pass ``terminate=True`` for a graceful close — the client sends a
-        ``TerminateSession`` frame and waits for the server's
-        ``TerminationEvent`` (which reports total audio duration). Without
-        ``terminate=True`` the WebSocket is closed without notifying the
-        server.
+        ``TerminateSession`` frame and waits up to ``options.terminate_timeout``
+        seconds for the server's ``TerminationEvent`` (which reports total
+        audio duration). Without ``terminate=True`` the WebSocket is closed
+        without notifying the server.
         """
         # Enqueue Terminate even when stop is already set: `_write_message`
         # bypasses the stop gate for TerminateSession so the frame still
         # reaches the server when the write thread is alive.
         if terminate:
             self._write_queue.put(TerminateSession())
+            # Don't stop the read thread yet — the server sends the final Turn
+            # and TerminationEvent after receiving Terminate. Every terminal
+            # path sets `_stop_event` (TerminationEvent via `_handle_message`,
+            # server close, server error), so waiting on it here lets those
+            # messages dispatch before teardown.
+            if (
+                self._read_thread.is_alive()
+                and threading.current_thread() is not self._read_thread
+            ):
+                self._stop_event.wait(timeout=self._options.terminate_timeout)
 
         self._stop_event.set()
 

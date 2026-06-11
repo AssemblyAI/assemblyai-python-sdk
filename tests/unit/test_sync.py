@@ -11,12 +11,11 @@ TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/transcribe"
 _OK_RESPONSE = {
     "text": "hello world",
     "words": [
-        {"text": "hello", "start_ms": 0, "end_ms": 200, "confidence": 0.9},
-        {"text": "world", "start_ms": 220, "end_ms": 400, "confidence": 0.95},
+        {"text": "hello", "start": 0, "end": 200, "confidence": 0.9},
+        {"text": "world", "start": 220, "end": 400, "confidence": 0.95},
     ],
     "confidence": 0.92,
     "audio_duration_ms": 400,
-    "inference_time_ms": 12.5,
     "session_id": "eb92c4ff-4bbb-429f-9b99-7279d7fe738f",
 }
 
@@ -41,7 +40,8 @@ def test_transcribe_bytes_parses_response(httpx_mock: HTTPXMock):
     assert isinstance(result, aai.SyncTranscriptResponse)
     assert result.text == "hello world"
     assert result.session_id == _OK_RESPONSE["session_id"]
-    assert result.words[0].start_ms == 0
+    assert result.words[0].start == 0
+    assert result.words[0].end == 200
     assert result.words[1].text == "world"
 
 
