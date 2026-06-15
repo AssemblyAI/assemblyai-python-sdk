@@ -13,9 +13,10 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
     """
     Builds a `SyncTranscriptError` from a non-200 response.
 
-    The service uses two error envelopes: `{"error_code", "message"}` for
-    audio/capacity/inference errors and `{"detail"}` for auth and rate-limit
-    errors. Parse by status code, not by assuming `error_code` is present.
+    The service returns an RFC 9457 problem-details envelope
+    (`{"status", "title", "detail"}`); `error_code` is the snake_cased
+    `title` (e.g. `"Audio Too Large"` -> `audio_too_large`). Older envelopes
+    (`{"error_code", "message"}` and `{"detail"}`) are still accepted.
     """
     error_code: Optional[str] = None
     message: Optional[str] = None
@@ -24,7 +25,10 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
         body = response.json()
         if isinstance(body, dict):
             error_code = body.get("error_code")
-            message = body.get("message") or body.get("detail")
+            title = body.get("title")
+            if error_code is None and isinstance(title, str) and title:
+                error_code = title.lower().replace(" ", "_")
+            message = body.get("detail") or body.get("message")
     except Exception:
         message = response.text or None
 

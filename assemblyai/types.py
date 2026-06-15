@@ -88,9 +88,10 @@ class SyncTranscriptError(AssemblyAIError):
     """
     Error raised when a synchronous transcription request fails.
 
-    Carries the server's machine-readable `error_code` (e.g. `bad_audio`,
-    `audio_too_large`, `capacity_exceeded`, `inference_timeout`) when present,
-    and `retry_after` (seconds) for 429/503 responses that include a
+    Carries a machine-readable `error_code` — the snake_cased problem-details
+    `title` from the server (e.g. `bad_audio`, `audio_too_large`,
+    `capacity_exceeded`, `inference_timeout`) — when present, and
+    `retry_after` (seconds) for 429/503 responses that include a
     `Retry-After` header.
     """
 
@@ -2981,8 +2982,9 @@ class LemurPurgeResponse(BaseModel):
     "The result of the LeMUR purge request"
 
 
-# Caps mirror the sync service's `config` part so an oversized request fails
-# locally with a clear message instead of a 400 round trip.
+# Caps mirror the sync service's `config` part. `prompt` and `word_boost`
+# over their caps are rejected; `conversation_context` over its caps is
+# trimmed (oldest turns first), matching the server.
 _SYNC_MAX_PROMPT_LEN = 4096
 _SYNC_MAX_WORD_BOOST_LEN = 2048
 _SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
@@ -2990,7 +2992,11 @@ _SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
 
 
 def _normalize_conversation_context(v):
-    """Coerce a single string to a one-turn list, strip + drop empties, cap.
+    """Coerce a single string to a one-turn list, strip + drop empties, trim.
+
+    Context over the turn-count or character caps is trimmed by dropping the
+    oldest turns (front of the list) first — the same trim the server applies
+    — so the most recent turn is kept whenever it fits on its own.
 
     Shared by the pydantic v1 and v2 validators on ``SyncTranscriptionConfig``.
     """
@@ -2999,17 +3005,13 @@ def _normalize_conversation_context(v):
     if isinstance(v, str):
         v = [v]
     turns = [t.strip() for t in v if t and t.strip()]
-    if len(turns) > _SYNC_MAX_CONVERSATION_CONTEXT_TURNS:
-        raise ValueError(
-            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_TURNS} "
-            f"turns (got {len(turns)})"
-        )
     total = sum(len(t) for t in turns)
-    if total > _SYNC_MAX_CONVERSATION_CONTEXT_LEN:
-        raise ValueError(
-            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_LEN} "
-            f"characters (got {total})"
-        )
+    while turns and (
+        len(turns) > _SYNC_MAX_CONVERSATION_CONTEXT_TURNS
+        or total > _SYNC_MAX_CONVERSATION_CONTEXT_LEN
+    ):
+        total -= len(turns[0])
+        turns = turns[1:]
     return turns or None
 
 
@@ -3045,9 +3047,11 @@ class SyncTranscriptionConfig(BaseModel):
     audio so it transcribes the clip with better continuity and proper-noun
     consistency. Include turns from either side of the conversation (e.g. a
     voice agent's replies) as separate entries; entries carry no speaker labels.
-    A single string is accepted and treated as one turn. Max 100 turns / 4096
-    characters total; when the prompt exceeds the model token budget the oldest
-    turns are dropped first, so put the most recent turn last."""
+    A single string is accepted and treated as one turn. Capped at 100 turns /
+    4096 characters total — over-cap context is trimmed (oldest turns dropped
+    first), not rejected, and the oldest turns are likewise dropped first when
+    the prompt exceeds the model token budget, so put the most recent turn
+    last."""
 
     language_code: Optional[Union[str, List[str]]] = None
     """ISO 639-1 language code, or a list of codes for multilingual audio (e.g.
@@ -3118,3 +3122,8 @@ class SyncTranscriptResponse(BaseModel):
 
     session_id: str
     "Server-generated UUID for this request. Record it to correlate with support."
+
+    request_time_ms: Optional[float] = None
+    """End-to-end server-side request time in milliseconds: queue wait, auth,
+    multipart parse, decode, inference, and serialization. ``None`` when the
+    server predates the field."""
