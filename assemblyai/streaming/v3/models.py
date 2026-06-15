@@ -159,6 +159,7 @@ class SpeechModel(str, Enum):
     u3_rt_pro = "u3-rt-pro"
     u3_rt_pro_beta_1 = "u3-rt-pro-beta-1"
     whisper_rt = "whisper-rt"
+    universal_3_5_pro = "universal-3-5-pro"
     u3_pro = "u3-pro"  # Deprecated: Use u3_rt_pro instead
 
     def __str__(self):

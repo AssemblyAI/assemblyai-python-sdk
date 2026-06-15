@@ -877,6 +877,35 @@ def test_client_connect_with_whisper_rt(mocker: MockFixture):
     assert "speech_model=whisper-rt" in actual_url
 
 
+def test_client_connect_with_universal_3_5_pro(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+    )
+
+    client.connect(params)
+
+    assert "speech_model=universal-3-5-pro" in actual_url
+
+
 def test_turn_event_with_speaker_label():
     data = {
         "type": "Turn",
