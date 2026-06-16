@@ -27,7 +27,10 @@ from assemblyai.streaming.v3 import (
     Word,
 )
 from assemblyai.streaming.v3._base import _build_uri
-from assemblyai.streaming.v3.models import TerminateSession
+from assemblyai.streaming.v3.models import (
+    KeepAlive,
+    TerminateSession,
+)
 
 
 def _disable_rw_threads(mocker: MockFixture):
@@ -556,6 +559,33 @@ def test_client_send_audio(mocker: MockFixture):
 
     assert client._write_queue.qsize() == 1
     assert isinstance(client._write_queue.get(timeout=1), bytes)
+
+
+def test_client_keep_alive_enqueues_keep_alive_message(mocker: MockFixture):
+    # Given: a connected client with read/write threads disabled
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+        )
+    )
+
+    # When: keep_alive is called
+    client.keep_alive()
+
+    # Then: a KeepAlive message is enqueued for the write thread
+    assert client._write_queue.qsize() == 1
+    message = client._write_queue.get(timeout=1)
+    assert isinstance(message, KeepAlive)
+    assert message.type == "KeepAlive"
 
 
 def test_client_connect_with_webhook(mocker: MockFixture):

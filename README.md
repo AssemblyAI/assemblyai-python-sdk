@@ -786,6 +786,70 @@ finally:
 </details>
 
 <details>
+  <summary>Dual-channel: mic + system audio in one session</summary>
+
+For note-taker apps that capture two live sources (microphone **and** system/speaker output) but want them handled as **one** streaming session — while still knowing which source each word came from — wrap the client in a `ChannelStreamer`.
+
+You declare named channels and feed each channel's PCM separately. The SDK runs per-channel energy VAD, mixes the channels into a single mono stream over one websocket, and — for handlers registered on the coordinator — delivers an enriched `DualChannelTurnEvent` whose words/turn carry their originating channel (`turn.channel` and per-word `word.channel`). The base `Word` / `TurnEvent` stay unchanged, so single-stream payloads aren't affected. Attribution is fully client-side and model-agnostic, so it composes with `speaker_labels`, multilingual, and `u3-rt-pro`. It is a **separate dimension from diarization** — `word.channel` (physical source) is independent of `word.speaker` (voice): two people on the same `system` channel get distinct speaker labels, while one person heard on two channels keeps a single speaker label.
+
+Unlike a browser sample, the SDK does not capture audio — you supply 16-bit PCM for each channel (from `sounddevice`, `pyaudio`, a loopback device, files, …).
+
+```python
+from assemblyai.streaming.v3 import (
+    ChannelStreamer, StreamingClient, StreamingClientOptions,
+    StreamingEvents, StreamingParameters,
+)
+
+def on_turn(client, event):   # event is a DualChannelTurnEvent
+    print(f"[{event.channel}] {event.transcript}")
+    for w in event.words:
+        print(f"  {w.text!r} -> channel={w.channel} speaker={w.speaker}")
+
+client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+
+# Declare the channels and the session sample rate (must be pcm_s16le).
+mixer = ChannelStreamer(client, channels=["mic", "system"], sample_rate=16000)
+# Register handlers on the mixer: Turn handlers receive the enriched event,
+# other events (Begin/Error/…) are forwarded to the client.
+mixer.on(StreamingEvents.Turn, on_turn)
+client.connect(StreamingParameters(
+    sample_rate=16000, speech_model="u3-rt-pro", speaker_labels=True,
+))
+
+# Feed each source separately — e.g. from two capture callbacks. Send
+# continuous PCM for every channel (silence as zeros), at the same rate.
+mixer.stream("mic", mic_pcm)
+mixer.stream("system", system_pcm)
+
+mixer.flush()                    # push trailing buffered audio
+client.disconnect(terminate=True)
+```
+
+`AsyncChannelStreamer` is the asyncio-native equivalent (`await mixer.stream(...)` / `await mixer.close_channel(...)` / `await mixer.flush()`); register handlers the same way with `mixer.on(...)`.
+
+**Sources that end mid-session.** Mixing keeps channels aligned by consuming the shortest buffer, so it assumes every channel keeps delivering PCM (send silence as zeros, don't omit it). When a source genuinely ends (file EOF, screen share stopped, device removed), call `mixer.close_channel(name)` so the session degrades to the surviving channel(s) instead of stalling — the ended channel is then padded with silence.
+
+**Swappable VAD.** The default detector is the built-in energy-based `EnergyVad`. Supply your own (e.g. a DNN VAD such as Silero) via `ChannelAttributionOptions.create_vad`, which is called once per channel with the channel name; subclass `VadDetector` (`process(frame) -> VadResult`, `reset()`). Pass `on_vad=callback` to observe raw per-frame activity (e.g. a live "who's talking" meter). Tune the default with `EnergyVad(threshold_ratio=3.0, noise_floor_alpha=0.05, hangover_frames=10)` — `threshold_ratio` below ~2 is too sensitive, above ~6 misses quiet onsets/offsets.
+
+**Resolving unknown channels.** A word is `"unknown"` when no channel was clearly dominant in its window — silence, or two channels too close to call (the top must beat the runner-up by `dominance_ratio`, default 4). `ChannelAttributionOptions.resolve_unknown_channels_method` back-fills these:
+
+- `"window"` (default) — from the dominant non-`"unknown"` channel among ±`resolution_window_words` neighbor words.
+- `"speaker-history"` — from the speaker's session-wide channel evidence (requires `speaker_labels`).
+- `"none"` — leave `"unknown"` as-is.
+
+Back-filled words are flagged `word.channel_resolved = True`; confident per-word decisions are never overwritten. The method is validated at construction, so a typo raises immediately rather than silently disabling resolution.
+
+**Caveats.**
+
+- Requires 16-bit PCM (`pcm_s16le`, the default) — linear mixing is invalid for `pcm_mulaw`.
+- Capturing the system/speaker output is platform-specific: macOS needs a loopback driver (e.g. BlackHole); Windows uses WASAPI loopback; Linux a PulseAudio/PipeWire monitor source.
+- If the mic physically picks up the speakers, that bleed can pull attribution toward `mic`. Apply acoustic echo cancellation at capture (`getUserMedia({ audio: { echoCancellation: true } })` in browser front-ends, or an AEC-capable native path) — the SDK only receives already-captured PCM, so it can't apply AEC itself. Transcription quality is unaffected; only the `channel` field.
+
+See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py) for a complete runnable demo.
+
+</details>
+
+<details>
   <summary>Stream a local file (async)</summary>
 
 `AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Don't pass `extras.stream_file` directly (it uses blocking `time.sleep`); pace from an async generator instead.

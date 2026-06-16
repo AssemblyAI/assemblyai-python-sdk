@@ -1,5 +1,17 @@
 from .async_client import AsyncStreamingClient
 from .client import StreamingClient
+from .extras import (
+    AsyncChannelStreamer,
+    ChannelAttributionOptions,
+    ChannelStreamer,
+    DualChannelTurnEvent,
+    DualChannelWord,
+    EnergyVad,
+    VadDetector,
+    VadFrame,
+    VadResult,
+    attribute_turn,
+)
 from .models import (
     BeginEvent,
     Encoding,
@@ -27,8 +39,14 @@ from .models import (
 )
 
 __all__ = [
+    "AsyncChannelStreamer",
     "AsyncStreamingClient",
     "BeginEvent",
+    "ChannelAttributionOptions",
+    "ChannelStreamer",
+    "DualChannelTurnEvent",
+    "DualChannelWord",
+    "EnergyVad",
     "Encoding",
     "EventMessage",
     "LLMGatewayResponseEvent",
@@ -50,6 +68,10 @@ __all__ = [
     "StreamingSessionParameters",
     "TerminationEvent",
     "TurnEvent",
+    "VadDetector",
+    "VadFrame",
+    "VadResult",
     "WarningEvent",
     "Word",
+    "attribute_turn",
 ]

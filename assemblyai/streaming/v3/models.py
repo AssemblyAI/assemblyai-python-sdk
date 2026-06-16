@@ -128,6 +128,10 @@ class ForceEndpoint(BaseModel):
     type: Literal["ForceEndpoint"] = "ForceEndpoint"
 
 
+class KeepAlive(BaseModel):
+    type: Literal["KeepAlive"] = "KeepAlive"
+
+
 class StreamingSessionParameters(BaseModel):
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = (
@@ -287,6 +291,7 @@ OperationMessage = Union[
     bytes,
     TerminateSession,
     ForceEndpoint,
+    KeepAlive,
     UpdateConfiguration,
 ]
 
