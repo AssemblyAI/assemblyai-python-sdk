@@ -363,10 +363,10 @@ def resolve_unknown_channels_by_speaker_history(
     for w in turn.words:
         if w.channel != UNKNOWN_CHANNEL or not w.speaker:
             continue
-        entry = speaker_history.get(w.speaker)
-        if not entry or sum(entry.values()) < min_rms_evidence:
+        entry_or_none = speaker_history.get(w.speaker)
+        if not entry_or_none or sum(entry_or_none.values()) < min_rms_evidence:
             continue
-        winner = _top_by_ratio(entry, dominance_ratio)
+        winner = _top_by_ratio(entry_or_none, dominance_ratio)
         if winner is not None:
             w.channel = winner
             w.channel_resolved = True
@@ -709,7 +709,7 @@ class AsyncChannelStreamer(_BaseChannelStreamer):
         on_vad: Optional[Callable[[VadFrame], None]] = None,
     ):
         super().__init__(channels, sample_rate, attribution, on_vad)
-        self._client = client
+        self._client: "AsyncStreamingClient" = client
         client.on(StreamingEvents.Turn, self._handle_turn)
 
     async def _handle_turn(self, client: object, base_turn: TurnEvent) -> None:
