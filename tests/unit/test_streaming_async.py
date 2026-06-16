@@ -901,6 +901,49 @@ async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture)
     await client.disconnect()
 
 
+async def test_keep_alive_before_connect_raises_runtime_error():
+    # Given: a client that has never connected
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When/Then: keep_alive raises rather than silently dropping the frame
+    with pytest.raises(RuntimeError, match="not connected"):
+        await client.keep_alive()
+
+
+async def test_keep_alive_sends_keep_alive_frame(mocker: MockFixture):
+    # Given: a connected async client over a fake websocket
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When: keep_alive is called
+    await client.keep_alive()
+
+    # Then: a single KeepAlive frame is written to the websocket
+    for _ in range(100):
+        keep_alive_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "KeepAlive" in s
+        ]
+        if keep_alive_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    keep_alive_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "KeepAlive" in s
+    ]
+    assert len(keep_alive_frames) == 1
+    payload = json.loads(keep_alive_frames[0])
+    assert payload["type"] == "KeepAlive"
+
+    await client.disconnect()
+
+
 async def test_warning_event_dispatched_to_handler(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)
