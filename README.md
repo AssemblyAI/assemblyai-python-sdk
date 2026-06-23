@@ -710,11 +710,11 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-Real-time speech-to-text via WebSocket against the `u3-rt-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
+Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
 
 **Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncStreamingClient` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
 
-[Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/universal-3-pro)
+[Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/getting-started/transcribe-streaming-audio)
 
 <details>
   <summary>Stream a local file (sync)</summary>
@@ -745,7 +745,7 @@ client.on(StreamingEvents.Termination, on_terminated)
 client.on(StreamingEvents.Error, on_error)
 
 client.connect(StreamingParameters(
-    sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+    sample_rate=16000, speech_model="universal-3-5-pro", format_turns=True,
 ))
 try:
     client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
@@ -775,7 +775,7 @@ def on_turn(client, event):
 
 client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
 client.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
+client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 
 try:
     client.stream(aai.extras.MicrophoneStream(sample_rate=16000))
@@ -790,7 +790,7 @@ finally:
 
 For note-taker apps that capture two live sources (microphone **and** system/speaker output) but want them handled as **one** streaming session — while still knowing which source each word came from — wrap the client in a `ChannelStreamer`.
 
-You declare named channels and feed each channel's PCM separately. The SDK runs per-channel energy VAD, mixes the channels into a single mono stream over one websocket, and — for handlers registered on the coordinator — delivers an enriched `DualChannelTurnEvent` whose words/turn carry their originating channel (`turn.channel` and per-word `word.channel`). The base `Word` / `TurnEvent` stay unchanged, so single-stream payloads aren't affected. Attribution is fully client-side and model-agnostic, so it composes with `speaker_labels`, multilingual, and `u3-rt-pro`. It is a **separate dimension from diarization** — `word.channel` (physical source) is independent of `word.speaker` (voice): two people on the same `system` channel get distinct speaker labels, while one person heard on two channels keeps a single speaker label.
+You declare named channels and feed each channel's PCM separately. The SDK runs per-channel energy VAD, mixes the channels into a single mono stream over one websocket, and — for handlers registered on the coordinator — delivers an enriched `DualChannelTurnEvent` whose words/turn carry their originating channel (`turn.channel` and per-word `word.channel`). The base `Word` / `TurnEvent` stay unchanged, so single-stream payloads aren't affected. Attribution is fully client-side and model-agnostic, so it composes with `speaker_labels`, multilingual, and `universal-3-5-pro`. It is a **separate dimension from diarization** — `word.channel` (physical source) is independent of `word.speaker` (voice): two people on the same `system` channel get distinct speaker labels, while one person heard on two channels keeps a single speaker label.
 
 Unlike a browser sample, the SDK does not capture audio — you supply 16-bit PCM for each channel (from `sounddevice`, `pyaudio`, a loopback device, files, …).
 
@@ -813,7 +813,7 @@ mixer = ChannelStreamer(client, channels=["mic", "system"], sample_rate=16000)
 # other events (Begin/Error/…) are forwarded to the client.
 mixer.on(StreamingEvents.Turn, on_turn)
 client.connect(StreamingParameters(
-    sample_rate=16000, speech_model="u3-rt-pro", speaker_labels=True,
+    sample_rate=16000, speech_model="universal-3-5-pro", speaker_labels=True,
 ))
 
 # Feed each source separately — e.g. from two capture callbacks. Send
@@ -874,7 +874,7 @@ async def main():
     async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
         client.on(StreamingEvents.Turn, on_turn)
         await client.connect(StreamingParameters(
-            sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+            sample_rate=16000, speech_model="universal-3-5-pro", format_turns=True,
         ))
         await client.stream(stream_file_async("audio.wav", 16000))
 
@@ -954,7 +954,7 @@ async def streaming_token():
 
 ```python
 client = StreamingClient(StreamingClientOptions(token="<TOKEN_FROM_SERVER>"))
-client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
+client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 ```
 
 </details>
