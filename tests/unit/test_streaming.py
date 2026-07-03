@@ -12,6 +12,7 @@ from websockets.frames import Close
 
 from assemblyai.streaming.v3 import (
     BeginEvent,
+    Encoding,
     NoiseSuppressionModel,
     SpeakerRevisionEvent,
     SpeechModel,
@@ -310,6 +311,105 @@ def test_client_connect_with_language_code(mocker: MockFixture):
 
     # Then: the language_code wire param is forwarded
     assert "language_code=es" in actual_url
+
+
+def test_client_connect_with_language_codes(mocker: MockFixture):
+    # Given: client + language_codes parameter
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        language_codes=["en", "es"],
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the language_codes wire param is forwarded as a JSON-encoded list
+    assert "language_codes=%5B%22en%22%2C+%22es%22%5D" in actual_url
+
+
+def test_client_connect_with_language_code_logs_deprecation_warning(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
+    # Given: client + the deprecated language_code parameter
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        pass
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        language_code="es",
+    )
+
+    # When: connect
+    with caplog.at_level(logging.WARNING):
+        client.connect(params)
+
+    # Then: a deprecation warning points callers to language_codes
+    assert any(
+        "language_code" in r.message
+        and "deprecated" in r.message
+        and "language_codes" in r.message
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize("encoding", [Encoding.opus, Encoding.ogg_opus])
+def test_client_connect_with_opus_encodings(mocker: MockFixture, encoding: Encoding):
+    # Given: client + one of the new Opus encodings
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=encoding,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding wire param is forwarded
+    assert f"encoding={encoding.value}" in actual_url
 
 
 def test_noise_suppression_deprecated_alias_migrates_to_voice_focus(

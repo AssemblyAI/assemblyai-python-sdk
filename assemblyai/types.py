@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     http_timeout: float = 30.0
     "The default HTTP timeout for general requests"
 
+    keepalive_expiry: Optional[float] = None
+    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording."
+
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
 

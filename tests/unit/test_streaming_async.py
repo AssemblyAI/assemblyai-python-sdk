@@ -872,6 +872,84 @@ async def test_set_params_with_agent_context(mocker: MockFixture):
     await client.disconnect()
 
 
+async def test_set_params_with_language_codes(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with language_codes mid-stream
+    await client.set_params(StreamingSessionParameters(language_codes=["en", "es"]))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying language_codes is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["language_codes"] == ["en", "es"]
+
+    await client.disconnect()
+
+
+async def test_set_params_with_empty_language_codes_clears_steering(
+    mocker: MockFixture,
+):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with an empty language_codes list (the
+    # server-side "clear steering" signal)
+    await client.set_params(StreamingSessionParameters(language_codes=[]))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: the empty list survives serialization (exclude_none must not drop
+    # it) so the server can clear steering
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["language_codes"] == []
+
+    await client.disconnect()
+
+
 async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)

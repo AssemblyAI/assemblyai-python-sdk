@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-from typing import BinaryIO, Optional, Tuple, Union
+from typing import Any, BinaryIO, Optional, Tuple, Union
 from urllib.parse import urlparse
+
+import httpx
 
 from . import client as _client
 from . import sync_api, types
@@ -201,3 +203,52 @@ class SyncTranscriber:
             data=data,
             config=config,
         )
+
+    def warm(self) -> bool:
+        """
+        Opens the connection to the sync API ahead of time.
+
+        The sync API is a single request/response, so a `transcribe()` that
+        opens its connection on demand pays the full DNS + TCP + TLS handshake
+        on the critical path — one network round trip that, for a distant
+        client, can rival the transcription itself. Calling `warm()` as soon as
+        you know audio is coming — typically while the clip is still being
+        recorded — spends that setup concurrently: the next `transcribe()`
+        reuses the already-open connection.
+
+        The warmed connection is reused while it stays in the HTTP pool —
+        `settings.keepalive_expiry` seconds (httpx's 5s default unless raised).
+        Call `warm()` shortly before `transcribe()`, or raise
+        `keepalive_expiry` (e.g. to 120, the sync audio cap) so a single call
+        covers a whole in-progress recording. `warm()` is idempotent and cheap,
+        so calling it again to refresh the connection is fine.
+
+        Routing the same `config.model` as the eventual transcription ensures
+        the warmed connection lands on the right backend.
+
+        Returns:
+            True once the connection is open (any HTTP response — even a
+            non-200 health probe — means the socket is established); False if
+            the connection could not be opened (transport error).
+        """
+        settings = self._client.settings
+        url = settings.sync_base_url.rstrip("/") + sync_api.ENDPOINT_HEALTH
+        try:
+            self._client.http_client.get(
+                url,
+                headers={sync_api.MODEL_HEADER: self.config.model},
+                timeout=min(settings.sync_http_timeout, 10.0),
+            )
+        except httpx.HTTPError:
+            return False
+        return True
+
+    def close(self) -> None:
+        """Shuts down the worker-thread pool used by `transcribe_async`."""
+        self._executor.shutdown(wait=False)
+
+    def __enter__(self) -> "SyncTranscriber":
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.close()

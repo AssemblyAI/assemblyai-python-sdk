@@ -6,6 +6,7 @@ import httpx
 from . import types
 
 ENDPOINT_TRANSCRIBE = "/transcribe"
+ENDPOINT_HEALTH = "/healthz"
 MODEL_HEADER = "X-AAI-Model"
 
 

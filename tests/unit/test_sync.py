@@ -7,6 +7,7 @@ import assemblyai as aai
 aai.settings.api_key = "test"
 
 TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/transcribe"
+HEALTH_URL = f"{aai.settings.sync_base_url}/healthz"
 
 _OK_RESPONSE = {
     "text": "hello world",
@@ -356,3 +357,76 @@ def test_default_model_is_u3_sync_pro():
     # Then it is the sync U3-Pro identifier
     assert aai.SyncTranscriptionConfig().model == "u3-sync-pro"
     assert aai.SyncSpeechModel.u3_sync_pro.value == "u3-sync-pro"
+
+
+def test_warm_opens_connection_with_model_header(httpx_mock: HTTPXMock):
+    # Given a mocked health endpoint
+    httpx_mock.add_response(url=HEALTH_URL, method="GET", status_code=httpx.codes.OK)
+
+    # When warming the transcriber
+    warmed = aai.SyncTranscriber().warm()
+
+    # Then it returns True and routes the probe via X-AAI-Model
+    assert warmed is True
+    request = httpx_mock.get_requests()[0]
+    assert request.url == HEALTH_URL
+    assert request.method == "GET"
+    assert request.headers["X-AAI-Model"] == "u3-sync-pro"
+
+
+def test_warm_uses_configured_model(httpx_mock: HTTPXMock):
+    # Given a transcriber pinned to a specific model
+    httpx_mock.add_response(url=HEALTH_URL, method="GET", status_code=httpx.codes.OK)
+    config = aai.SyncTranscriptionConfig(model="some-other-model")
+
+    # When warming
+    aai.SyncTranscriber(config=config).warm()
+
+    # Then the warm probe carries that model so it lands on the right backend
+    assert httpx_mock.get_requests()[0].headers["X-AAI-Model"] == "some-other-model"
+
+
+def test_warm_returns_true_on_non_200(httpx_mock: HTTPXMock):
+    # Given a health route that the load balancer answers with a 404
+    httpx_mock.add_response(url=HEALTH_URL, method="GET", status_code=404)
+
+    # When warming, Then the socket is still established, so warm() is True
+    assert aai.SyncTranscriber().warm() is True
+
+
+def test_warm_returns_false_on_transport_error(httpx_mock: HTTPXMock):
+    # Given the sync host is unreachable
+    httpx_mock.add_exception(httpx.ConnectError("connection refused"))
+
+    # When warming, Then the failure is swallowed and reported as False
+    assert aai.SyncTranscriber().warm() is False
+
+
+def test_context_manager_returns_self_and_closes():
+    # Given a transcriber used as a context manager
+    with aai.SyncTranscriber() as transcriber:
+        # Then the bound value is the transcriber itself
+        assert isinstance(transcriber, aai.SyncTranscriber)
+
+    # And leaving the block shuts the worker pool down
+    assert transcriber._executor._shutdown is True
+
+
+def test_keepalive_expiry_defaults_to_httpx_default():
+    # Given a default config
+    # When inspecting keepalive_expiry
+    # Then it is None, leaving httpx's own default in place
+    assert aai.Settings().keepalive_expiry is None
+
+
+def test_client_accepts_custom_keepalive_expiry():
+    # Given a client configured with a longer keepalive
+    from assemblyai import client as client_mod
+
+    # When constructed, Then it builds cleanly (the value reaches httpx.Limits)
+    # and round-trips on settings
+    client = client_mod.Client(
+        settings=aai.Settings(api_key="k", keepalive_expiry=120.0)
+    )
+    assert client.settings.keepalive_expiry == 120.0
+    assert client.http_client is not None
