@@ -135,6 +135,11 @@ def _emit_param_warnings(params: StreamingParameters) -> None:
             "`customer_support_audio_capture=True` will record session audio. "
             "Only enable this when explicitly coordinating with AssemblyAI support."
         )
+    if params.language_code is not None:
+        logger.warning(
+            "[Deprecation Warning] `language_code` is deprecated and will be removed in a future release. "
+            "Please use `language_codes` instead."
+        )
 
 
 def _build_uri(host: str, params: StreamingParameters) -> str:

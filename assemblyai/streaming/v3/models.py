@@ -147,11 +147,18 @@ class StreamingSessionParameters(BaseModel):
     agent_context: Optional[str] = None
     interruption_delay: Optional[int] = None
     turn_left_pad_ms: Optional[int] = None
+    language_codes: Optional[List[str]] = None
 
 
 class Encoding(str, Enum):
     pcm_s16le = "pcm_s16le"
     pcm_mulaw = "pcm_mulaw"
+    # Raw Opus packets, one packet per binary WS message. `sample_rate` is
+    # optional and ignored — the Opus stream is self-describing.
+    opus = "opus"
+    # Ogg-encapsulated Opus byte stream (ffmpeg, gstreamer, opusenc, browser
+    # MediaRecorder output). `sample_rate` is optional and ignored.
+    ogg_opus = "ogg_opus"
 
     def __str__(self):
         return self.value
@@ -259,6 +266,8 @@ class StreamingParameters(StreamingSessionParameters):
     sample_rate: int
     encoding: Optional[Encoding] = None
     speech_model: Optional[SpeechModel] = None
+    # Deprecated: use language_codes instead (pass a single-element list, e.g.
+    # ["es"], for the same behavior). Still supported for backward compatibility.
     language_code: Optional[str] = None
     language_detection: Optional[bool] = None
     domain: Optional[StreamingDomain] = None

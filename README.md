@@ -104,7 +104,7 @@ aai.settings.api_key = "YOUR_API_KEY"
 audio_file = "./example.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     speaker_labels=True,
 )
@@ -130,7 +130,7 @@ aai.settings.api_key = "YOUR_API_KEY"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     speaker_labels=True,
 )
@@ -177,7 +177,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -214,7 +214,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -248,7 +248,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -280,7 +280,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 config.set_custom_spelling(
@@ -324,7 +324,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -402,7 +402,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
 ).set_redact_pii(
     policies=[
@@ -431,7 +431,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
 ).set_redact_pii(
     policies=[
@@ -465,7 +465,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     auto_chapters=True
 )
@@ -493,7 +493,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True,
   summarization=True,
   summary_model=aai.SummarizationModel.informative,
@@ -531,7 +531,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     content_safety=True
 )
@@ -583,7 +583,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     sentiment_analysis=True
 )
@@ -626,7 +626,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     entity_detection=True
 )
@@ -655,7 +655,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     iab_categories=True
 )
@@ -690,7 +690,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     auto_highlights=True
 )
@@ -745,7 +745,7 @@ client.on(StreamingEvents.Termination, on_terminated)
 client.on(StreamingEvents.Error, on_error)
 
 client.connect(StreamingParameters(
-    sample_rate=16000, speech_model="universal-3-5-pro", format_turns=True,
+    sample_rate=16000, speech_model="universal-3-5-pro",
 ))
 try:
     client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
@@ -874,7 +874,7 @@ async def main():
     async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
         client.on(StreamingEvents.Turn, on_turn)
         await client.connect(StreamingParameters(
-            sample_rate=16000, speech_model="universal-3-5-pro", format_turns=True,
+            sample_rate=16000, speech_model="universal-3-5-pro",
         ))
         await client.stream(stream_file_async("audio.wav", 16000))
 
@@ -1032,7 +1032,7 @@ transcriber = aai.Transcriber(config=config)
 transcriber.transcribe(
     "https://example.com/audio.mp3",
     # overrides the above configuration on the `Transcriber` with the following
-    config=aai.TranscriptionConfig(speech_models=["universal-3-pro", "universal-2"], multichannel=True, disfluencies=True)
+    config=aai.TranscriptionConfig(speech_models=["universal-3-5-pro", "universal-2"], multichannel=True, disfluencies=True)
 )
 ```
 
