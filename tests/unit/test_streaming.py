@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 from types import SimpleNamespace
+from typing import Optional
 from urllib.parse import urlencode
 
 import pytest
@@ -410,6 +411,53 @@ def test_client_connect_with_opus_encodings(mocker: MockFixture, encoding: Encod
 
     # Then: the encoding wire param is forwarded
     assert f"encoding={encoding.value}" in actual_url
+
+
+@pytest.mark.parametrize("encoding", [Encoding.opus, Encoding.ogg_opus])
+def test_client_connect_opus_without_sample_rate(
+    mocker: MockFixture, encoding: Encoding
+):
+    # Given: client + an Opus encoding and no sample_rate (the Opus stream is
+    # self-describing, so the parameter may be omitted)
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=encoding,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding is forwarded and sample_rate is absent from the URL
+    assert f"encoding={encoding.value}" in actual_url
+    assert "sample_rate" not in actual_url
+
+
+@pytest.mark.parametrize("encoding", [None, Encoding.pcm_s16le, Encoding.pcm_mulaw])
+def test_sample_rate_required_for_non_opus_encodings(encoding: Optional[Encoding]):
+    # Given/When: constructing parameters without sample_rate for a PCM (or
+    # unset) encoding
+    # Then: validation rejects it
+    with pytest.raises(ValueError, match="sample_rate is required"):
+        StreamingParameters(
+            speech_model=SpeechModel.universal_3_5_pro,
+            encoding=encoding,
+        )
 
 
 def test_noise_suppression_deprecated_alias_migrates_to_voice_focus(

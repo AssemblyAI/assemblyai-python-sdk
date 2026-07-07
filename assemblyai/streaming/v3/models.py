@@ -2,7 +2,16 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel
+try:
+    # pydantic v2 import
+    from pydantic import BaseModel, model_validator
+
+    pydantic_v2 = True
+except ImportError:
+    # pydantic v1 import (fallback for Python < 3.14)
+    from pydantic import BaseModel, root_validator
+
+    pydantic_v2 = False
 
 
 class LLMGatewayMessage(BaseModel):
@@ -153,11 +162,12 @@ class StreamingSessionParameters(BaseModel):
 class Encoding(str, Enum):
     pcm_s16le = "pcm_s16le"
     pcm_mulaw = "pcm_mulaw"
-    # Raw Opus packets, one packet per binary WS message. `sample_rate` is
-    # optional and ignored — the Opus stream is self-describing.
+    # Raw Opus packets, one packet per binary WS message. `sample_rate` may be
+    # omitted — the Opus stream is self-describing and the server ignores it.
     opus = "opus"
     # Ogg-encapsulated Opus byte stream (ffmpeg, gstreamer, opusenc, browser
-    # MediaRecorder output). `sample_rate` is optional and ignored.
+    # MediaRecorder output). `sample_rate` may be omitted — the Opus stream is
+    # self-describing and the server ignores it.
     ogg_opus = "ogg_opus"
 
     def __str__(self):
@@ -263,7 +273,10 @@ class StreamingPiiPolicy(str, Enum):
 
 
 class StreamingParameters(StreamingSessionParameters):
-    sample_rate: int
+    # Required for PCM encodings. May be omitted for Opus encodings
+    # (opus, ogg_opus) — the stream is self-describing and the server
+    # ignores the value.
+    sample_rate: Optional[int] = None
     encoding: Optional[Encoding] = None
     speech_model: Optional[SpeechModel] = None
     # Deprecated: use language_codes instead (pass a single-element list, e.g.
@@ -290,6 +303,36 @@ class StreamingParameters(StreamingSessionParameters):
     redact_pii_policies: Optional[List[StreamingPiiPolicy]] = None
     redact_pii_sub: Optional[StreamingPiiSubstitution] = None
     mode: Optional[StreamingMode] = None
+
+    if pydantic_v2:
+
+        @model_validator(mode="after")
+        def _require_sample_rate_for_non_opus(self):
+            if self.sample_rate is None and self.encoding not in (
+                Encoding.opus,
+                Encoding.ogg_opus,
+            ):
+                raise ValueError(
+                    "sample_rate is required; it may only be omitted when "
+                    "encoding is 'opus' or 'ogg_opus' (the Opus stream is "
+                    "self-describing)."
+                )
+            return self
+
+    else:
+
+        @root_validator(skip_on_failure=True)
+        def _require_sample_rate_for_non_opus(cls, values):
+            if values.get("sample_rate") is None and values.get("encoding") not in (
+                Encoding.opus,
+                Encoding.ogg_opus,
+            ):
+                raise ValueError(
+                    "sample_rate is required; it may only be omitted when "
+                    "encoding is 'opus' or 'ogg_opus' (the Opus stream is "
+                    "self-describing)."
+                )
+            return values
 
 
 class UpdateConfiguration(StreamingSessionParameters):
