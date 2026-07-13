@@ -2985,11 +2985,11 @@ class LemurPurgeResponse(BaseModel):
     "The result of the LeMUR purge request"
 
 
-# Caps mirror the sync service's `config` part. `prompt` and `word_boost`
+# Caps mirror the sync service's `config` part. `prompt` and `keyterms_prompt`
 # over their caps are rejected; `conversation_context` over its caps is
 # trimmed (oldest turns first), matching the server.
 _SYNC_MAX_PROMPT_LEN = 4096
-_SYNC_MAX_WORD_BOOST_LEN = 2048
+_SYNC_MAX_KEYTERMS_PROMPT_LEN = 2048
 _SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
 _SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
 
@@ -3028,11 +3028,11 @@ class SyncTranscriptionConfig(BaseModel):
     """
     Options for a synchronous transcription request.
 
-    `prompt`, `word_boost`, `conversation_context`, and `language_code` shape
-    the transcript; `sample_rate` and `channels` are required only for raw PCM
-    audio (WAV carries them in its header). `model` selects the sync speech
-    model and is sent as the `X-AAI-Model` routing header, not in the request
-    body.
+    `prompt`, `keyterms_prompt`, `conversation_context`, and `language_codes` shape
+    the transcript; `timestamps` opts into per-word `start`/`end` timings;
+    `sample_rate` and `channels` are required only for raw PCM audio (WAV
+    carries them in its header). `model` selects the sync speech model and is
+    sent as the `X-AAI-Model` routing header, not in the request body.
     """
 
     model: str = SyncSpeechModel.u3_sync_pro.value
@@ -3041,7 +3041,7 @@ class SyncTranscriptionConfig(BaseModel):
     prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
     "Custom transcription instruction prepended to the model's system prompt. Max 4096 characters."
 
-    word_boost: Optional[List[str]] = None
+    keyterms_prompt: Optional[List[str]] = None
     "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
 
     conversation_context: Optional[Union[str, List[str]]] = None
@@ -3056,12 +3056,13 @@ class SyncTranscriptionConfig(BaseModel):
     the prompt exceeds the model token budget, so put the most recent turn
     last."""
 
-    language_code: Optional[Union[str, List[str]]] = None
-    """ISO 639-1 language code, or a list of codes for multilingual audio (e.g.
-    `"es"` or `["en", "es"]`). Steers the default transcription prompt toward
-    the named language(s); ignored when `prompt` is set. Defaults to English.
-    Supported: en, es, de, fr, it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he,
-    ja, ur, zh."""
+    language_codes: Optional[List[str]] = None
+    """ISO 639-1 codes for the language(s) of the audio — a single-element
+    list (e.g. `["es"]`) for monolingual audio, or several codes (e.g.
+    `["en", "es"]`) for multilingual audio. Steers the default transcription
+    prompt toward the named language(s); ignored when `prompt` is set.
+    Defaults to English. Supported: en, es, de, fr, it, pt, tr, nl, sv, no,
+    da, fi, hi, vi, ar, he, ja, ur, zh."""
 
     sample_rate: Optional[int] = None
     "Source sample rate in Hz. Required for raw PCM audio; ignored for WAV."
@@ -3069,18 +3070,23 @@ class SyncTranscriptionConfig(BaseModel):
     channels: Optional[int] = None
     "Channel count (1 mono, 2 stereo). Required for raw PCM audio; ignored for WAV."
 
+    timestamps: Optional[bool] = None
+    """Whether to compute per-word `start`/`end` timestamps. When `True`,
+    words carry accurate timestamps at a small latency cost. Defaults to
+    `False`: no timestamps are returned."""
+
     if pydantic_v2:
 
-        @field_validator("word_boost")
+        @field_validator("keyterms_prompt")
         @classmethod
-        def _normalize_word_boost(cls, v):
+        def _normalize_keyterms_prompt(cls, v):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
             total = sum(len(t) for t in terms)
-            if total > _SYNC_MAX_WORD_BOOST_LEN:
+            if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
-                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_PROMPT_LEN} characters (got {total})"
                 )
             return terms or None
 
@@ -3091,15 +3097,15 @@ class SyncTranscriptionConfig(BaseModel):
 
     else:
 
-        @validator("word_boost")
-        def _normalize_word_boost(cls, v):
+        @validator("keyterms_prompt")
+        def _normalize_keyterms_prompt(cls, v):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
             total = sum(len(t) for t in terms)
-            if total > _SYNC_MAX_WORD_BOOST_LEN:
+            if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
-                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_PROMPT_LEN} characters (got {total})"
                 )
             return terms or None
 
@@ -3108,14 +3114,35 @@ class SyncTranscriptionConfig(BaseModel):
             return _normalize_conversation_context(v)
 
 
+class SyncWord(BaseModel):
+    """A single word in a sync transcript.
+
+    `start`/`end` are in milliseconds and present only when the request set
+    `timestamps=True`; otherwise they are `None`.
+    """
+
+    text: str
+    "The text of the word."
+
+    start: Optional[int] = None
+    "Word start in milliseconds. `None` unless `timestamps` was requested."
+
+    end: Optional[int] = None
+    "Word end in milliseconds. `None` unless `timestamps` was requested."
+
+    confidence: float
+    "Word confidence in the range 0-1."
+
+
 class SyncTranscriptResponse(BaseModel):
     """The result of a synchronous transcription request."""
 
     text: str
     "The full transcript text."
 
-    words: List[Word] = Field(default_factory=list)
-    "Per-word timing and confidence."
+    words: List[SyncWord] = Field(default_factory=list)
+    """Per-word confidence, plus `start`/`end` timings when the request set
+    `timestamps=True`."""
 
     confidence: float
     "Overall transcript confidence in the range 0-1."

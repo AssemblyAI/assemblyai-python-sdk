@@ -41,8 +41,8 @@ aai.settings.api_key = "your-key"
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
 - `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_async()`
-- `aai.SyncTranscriptionConfig` — Sync options: `model` (default `u3-sync-pro`), `prompt`, `word_boost`, `conversation_context`, `language_code`, `sample_rate`, `channels`
-- `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`Word` type with `start`/`end`/`confidence`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
+- `aai.SyncTranscriptionConfig` — Sync options: `model` (default `u3-sync-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
+- `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.StreamingClient` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncStreamingClient` — Asyncio-native counterpart; same options/events
 
@@ -97,7 +97,7 @@ aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
 result = aai.SyncTranscriber().transcribe("./call.wav")
 print(result.text, result.session_id)
 for w in result.words:
-    print(w.text, w.start, w.end, w.confidence)
+    print(w.text, w.confidence)  # w.start/w.end need timestamps=True (see below)
 ```
 
 **Input**: a local file path, raw `bytes`, or a binary file object. **Not** a URL —
@@ -107,8 +107,8 @@ pass a path/bytes or use `Transcriber` for URL ingestion.
 ```python
 config = aai.SyncTranscriptionConfig(
     prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    word_boost=["AssemblyAI", "Lemur", "U3-Pro"],          # max 2048 chars total
-    language_code="es",                                    # or ["en", "es"]; defaults to English
+    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    language_codes=["es"],                                 # or e.g. ["en", "es"] for multilingual; defaults to English
 )
 result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
 ```
@@ -129,9 +129,20 @@ config = aai.SyncTranscriptionConfig(
 result = aai.SyncTranscriber().transcribe("./reply.wav", config=config)
 ```
 
-**Language**: `language_code` takes an ISO 639-1 code (or list of codes for multilingual
-audio) and steers the default prompt toward that language — ignored when you pass a custom
-`prompt`. Supported: en, es, de, fr, it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he, ja, ur, zh.
+**Language**: `language_codes` takes a list of ISO 639-1 codes — a single-element list
+for monolingual audio or several codes for multilingual audio — and steers the default
+prompt toward those languages; ignored when you pass a custom `prompt`.
+Supported: en, es, de, fr, it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he, ja, ur, zh.
+
+**Word timestamps** are opt-in. By default words carry `text` and `confidence` only —
+`start`/`end` are `None`. `timestamps=True` computes accurate per-word timings for a
+small latency cost:
+```python
+config = aai.SyncTranscriptionConfig(timestamps=True)
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+for w in result.words:
+    print(w.text, w.start, w.end)  # milliseconds
+```
 
 **Raw PCM** (S16LE) needs `sample_rate` + `channels`; WAV reads them from its header.
 Setting either field routes the audio as `audio/pcm`, and both must be present:
