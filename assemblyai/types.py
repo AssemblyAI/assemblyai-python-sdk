@@ -3021,7 +3021,7 @@ def _normalize_conversation_context(v):
 class SyncSpeechModel(str, Enum):
     """Speech models available on the synchronous transcription API."""
 
-    u3_sync_pro = "u3-sync-pro"
+    universal_3_5_pro = "universal-3-5-pro"
 
 
 class SyncTranscriptionConfig(BaseModel):
@@ -3035,7 +3035,7 @@ class SyncTranscriptionConfig(BaseModel):
     sent as the `X-AAI-Model` routing header, not in the request body.
     """
 
-    model: str = SyncSpeechModel.u3_sync_pro.value
+    model: str = SyncSpeechModel.universal_3_5_pro.value
     "The sync speech model to route to. Sent as the `X-AAI-Model` header."
 
     prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
@@ -3059,9 +3059,9 @@ class SyncTranscriptionConfig(BaseModel):
     language_codes: Optional[List[str]] = None
     """ISO 639-1 codes for the language(s) of the audio — a single-element
     list (e.g. `["es"]`) for monolingual audio, or several codes (e.g.
-    `["en", "es"]`) for multilingual audio. Steers the default transcription
-    prompt toward the named language(s); ignored when `prompt` is set.
-    Defaults to English. Supported: en, es, de, fr, it, pt, tr, nl, sv, no,
+    `["en", "es"]`) for multilingual audio. Overrides the default prompt
+    to guide the model to the named language(s); ignored when `prompt` is set.
+    Defaults to None. Supported: en, es, de, fr, it, pt, tr, nl, sv, no,
     da, fi, hi, vi, ar, he, ja, ur, zh."""
 
     sample_rate: Optional[int] = None

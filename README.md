@@ -388,6 +388,136 @@ while page.page_details.before_id_of_prev_url is not None:
 
 ---
 
+### **Sync STT Transcription Examples**
+
+`aai.SyncTranscriber` posts a whole audio file and returns the finished transcript in one round trip — no job id, no polling, no status to check. Use it for short clips where you want the answer inline; use `aai.Transcriber` for long-form audio, URLs, or the rich audio-intelligence features (speaker labels, chapters, sentiment, …) the sync API doesn't expose.
+
+<details>
+  <summary>Transcribe a local file synchronously</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+result = aai.SyncTranscriber().transcribe("./call.wav")
+
+print(result.text)
+for word in result.words:
+    print(word.text, word.confidence)
+```
+
+The input can be a local file path, raw `bytes`, or a binary file object — but not a URL. Pass a path/bytes, or use `aai.Transcriber` for URL ingestion.
+
+</details>
+
+<details>
+  <summary>Configure the transcription</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(
+    prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
+    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    conversation_context=[
+        # prior turns from the same conversation, oldest first
+        "I'd like to book a flight to Denver.",
+        "Sure, what date were you thinking?",
+    ],
+)
+
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+print(result.text)
+```
+
+Raw S16LE PCM audio needs `sample_rate` and `channels`; WAV reads them from its header.
+
+```python
+config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+result = aai.SyncTranscriber().transcribe(raw_pcm_bytes, config=config)
+```
+
+</details>
+
+<details>
+  <summary>Set the transcription language</summary>
+
+`language_codes` steers the model toward one or more languages — a single-element list for monolingual audio, or several codes for multilingual audio. It is mutually exclusive with `prompt`; pass one or the other, not both.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(language_codes=["es"])  # or ["en", "es"] for multilingual
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+print(result.text)
+```
+
+</details>
+
+<details>
+  <summary>Get word timestamps</summary>
+
+Word timestamps are opt-in. By default each word carries `text` and `confidence` only — `start`/`end` are `None`. Set `timestamps=True` to compute accurate per-word timings at a small latency cost.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(timestamps=True)
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+
+for word in result.words:
+    print(word.text, word.start, word.end)  # milliseconds
+```
+
+</details>
+
+<details>
+  <summary>Pre-warm the connection</summary>
+
+The sync API is a single request/response, so a `transcribe()` that connects on demand pays the full DNS + TCP + TLS handshake on the critical path. Call `warm()` as soon as you know audio is coming — for example while it is still being recorded — so the next `transcribe()` reuses the open connection.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+with aai.SyncTranscriber() as transcriber:
+    transcriber.warm()                      # fire as recording starts
+    audio = record_until_done()
+    result = transcriber.transcribe(audio)  # reuses the hot connection
+    print(result.text)
+```
+
+</details>
+
+<details>
+  <summary>Handle errors</summary>
+
+Failures raise `aai.SyncTranscriptError` with the HTTP `status_code`, a machine-readable `error_code` (`bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`, …), and `retry_after` (seconds) on 429/503 responses.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+try:
+    result = aai.SyncTranscriber().transcribe("./call.wav")
+    print(result.text)
+except aai.SyncTranscriptError as error:
+    print(error.status_code, error.error_code, error.retry_after)
+```
+
+</details>
+
+---
+
 ### **Speech Understanding Examples**
 
 <details>

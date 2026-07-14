@@ -41,7 +41,7 @@ aai.settings.api_key = "your-key"
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
 - `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_async()`
-- `aai.SyncTranscriptionConfig` — Sync options: `model` (default `u3-sync-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
+- `aai.SyncTranscriptionConfig` — Sync options: `model` (default `universal-3-5-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.StreamingClient` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncStreamingClient` — Asyncio-native counterpart; same options/events
@@ -161,8 +161,8 @@ server (`bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`,
 `inference_timeout`, …) — and `.retry_after` (seconds) on 429/503. Audio limits: 80 ms–120 s,
 ≤40 MB, 16-bit, mono/stereo, sample rate ∈ {8000, 16000, 22050, 24000, 32000, 44100, 48000}.
 
-**Model**: `config.model` defaults to `"u3-sync-pro"` and is sent as the `X-AAI-Model`
-routing header (`aai.SyncSpeechModel.u3_sync_pro`).
+**Model**: `config.model` defaults to `"universal-3-5-pro"` and is sent as the `X-AAI-Model`
+routing header (`aai.SyncSpeechModel.universal_3_5_pro`).
 
 **Pre-warming the connection**: the sync API is one request/response, so a `transcribe()`
 that connects on demand pays the full DNS + TCP + TLS handshake on the critical path —
