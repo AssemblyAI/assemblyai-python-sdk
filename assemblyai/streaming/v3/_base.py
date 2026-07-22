@@ -32,6 +32,7 @@ from .models import (
     BeginEvent,
     ErrorEvent,
     EventMessage,
+    HeartbeatEvent,
     LLMGatewayResponseEvent,
     SpeakerRevisionEvent,
     SpeechStartedEvent,
@@ -241,6 +242,8 @@ class _BaseStreamingClient:
                 return _parse_model(LLMGatewayResponseEvent, data)
             elif event_type == StreamingEvents.SpeakerRevision:
                 return _parse_model(SpeakerRevisionEvent, data)
+            elif event_type == StreamingEvents.Heartbeat:
+                return _parse_model(HeartbeatEvent, data)
             elif event_type == StreamingEvents.Error:
                 return _parse_model(ErrorEvent, data)
             elif event_type == StreamingEvents.Warning:

@@ -950,6 +950,87 @@ async def test_set_params_with_empty_language_codes_clears_steering(
     await client.disconnect()
 
 
+async def test_set_params_with_session_heartbeat(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with session_heartbeat mid-stream
+    await client.set_params(StreamingSessionParameters(session_heartbeat=True))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying session_heartbeat is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["session_heartbeat"] is True
+
+    await client.disconnect()
+
+
+async def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    received = []
+
+    def on_heartbeat(_client, event):
+        received.append(event)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Heartbeat, on_heartbeat)
+    await client.connect(_default_params())
+
+    fake_ws.push_message(
+        json.dumps(
+            {
+                "type": "Heartbeat",
+                "total_audio_received_ms": 45000,
+                "total_duration_ms": 45205,
+                "realtime_factor": 0.9964,
+                "max_speech_probability": 0.999954,
+            }
+        )
+    )
+
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+
+    from assemblyai.streaming.v3.models import HeartbeatEvent
+
+    assert len(received) == 1
+    assert isinstance(received[0], HeartbeatEvent)
+    assert received[0].total_audio_received_ms == 45000
+    assert received[0].total_duration_ms == 45205
+    assert received[0].realtime_factor == 0.9964
+    assert received[0].max_speech_probability == 0.999954
+
+    await client.disconnect()
+
+
 async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)
