@@ -85,6 +85,16 @@ class WarningEvent(BaseModel):
     warning: str
 
 
+class HeartbeatEvent(BaseModel):
+    type: Literal["Heartbeat"] = "Heartbeat"
+    total_audio_received_ms: int
+    total_duration_ms: int
+    # Unclamped processing speed ratio; may exceed 1.0.
+    realtime_factor: float
+    # Highest per-frame speech probability in the interval, range 0-1.
+    max_speech_probability: float = 0.0
+
+
 class LLMGatewayResponseEvent(BaseModel):
     type: Literal["LLMGatewayResponse"] = "LLMGatewayResponse"
     turn_order: int
@@ -124,6 +134,7 @@ EventMessage = Union[
     SpeechStartedEvent,
     ErrorEvent,
     WarningEvent,
+    HeartbeatEvent,
     LLMGatewayResponseEvent,
     SpeakerRevisionEvent,
 ]
@@ -157,6 +168,7 @@ class StreamingSessionParameters(BaseModel):
     interruption_delay: Optional[int] = None
     turn_left_pad_ms: Optional[int] = None
     language_codes: Optional[List[str]] = None
+    session_heartbeat: Optional[bool] = None
 
 
 class Encoding(str, Enum):
@@ -169,6 +181,9 @@ class Encoding(str, Enum):
     # MediaRecorder output). `sample_rate` may be omitted — the Opus stream is
     # self-describing and the server ignores it.
     ogg_opus = "ogg_opus"
+    # AAC in an ADTS byte stream. `sample_rate` may be omitted — the ADTS
+    # headers are self-describing and the server ignores it.
+    aac = "aac"
 
     def __str__(self):
         return self.value
@@ -307,30 +322,32 @@ class StreamingParameters(StreamingSessionParameters):
     if pydantic_v2:
 
         @model_validator(mode="after")
-        def _require_sample_rate_for_non_opus(self):
+        def _require_sample_rate(self):
             if self.sample_rate is None and self.encoding not in (
                 Encoding.opus,
                 Encoding.ogg_opus,
+                Encoding.aac,
             ):
                 raise ValueError(
                     "sample_rate is required; it may only be omitted when "
-                    "encoding is 'opus' or 'ogg_opus' (the Opus stream is "
-                    "self-describing)."
+                    "encoding is 'opus', 'ogg_opus', or 'aac' (these streams "
+                    "are self-describing)."
                 )
             return self
 
     else:
 
         @root_validator(skip_on_failure=True)
-        def _require_sample_rate_for_non_opus(cls, values):
+        def _require_sample_rate(cls, values):
             if values.get("sample_rate") is None and values.get("encoding") not in (
                 Encoding.opus,
                 Encoding.ogg_opus,
+                Encoding.aac,
             ):
                 raise ValueError(
                     "sample_rate is required; it may only be omitted when "
-                    "encoding is 'opus' or 'ogg_opus' (the Opus stream is "
-                    "self-describing)."
+                    "encoding is 'opus', 'ogg_opus', or 'aac' (these streams "
+                    "are self-describing)."
                 )
             return values
 
@@ -407,5 +424,6 @@ class StreamingEvents(Enum):
     SpeechStarted = "SpeechStarted"
     Error = "Error"
     Warning = "Warning"
+    Heartbeat = "Heartbeat"
     LLMGatewayResponse = "LLMGatewayResponse"
     SpeakerRevision = "SpeakerRevision"
