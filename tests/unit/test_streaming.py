@@ -30,8 +30,10 @@ from assemblyai.streaming.v3 import (
 )
 from assemblyai.streaming.v3._base import _build_uri
 from assemblyai.streaming.v3.models import (
+    HeartbeatEvent,
     KeepAlive,
     TerminateSession,
+    UpdateConfiguration,
 )
 
 
@@ -2047,3 +2049,190 @@ def test_client_connect_retries_disabled(mocker: MockFixture):
     # Then: exactly one attempt is made and the error is reported.
     assert connect_mock.call_count == 1
     assert len(errors) == 1
+
+
+def test_encoding_aac_enum():
+    # Given/Then: the AAC encoding is a first-class Encoding member whose wire
+    # value round-trips through the string constructor and __str__.
+    assert Encoding("aac") is Encoding.aac
+    assert str(Encoding.aac) == "aac"
+
+
+def test_client_connect_aac_without_sample_rate(mocker: MockFixture):
+    # Given: client + AAC encoding and no sample_rate (the ADTS stream is
+    # self-describing, so the parameter may be omitted). Constructing the
+    # params must not raise, mirroring the Opus no-sample_rate case.
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=Encoding.aac,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding is forwarded and sample_rate is absent from the URL
+    assert "encoding=aac" in actual_url
+    assert "sample_rate" not in actual_url
+
+
+def test_sample_rate_still_required_for_pcm_s16le():
+    # Given/When/Then: adding AAC to the self-describing allow-list must not
+    # relax the requirement for PCM encodings — pcm_s16le with no sample_rate
+    # still fails validation.
+    with pytest.raises(ValueError, match="sample_rate is required"):
+        StreamingParameters(
+            speech_model=SpeechModel.universal_3_5_pro,
+            encoding=Encoding.pcm_s16le,
+        )
+
+
+def test_client_connect_with_session_heartbeat(mocker: MockFixture):
+    # Given: client + session_heartbeat=True
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        session_heartbeat=True,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the session_heartbeat wire param is forwarded
+    assert "session_heartbeat=True" in actual_url
+
+
+def test_session_heartbeat_defaults_to_none():
+    # Given: params/update-config with no session_heartbeat set
+    params = StreamingParameters(sample_rate=16000)
+    update = UpdateConfiguration()
+
+    # Then: the field defaults to None on both StreamingSessionParameters
+    # subclasses and is omitted from the connection querystring when unset.
+    assert params.session_heartbeat is None
+    assert update.session_heartbeat is None
+    uri = _build_uri("wss://example.com/v3/ws", params)
+    assert "session_heartbeat" not in uri
+
+
+def test_heartbeat_event_parses_from_wire_message():
+    # Given: a raw Heartbeat wire message
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 45000,
+        "total_duration_ms": 45205,
+        "realtime_factor": 0.9964,
+        "max_speech_probability": 0.999954,
+    }
+
+    # When: routed through the shared inbound-message dispatch
+    event = StreamingClient._parse_message(data)
+
+    # Then: a fully-populated HeartbeatEvent is returned
+    assert isinstance(event, HeartbeatEvent)
+    assert event.type == "Heartbeat"
+    assert event.total_audio_received_ms == 45000
+    assert event.total_duration_ms == 45205
+    assert event.realtime_factor == 0.9964
+    assert event.max_speech_probability == 0.999954
+
+
+def test_heartbeat_max_speech_probability_defaults_to_zero():
+    # Given: a Heartbeat payload without max_speech_probability
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 1000,
+        "total_duration_ms": 1000,
+        "realtime_factor": 1.0,
+    }
+
+    # When: parsed
+    event = HeartbeatEvent.parse_obj(data)
+
+    # Then: max_speech_probability defaults to 0.0
+    assert event.max_speech_probability == 0.0
+
+
+def test_heartbeat_realtime_factor_is_unclamped():
+    # Given: a Heartbeat payload with realtime_factor above 1.0
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 1000,
+        "total_duration_ms": 1500,
+        "realtime_factor": 1.5,
+    }
+
+    # When: parsed
+    event = HeartbeatEvent.parse_obj(data)
+
+    # Then: the value passes through unclamped
+    assert event.realtime_factor == 1.5
+
+
+def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
+    # Given: a Heartbeat frame on the wire and a handler registered
+    heartbeat_json = json.dumps(
+        {
+            "type": "Heartbeat",
+            "total_audio_received_ms": 45000,
+            "total_duration_ms": 45205,
+            "realtime_factor": 0.9964,
+            "max_speech_probability": 0.999954,
+        }
+    )
+    fake_ws = _FakeWebSocket(recv_script=[heartbeat_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Heartbeat, lambda _c, event: received.append(event))
+
+    # When: the client reads the frame
+    client.connect(_default_params())
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not received:
+        time.sleep(0.02)
+    client.disconnect(terminate=False)
+
+    # Then: the handler is invoked with a parsed HeartbeatEvent
+    assert len(received) == 1
+    assert isinstance(received[0], HeartbeatEvent)
+    assert received[0].total_audio_received_ms == 45000
+    assert received[0].total_duration_ms == 45205
+    assert received[0].realtime_factor == 0.9964
+    assert received[0].max_speech_probability == 0.999954
