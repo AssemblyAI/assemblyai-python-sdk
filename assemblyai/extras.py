@@ -1,3 +1,4 @@
+import threading
 import time
 from typing import BinaryIO, Generator, Optional
 from warnings import warn
@@ -22,6 +23,26 @@ class AssemblyAIExtrasNotInstalledError(ImportError):
 
 
 class MicrophoneStream:
+    """
+    A synchronous iterator of raw microphone audio chunks (~100ms each).
+
+    Pass it to ``StreamingClient.stream()``. Don't pass it directly to
+    ``AsyncStreamingClient.stream()`` — each read blocks for ~100ms, which
+    stalls the event loop and starves the read task (the same problem as
+    ``stream_file``). Wrap the blocking reads in a thread instead::
+
+        async def mic_chunks(mic: MicrophoneStream):
+            while True:
+                chunk = await asyncio.to_thread(next, mic, None)
+                if chunk is None:
+                    return
+                yield chunk
+
+    :meth:`pause`, :meth:`resume`, and :meth:`close` are thread-safe: they may
+    be called from another thread (or the event loop) while a read is in
+    flight.
+    """
+
     def __init__(self, sample_rate: int = 44_100, device_index: Optional[int] = None):
         """
         Creates a stream of audio from the microphone.
@@ -49,6 +70,12 @@ class MicrophoneStream:
         )
 
         self._open = True
+        self._paused = False
+        self._closed = False
+        # Serializes device reads against teardown: closing the PortAudio
+        # stream while another thread is blocked in read() deadlocks, so
+        # close() waits for any in-flight read to finish first.
+        self._lock = threading.Lock()
 
     def __iter__(self):
         """
@@ -60,27 +87,85 @@ class MicrophoneStream:
     def __next__(self):
         """
         Reads a chunk of audio from the microphone.
+
+        While paused (see :meth:`pause`), the microphone is still drained so its
+        input buffer doesn't overflow, but silence is yielded in place of the
+        captured audio. This keeps the streaming session alive (avoiding an idle
+        timeout) without forwarding what the mic picks up.
         """
         if not self._open:
             raise StopIteration
 
-        try:
-            return self._stream.read(self._chunk_size)
-        except KeyboardInterrupt:
-            raise StopIteration
+        with self._lock:
+            # Re-check after acquiring: a concurrent close() may have torn the
+            # stream down while this thread waited for the lock.
+            if not self._open:
+                raise StopIteration
+
+            try:
+                data = self._stream.read(self._chunk_size)
+            except KeyboardInterrupt:
+                raise StopIteration
+
+        if self._paused:
+            return b"\x00" * len(data)
+
+        return data
+
+    def pause(self) -> None:
+        """
+        Pause forwarding microphone audio.
+
+        The stream stays open and keeps reading from the microphone so its
+        internal buffer doesn't overflow, but :meth:`__next__` yields silence
+        instead of the captured audio. Useful for muting the mic while a voice
+        agent is speaking so its own output (e.g. TTS played back through the
+        speakers) isn't transcribed and fed into a feedback loop.
+
+        Thread-safe: may be called from any thread (or an asyncio event loop)
+        while another thread is reading from the stream. Takes effect within
+        one chunk (~100ms).
+        """
+        self._paused = True
+
+    def resume(self) -> None:
+        """
+        Resume forwarding live microphone audio after :meth:`pause`.
+
+        Thread-safe, like :meth:`pause`.
+        """
+        self._paused = False
+
+    @property
+    def paused(self) -> bool:
+        """Whether the stream is currently yielding silence (see :meth:`pause`)."""
+        return self._paused
 
     def close(self):
         """
         Closes the stream.
+
+        Thread-safe and idempotent: may be called from any thread, including
+        while another thread is blocked in a read. Teardown waits for the
+        in-flight chunk (~100ms) to finish first — closing the PortAudio
+        stream mid-read deadlocks the reading thread. After close(), the
+        iterator raises ``StopIteration``.
         """
 
+        # Stop new reads before waiting on the in-flight one, so the reader
+        # can't re-acquire the lock ahead of teardown.
         self._open = False
 
-        if self._stream.is_active():
-            self._stream.stop_stream()
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
 
-        self._stream.close()
-        self._pyaudio.terminate()
+            if self._stream.is_active():
+                self._stream.stop_stream()
+
+            self._stream.close()
+            self._pyaudio.terminate()
 
 
 def stream_file(
