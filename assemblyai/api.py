@@ -84,14 +84,14 @@ def delete_transcript(
 
 def upload_file(
     client: httpx.Client,
-    audio_file: BinaryIO,
+    audio_file: Union[bytes, BinaryIO],
 ) -> str:
     """
     Uploads the given file.
 
     Args:
         `client`: the HTTP client
-        `audio_file`: an opened file (in binary mode)
+        `audio_file`: the raw audio bytes, or an opened file (in binary mode)
 
     Returns: The URL of the uploaded audio file.
     """

@@ -863,7 +863,7 @@ class _TranscriberImpl:
         self._client = client
         self.config = config
 
-    def upload_file(self, data: Union[str, BinaryIO]) -> str:
+    def upload_file(self, data: Union[str, bytes, BinaryIO]) -> str:
         if isinstance(data, str):
             with open(data, "rb") as audio_file:
                 return api.upload_file(
@@ -904,7 +904,7 @@ class _TranscriberImpl:
     def transcribe_file(
         self,
         *,
-        data: Union[str, BinaryIO],
+        data: Union[str, bytes, BinaryIO],
         config: types.TranscriptionConfig,
         poll: bool,
     ) -> Transcript:
@@ -919,7 +919,7 @@ class _TranscriberImpl:
 
     def transcribe(
         self,
-        data: Union[str, BinaryIO],
+        data: Union[str, bytes, BinaryIO],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
     ) -> Transcript:
@@ -942,7 +942,7 @@ class _TranscriberImpl:
     def transcribe_group(
         self,
         *,
-        data: List[Union[str, BinaryIO]],
+        data: List[Union[str, bytes, BinaryIO]],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
         return_failures: Optional[bool] = False,
@@ -1075,7 +1075,7 @@ class Transcriber:
         """
         self._impl.config = config
 
-    def upload_file(self, data: Union[str, BinaryIO]) -> str:
+    def upload_file(self, data: Union[str, bytes, BinaryIO]) -> str:
         """
         Uploads an audio file which can be specified as local path or binary object.
 
@@ -1087,7 +1087,7 @@ class Transcriber:
         return self._impl.upload_file(data=data)
 
     def upload_file_async(
-        self, data: Union[str, BinaryIO]
+        self, data: Union[str, bytes, BinaryIO]
     ) -> concurrent.futures.Future[str]:
         """
         Uploads an audio file which can be specified as local path or binary object.
@@ -1104,14 +1104,14 @@ class Transcriber:
 
     def submit(
         self,
-        data: Union[str, BinaryIO],
+        data: Union[str, bytes, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> Transcript:
         """
         Submits a transcription job without waiting for its completion.
 
         Args:
-            data: An URL, a local file (as path), or a binary object.
+            data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -1123,7 +1123,7 @@ class Transcriber:
 
     def submit_group(
         self,
-        data: List[Union[str, BinaryIO]],
+        data: List[Union[str, bytes, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
@@ -1131,7 +1131,7 @@ class Transcriber:
         Submits multiple transcription jobs without waiting for their completion.
 
         Args:
-            data: A list of local paths, URLs, or binary objects (can be mixed).
+            data: A list of local paths, URLs, raw `bytes`, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
@@ -1145,14 +1145,14 @@ class Transcriber:
 
     def transcribe(
         self,
-        data: Union[str, BinaryIO],
+        data: Union[str, bytes, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> Transcript:
         """
-        Transcribes an audio file which can be specified as local path, URL, or binary object.
+        Transcribes an audio file which can be specified as local path, URL, raw `bytes`, or binary object.
 
         Args:
-            data: An URL, a local file (as path), or a binary object.
+            data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -1165,14 +1165,14 @@ class Transcriber:
 
     def transcribe_async(
         self,
-        data: Union[str, BinaryIO],
+        data: Union[str, bytes, BinaryIO],
         config: Optional[types.TranscriptionConfig] = None,
     ) -> concurrent.futures.Future[Transcript]:
         """
-        Transcribes an audio file which can be specified as local path, URL, or binary object.
+        Transcribes an audio file which can be specified as local path, URL, raw `bytes`, or binary object.
 
         Args:
-            data: An URL, a local file (as path), or a binary object.
+            data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
         """
@@ -1186,7 +1186,7 @@ class Transcriber:
 
     def transcribe_group(
         self,
-        data: List[Union[str, BinaryIO]],
+        data: List[Union[str, bytes, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
@@ -1194,7 +1194,7 @@ class Transcriber:
         Transcribes a list of files (as local paths, URLs, or binary objects).
 
         Args:
-            data: A list of local paths, URLs, or binary objects (can be mixed).
+            data: A list of local paths, URLs, raw `bytes`, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
@@ -1209,7 +1209,7 @@ class Transcriber:
 
     def transcribe_group_async(
         self,
-        data: List[Union[str, BinaryIO]],
+        data: List[Union[str, bytes, BinaryIO]],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> concurrent.futures.Future[
@@ -1219,7 +1219,7 @@ class Transcriber:
         Transcribes a list of files (as local paths, URLs, or binary objects) asynchronously.
 
         Args:
-            data: A list of local paths, URLs, or binary objects (can be mixed).
+            data: A list of local paths, URLs, raw `bytes`, or binary objects (can be mixed).
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
