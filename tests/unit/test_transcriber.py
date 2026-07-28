@@ -313,6 +313,115 @@ def test_transcribe_file_binary_succeeds(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 3
 
 
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "transcribe",
+        "transcribe_async",
+        "transcribe_group",
+        "transcribe_group_async",
+        "submit",
+        "submit_group",
+        "upload_file",
+        "upload_file_async",
+    ],
+)
+def test_transcribe_data_param_accepts_bytes(method_name):
+    """
+    Regression test for #102: the public ``data`` parameter of the transcribe/
+    upload methods must advertise ``bytes`` in its type annotation (passing raw
+    ``bytes`` already works at runtime; this locks in the type hint so static
+    type checkers accept it).
+    """
+    import typing
+
+    method = getattr(aai.Transcriber, method_name)
+    hints = typing.get_type_hints(method)
+    annotation = hints["data"]
+
+    # The annotation is either ``Union[str, bytes, BinaryIO]`` (single-file
+    # methods) or ``List[Union[str, bytes, BinaryIO]]`` (group methods). Unwrap
+    # a ``List[...]`` wrapper before inspecting the Union members.
+    args = typing.get_args(annotation)
+    if args and args[0] not in (str, bytes) and typing.get_origin(annotation) in (
+        list,
+        typing.List,
+    ):
+        annotation = args[0]
+        args = typing.get_args(annotation)
+
+    assert bytes in args, (
+        f"{method_name} 'data' annotation {annotation!r} must include bytes"
+    )
+
+
+def test_transcribe_group_bytes_succeeds(httpx_mock: HTTPXMock):
+    """
+    Tests whether transcribing a group of raw ``bytes`` inputs works (#102).
+    """
+
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+
+    files_data = [os.urandom(10), os.urandom(10)]
+
+    response_1 = copy.deepcopy(mock_transcript_response)
+    response_2 = copy.deepcopy(mock_transcript_response)
+
+    expected_audio_urls = ["https://example.org/1.wav", "https://example.org/2.wav"]
+    response_1["audio_url"] = expected_audio_urls[0]
+    response_2["audio_url"] = expected_audio_urls[1]
+
+    # two uploads (one per bytes input)
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={"upload_url": expected_audio_urls[0]},
+        match_content=files_data[0],
+    )
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_UPLOAD}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json={"upload_url": expected_audio_urls[1]},
+        match_content=files_data[1],
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=response_1,
+    )
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+        status_code=httpx.codes.OK,
+        method="POST",
+        json=response_2,
+    )
+
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{response_1['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=response_1,
+    )
+    httpx_mock.add_response(
+        url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{response_2['id']}",
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=response_2,
+    )
+
+    transcriber = aai.Transcriber()
+    transcript_group = transcriber.transcribe_group(files_data)
+
+    assert len(transcript_group.transcripts) == 2
+    assert {t.audio_url for t in transcript_group} == set(expected_audio_urls)
+
+
 def test_transcribe_group_urls_succeeds(httpx_mock: HTTPXMock):
     """
     Tests whether the transcription of multiple URLs work.
