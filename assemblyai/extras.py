@@ -24,23 +24,11 @@ class AssemblyAIExtrasNotInstalledError(ImportError):
 
 class MicrophoneStream:
     """
-    A synchronous iterator of raw microphone audio chunks (~100ms each).
-
-    Pass it to ``StreamingClient.stream()``. Don't pass it directly to
-    ``AsyncStreamingClient.stream()`` — each read blocks for ~100ms, which
-    stalls the event loop and starves the read task (the same problem as
-    ``stream_file``). Wrap the blocking reads in a thread instead::
-
-        async def mic_chunks(mic: MicrophoneStream):
-            while True:
-                chunk = await asyncio.to_thread(next, mic, None)
-                if chunk is None:
-                    return
-                yield chunk
+    An iterator of raw microphone audio chunks (~100ms each), suitable for
+    passing to a streaming client's ``stream()`` method.
 
     :meth:`pause`, :meth:`resume`, and :meth:`close` are thread-safe: they may
-    be called from another thread (or the event loop) while a read is in
-    flight.
+    be called from another thread while a read is in flight.
     """
 
     def __init__(self, sample_rate: int = 44_100, device_index: Optional[int] = None):
@@ -122,9 +110,8 @@ class MicrophoneStream:
         agent is speaking so its own output (e.g. TTS played back through the
         speakers) isn't transcribed and fed into a feedback loop.
 
-        Thread-safe: may be called from any thread (or an asyncio event loop)
-        while another thread is reading from the stream. Takes effect within
-        one chunk (~100ms).
+        Thread-safe: may be called from any thread while another thread is
+        reading from the stream. Takes effect within one chunk (~100ms).
         """
         self._paused = True
 
