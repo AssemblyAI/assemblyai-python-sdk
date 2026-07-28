@@ -2144,7 +2144,12 @@ class Timestamp(BaseModel):
 
 class AutohighlightResult(BaseModel):
     count: int
-    rank: float
+    # The Auto Highlights API has been observed in production to return
+    # individual `results` entries with no `rank` field set (see #148).
+    # Treat it as optional so a TranscriptResponse parses successfully when
+    # any single highlight is missing the rank; the absence is then
+    # observable to callers via `rank is None`.
+    rank: Optional[float] = None
     text: str
     timestamps: List[Timestamp]
 
