@@ -24,6 +24,7 @@ from .models import (
     ErrorEvent,
     EventMessage,
     ForceEndpoint,
+    KeepAlive,
     OperationMessage,
     StreamingClientOptions,
     StreamingError,
@@ -192,6 +193,10 @@ class StreamingClient(_BaseStreamingClient):
 
     def force_endpoint(self):
         message = ForceEndpoint()
+        self._write_queue.put(message)
+
+    def keep_alive(self):
+        message = KeepAlive()
         self._write_queue.put(message)
 
     def _write_message(self) -> None:

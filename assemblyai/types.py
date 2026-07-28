@@ -88,9 +88,10 @@ class SyncTranscriptError(AssemblyAIError):
     """
     Error raised when a synchronous transcription request fails.
 
-    Carries the server's machine-readable `error_code` (e.g. `bad_audio`,
-    `audio_too_large`, `capacity_exceeded`, `inference_timeout`) when present,
-    and `retry_after` (seconds) for 429/503 responses that include a
+    Carries a machine-readable `error_code` — the snake_cased problem-details
+    `title` from the server (e.g. `bad_audio`, `audio_too_large`,
+    `capacity_exceeded`, `inference_timeout`) — when present, and
+    `retry_after` (seconds) for 429/503 responses that include a
     `Retry-After` header.
     """
 
@@ -124,6 +125,9 @@ class Settings(BaseSettings):
 
     http_timeout: float = 30.0
     "The default HTTP timeout for general requests"
+
+    keepalive_expiry: Optional[float] = None
+    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording."
 
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
@@ -2986,16 +2990,21 @@ class LemurPurgeResponse(BaseModel):
     "The result of the LeMUR purge request"
 
 
-# Caps mirror the sync service's `config` part so an oversized request fails
-# locally with a clear message instead of a 400 round trip.
+# Caps mirror the sync service's `config` part. `prompt` and `keyterms_prompt`
+# over their caps are rejected; `conversation_context` over its caps is
+# trimmed (oldest turns first), matching the server.
 _SYNC_MAX_PROMPT_LEN = 4096
-_SYNC_MAX_WORD_BOOST_LEN = 2048
+_SYNC_MAX_KEYTERMS_PROMPT_LEN = 2048
 _SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
 _SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
 
 
 def _normalize_conversation_context(v):
-    """Coerce a single string to a one-turn list, strip + drop empties, cap.
+    """Coerce a single string to a one-turn list, strip + drop empties, trim.
+
+    Context over the turn-count or character caps is trimmed by dropping the
+    oldest turns (front of the list) first — the same trim the server applies
+    — so the most recent turn is kept whenever it fits on its own.
 
     Shared by the pydantic v1 and v2 validators on ``SyncTranscriptionConfig``.
     """
@@ -3004,44 +3013,40 @@ def _normalize_conversation_context(v):
     if isinstance(v, str):
         v = [v]
     turns = [t.strip() for t in v if t and t.strip()]
-    if len(turns) > _SYNC_MAX_CONVERSATION_CONTEXT_TURNS:
-        raise ValueError(
-            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_TURNS} "
-            f"turns (got {len(turns)})"
-        )
     total = sum(len(t) for t in turns)
-    if total > _SYNC_MAX_CONVERSATION_CONTEXT_LEN:
-        raise ValueError(
-            f"conversation_context exceeds {_SYNC_MAX_CONVERSATION_CONTEXT_LEN} "
-            f"characters (got {total})"
-        )
+    while turns and (
+        len(turns) > _SYNC_MAX_CONVERSATION_CONTEXT_TURNS
+        or total > _SYNC_MAX_CONVERSATION_CONTEXT_LEN
+    ):
+        total -= len(turns[0])
+        turns = turns[1:]
     return turns or None
 
 
 class SyncSpeechModel(str, Enum):
     """Speech models available on the synchronous transcription API."""
 
-    u3_sync_pro = "u3-sync-pro"
+    universal_3_5_pro = "universal-3-5-pro"
 
 
 class SyncTranscriptionConfig(BaseModel):
     """
     Options for a synchronous transcription request.
 
-    `prompt`, `word_boost`, `conversation_context`, and `language_code` shape
-    the transcript; `sample_rate` and `channels` are required only for raw PCM
-    audio (WAV carries them in its header). `model` selects the sync speech
-    model and is sent as the `X-AAI-Model` routing header, not in the request
-    body.
+    `prompt`, `keyterms_prompt`, `conversation_context`, and `language_codes` shape
+    the transcript; `timestamps` opts into per-word `start`/`end` timings;
+    `sample_rate` and `channels` are required only for raw PCM audio (WAV
+    carries them in its header). `model` selects the sync speech model and is
+    sent as the `X-AAI-Model` routing header, not in the request body.
     """
 
-    model: str = SyncSpeechModel.u3_sync_pro.value
+    model: str = SyncSpeechModel.universal_3_5_pro.value
     "The sync speech model to route to. Sent as the `X-AAI-Model` header."
 
     prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
     "Custom transcription instruction prepended to the model's system prompt. Max 4096 characters."
 
-    word_boost: Optional[List[str]] = None
+    keyterms_prompt: Optional[List[str]] = None
     "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
 
     conversation_context: Optional[Union[str, List[str]]] = None
@@ -3050,16 +3055,19 @@ class SyncTranscriptionConfig(BaseModel):
     audio so it transcribes the clip with better continuity and proper-noun
     consistency. Include turns from either side of the conversation (e.g. a
     voice agent's replies) as separate entries; entries carry no speaker labels.
-    A single string is accepted and treated as one turn. Max 100 turns / 4096
-    characters total; when the prompt exceeds the model token budget the oldest
-    turns are dropped first, so put the most recent turn last."""
+    A single string is accepted and treated as one turn. Capped at 100 turns /
+    4096 characters total — over-cap context is trimmed (oldest turns dropped
+    first), not rejected, and the oldest turns are likewise dropped first when
+    the prompt exceeds the model token budget, so put the most recent turn
+    last."""
 
-    language_code: Optional[Union[str, List[str]]] = None
-    """ISO 639-1 language code, or a list of codes for multilingual audio (e.g.
-    `"es"` or `["en", "es"]`). Steers the default transcription prompt toward
-    the named language(s); ignored when `prompt` is set. Defaults to English.
-    Supported: en, es, de, fr, it, pt, tr, nl, sv, no, da, fi, hi, vi, ar, he,
-    ja, ur, zh."""
+    language_codes: Optional[List[str]] = None
+    """ISO 639-1 codes for the language(s) of the audio — a single-element
+    list (e.g. `["es"]`) for monolingual audio, or several codes (e.g.
+    `["en", "es"]`) for multilingual audio. Overrides the default prompt
+    to guide the model to the named language(s); ignored when `prompt` is set.
+    Defaults to None. Supported: en, es, de, fr, it, pt, tr, nl, sv, no,
+    da, fi, hi, vi, ar, he, ja, ur, zh."""
 
     sample_rate: Optional[int] = None
     "Source sample rate in Hz. Required for raw PCM audio; ignored for WAV."
@@ -3067,18 +3075,23 @@ class SyncTranscriptionConfig(BaseModel):
     channels: Optional[int] = None
     "Channel count (1 mono, 2 stereo). Required for raw PCM audio; ignored for WAV."
 
+    timestamps: Optional[bool] = None
+    """Whether to compute per-word `start`/`end` timestamps. When `True`,
+    words carry accurate timestamps at a small latency cost. Defaults to
+    `False`: no timestamps are returned."""
+
     if pydantic_v2:
 
-        @field_validator("word_boost")
+        @field_validator("keyterms_prompt")
         @classmethod
-        def _normalize_word_boost(cls, v):
+        def _normalize_keyterms_prompt(cls, v):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
             total = sum(len(t) for t in terms)
-            if total > _SYNC_MAX_WORD_BOOST_LEN:
+            if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
-                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_PROMPT_LEN} characters (got {total})"
                 )
             return terms or None
 
@@ -3089,15 +3102,15 @@ class SyncTranscriptionConfig(BaseModel):
 
     else:
 
-        @validator("word_boost")
-        def _normalize_word_boost(cls, v):
+        @validator("keyterms_prompt")
+        def _normalize_keyterms_prompt(cls, v):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
             total = sum(len(t) for t in terms)
-            if total > _SYNC_MAX_WORD_BOOST_LEN:
+            if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
-                    f"word_boost exceeds {_SYNC_MAX_WORD_BOOST_LEN} characters (got {total})"
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_PROMPT_LEN} characters (got {total})"
                 )
             return terms or None
 
@@ -3106,14 +3119,35 @@ class SyncTranscriptionConfig(BaseModel):
             return _normalize_conversation_context(v)
 
 
+class SyncWord(BaseModel):
+    """A single word in a sync transcript.
+
+    `start`/`end` are in milliseconds and present only when the request set
+    `timestamps=True`; otherwise they are `None`.
+    """
+
+    text: str
+    "The text of the word."
+
+    start: Optional[int] = None
+    "Word start in milliseconds. `None` unless `timestamps` was requested."
+
+    end: Optional[int] = None
+    "Word end in milliseconds. `None` unless `timestamps` was requested."
+
+    confidence: float
+    "Word confidence in the range 0-1."
+
+
 class SyncTranscriptResponse(BaseModel):
     """The result of a synchronous transcription request."""
 
     text: str
     "The full transcript text."
 
-    words: List[Word] = Field(default_factory=list)
-    "Per-word timing and confidence."
+    words: List[SyncWord] = Field(default_factory=list)
+    """Per-word confidence, plus `start`/`end` timings when the request set
+    `timestamps=True`."""
 
     confidence: float
     "Overall transcript confidence in the range 0-1."
@@ -3123,3 +3157,8 @@ class SyncTranscriptResponse(BaseModel):
 
     session_id: str
     "Server-generated UUID for this request. Record it to correlate with support."
+
+    request_time_ms: Optional[float] = None
+    """End-to-end server-side request time in milliseconds: queue wait, auth,
+    multipart parse, decode, inference, and serialization. ``None`` when the
+    server predates the field."""

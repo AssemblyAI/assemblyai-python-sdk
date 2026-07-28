@@ -37,6 +37,7 @@ from .models import (
     ErrorEvent,
     EventMessage,
     ForceEndpoint,
+    KeepAlive,
     OperationMessage,
     StreamingClientOptions,
     StreamingError,
@@ -80,10 +81,10 @@ class AsyncStreamingClient(_BaseStreamingClient):
 
     Behavioral notes vs. the sync ``StreamingClient``:
 
-    - ``stream`` / ``set_params`` / ``force_endpoint`` raise ``RuntimeError``
-      when called before ``connect()`` — silent drop would diverge from the
-      sync client (which buffers pre-connect data) in a way that's easy to
-      miss. After the connection has closed, the same calls are silent
+    - ``stream`` / ``set_params`` / ``force_endpoint`` / ``keep_alive`` raise
+      ``RuntimeError`` when called before ``connect()`` — silent drop would
+      diverge from the sync client (which buffers pre-connect data) in a way
+      that's easy to miss. After the connection has closed, the same calls are silent
       no-ops so cleanup paths don't need defensive try/except.
     - ``disconnect(terminate=True)`` waits at most 2.0s for the write task to
       drain the ``TerminateSession`` frame before forcing teardown. The sync
@@ -287,6 +288,12 @@ class AsyncStreamingClient(_BaseStreamingClient):
         if stop_event.is_set():
             return
         await write_queue.put(ForceEndpoint())
+
+    async def keep_alive(self) -> None:
+        write_queue, stop_event = self._ensure_connected("keep_alive")
+        if stop_event.is_set():
+            return
+        await write_queue.put(KeepAlive())
 
     def _ensure_connected(
         self, method: str

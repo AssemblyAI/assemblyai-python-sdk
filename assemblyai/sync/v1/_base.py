@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import concurrent.futures
 import os
 from typing import BinaryIO, Optional, Tuple, Union
 from urllib.parse import urlparse
 
-from . import client as _client
-from . import sync_api, types
+from ... import client as _client
+from ... import types
+from . import api
 
 AudioInput = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
 
@@ -94,7 +94,7 @@ class _SyncTranscriberImpl:
     ) -> types.SyncTranscriptResponse:
         config = config or self.config
         audio, filename, content_type = _resolve_audio(data, config)
-        return sync_api.transcribe(
+        return api.transcribe(
             self._client.http_client,
             base_url=self._client.settings.sync_base_url,
             audio=audio,
@@ -103,101 +103,4 @@ class _SyncTranscriberImpl:
             model=config.model,
             config=_config_to_json(config),
             timeout=self._client.settings.sync_http_timeout,
-        )
-
-
-class SyncTranscriber:
-    """
-    Transcribes audio synchronously: audio in, transcript out, one request.
-
-    Unlike `Transcriber` (which submits a job to the async API and polls for
-    completion), `SyncTranscriber` posts the audio to the sync API and returns
-    the finished `SyncTranscriptResponse` directly. There is no job id or
-    status to poll. Accepts a local file path, raw bytes, or a binary file
-    object — but not a URL.
-
-    Example:
-        ```python
-        import assemblyai as aai
-
-        aai.settings.api_key = "your-key"
-
-        result = aai.SyncTranscriber().transcribe("./call.wav")
-        print(result.text)
-        ```
-    """
-
-    def __init__(
-        self,
-        *,
-        client: Optional[_client.Client] = None,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-        max_workers: Optional[int] = None,
-    ) -> None:
-        """
-        Creates a `SyncTranscriber`.
-
-        Args:
-            client: The HTTP client to use. Defaults to the shared default client.
-            config: Default transcription options. Per-call `config` overrides it.
-            max_workers: Thread pool size for `transcribe_async`. Defaults to
-                the CPU count minus one.
-        """
-        self._client = client or _client.Client.get_default()
-        self._impl = _SyncTranscriberImpl(
-            client=self._client,
-            config=config or types.SyncTranscriptionConfig(),
-        )
-
-        if not max_workers:
-            cpu_count = os.cpu_count()
-            max_workers = max(1, cpu_count - 1) if cpu_count else 1
-
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers,
-        )
-
-    @property
-    def config(self) -> types.SyncTranscriptionConfig:
-        """The default configuration of the `SyncTranscriber`."""
-        return self._impl.config
-
-    @config.setter
-    def config(self, config: types.SyncTranscriptionConfig) -> None:
-        self._impl.config = config
-
-    def transcribe(
-        self,
-        data: AudioInput,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> types.SyncTranscriptResponse:
-        """
-        Transcribes audio and returns the finished transcript.
-
-        Args:
-            data: A local file path, raw audio bytes, or a binary file object.
-                Raw PCM also requires `sample_rate` and `channels` on the config.
-            config: Options for this call. If `None`, the transcriber's default
-                configuration is used.
-
-        Raises: `SyncTranscriptError` if the request fails.
-        """
-        return self._impl.transcribe(data=data, config=config)
-
-    def transcribe_async(
-        self,
-        data: AudioInput,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> "concurrent.futures.Future[types.SyncTranscriptResponse]":
-        """
-        Transcribes audio on a worker thread.
-
-        Returns a `concurrent.futures.Future` (not an asyncio coroutine); call
-        `.result()` to block for the transcript. Useful for fanning out a
-        handful of files concurrently.
-        """
-        return self._executor.submit(
-            self._impl.transcribe,
-            data=data,
-            config=config,
         )

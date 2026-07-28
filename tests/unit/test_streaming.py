@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 from types import SimpleNamespace
+from typing import Optional
 from urllib.parse import urlencode
 
 import pytest
@@ -12,6 +13,7 @@ from websockets.frames import Close
 
 from assemblyai.streaming.v3 import (
     BeginEvent,
+    Encoding,
     NoiseSuppressionModel,
     SpeakerRevisionEvent,
     SpeechModel,
@@ -27,7 +29,12 @@ from assemblyai.streaming.v3 import (
     Word,
 )
 from assemblyai.streaming.v3._base import _build_uri
-from assemblyai.streaming.v3.models import TerminateSession
+from assemblyai.streaming.v3.models import (
+    HeartbeatEvent,
+    KeepAlive,
+    TerminateSession,
+    UpdateConfiguration,
+)
 
 
 def _disable_rw_threads(mocker: MockFixture):
@@ -309,6 +316,152 @@ def test_client_connect_with_language_code(mocker: MockFixture):
     assert "language_code=es" in actual_url
 
 
+def test_client_connect_with_language_codes(mocker: MockFixture):
+    # Given: client + language_codes parameter
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        language_codes=["en", "es"],
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the language_codes wire param is forwarded as a JSON-encoded list
+    assert "language_codes=%5B%22en%22%2C+%22es%22%5D" in actual_url
+
+
+def test_client_connect_with_language_code_logs_deprecation_warning(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
+    # Given: client + the deprecated language_code parameter
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        pass
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        language_code="es",
+    )
+
+    # When: connect
+    with caplog.at_level(logging.WARNING):
+        client.connect(params)
+
+    # Then: a deprecation warning points callers to language_codes
+    assert any(
+        "language_code" in r.message
+        and "deprecated" in r.message
+        and "language_codes" in r.message
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize("encoding", [Encoding.opus, Encoding.ogg_opus])
+def test_client_connect_with_opus_encodings(mocker: MockFixture, encoding: Encoding):
+    # Given: client + one of the new Opus encodings
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=encoding,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding wire param is forwarded
+    assert f"encoding={encoding.value}" in actual_url
+
+
+@pytest.mark.parametrize("encoding", [Encoding.opus, Encoding.ogg_opus])
+def test_client_connect_opus_without_sample_rate(
+    mocker: MockFixture, encoding: Encoding
+):
+    # Given: client + an Opus encoding and no sample_rate (the Opus stream is
+    # self-describing, so the parameter may be omitted)
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=encoding,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding is forwarded and sample_rate is absent from the URL
+    assert f"encoding={encoding.value}" in actual_url
+    assert "sample_rate" not in actual_url
+
+
+@pytest.mark.parametrize("encoding", [None, Encoding.pcm_s16le, Encoding.pcm_mulaw])
+def test_sample_rate_required_for_non_opus_encodings(encoding: Optional[Encoding]):
+    # Given/When: constructing parameters without sample_rate for a PCM (or
+    # unset) encoding
+    # Then: validation rejects it
+    with pytest.raises(ValueError, match="sample_rate is required"):
+        StreamingParameters(
+            speech_model=SpeechModel.universal_3_5_pro,
+            encoding=encoding,
+        )
+
+
 def test_noise_suppression_deprecated_alias_migrates_to_voice_focus(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ):
@@ -556,6 +709,33 @@ def test_client_send_audio(mocker: MockFixture):
 
     assert client._write_queue.qsize() == 1
     assert isinstance(client._write_queue.get(timeout=1), bytes)
+
+
+def test_client_keep_alive_enqueues_keep_alive_message(mocker: MockFixture):
+    # Given: a connected client with read/write threads disabled
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+        )
+    )
+
+    # When: keep_alive is called
+    client.keep_alive()
+
+    # Then: a KeepAlive message is enqueued for the write thread
+    assert client._write_queue.qsize() == 1
+    message = client._write_queue.get(timeout=1)
+    assert isinstance(message, KeepAlive)
+    assert message.type == "KeepAlive"
 
 
 def test_client_connect_with_webhook(mocker: MockFixture):
@@ -875,6 +1055,35 @@ def test_client_connect_with_whisper_rt(mocker: MockFixture):
     client.connect(params)
 
     assert "speech_model=whisper-rt" in actual_url
+
+
+def test_client_connect_with_universal_3_5_pro(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+    )
+
+    client.connect(params)
+
+    assert "speech_model=universal-3-5-pro" in actual_url
 
 
 def test_turn_event_with_speaker_label():
@@ -1840,3 +2049,190 @@ def test_client_connect_retries_disabled(mocker: MockFixture):
     # Then: exactly one attempt is made and the error is reported.
     assert connect_mock.call_count == 1
     assert len(errors) == 1
+
+
+def test_encoding_aac_enum():
+    # Given/Then: the AAC encoding is a first-class Encoding member whose wire
+    # value round-trips through the string constructor and __str__.
+    assert Encoding("aac") is Encoding.aac
+    assert str(Encoding.aac) == "aac"
+
+
+def test_client_connect_aac_without_sample_rate(mocker: MockFixture):
+    # Given: client + AAC encoding and no sample_rate (the ADTS stream is
+    # self-describing, so the parameter may be omitted). Constructing the
+    # params must not raise, mirroring the Opus no-sample_rate case.
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        speech_model=SpeechModel.universal_3_5_pro,
+        encoding=Encoding.aac,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the encoding is forwarded and sample_rate is absent from the URL
+    assert "encoding=aac" in actual_url
+    assert "sample_rate" not in actual_url
+
+
+def test_sample_rate_still_required_for_pcm_s16le():
+    # Given/When/Then: adding AAC to the self-describing allow-list must not
+    # relax the requirement for PCM encodings — pcm_s16le with no sample_rate
+    # still fails validation.
+    with pytest.raises(ValueError, match="sample_rate is required"):
+        StreamingParameters(
+            speech_model=SpeechModel.universal_3_5_pro,
+            encoding=Encoding.pcm_s16le,
+        )
+
+
+def test_client_connect_with_session_heartbeat(mocker: MockFixture):
+    # Given: client + session_heartbeat=True
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        session_heartbeat=True,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the session_heartbeat wire param is forwarded
+    assert "session_heartbeat=True" in actual_url
+
+
+def test_session_heartbeat_defaults_to_none():
+    # Given: params/update-config with no session_heartbeat set
+    params = StreamingParameters(sample_rate=16000)
+    update = UpdateConfiguration()
+
+    # Then: the field defaults to None on both StreamingSessionParameters
+    # subclasses and is omitted from the connection querystring when unset.
+    assert params.session_heartbeat is None
+    assert update.session_heartbeat is None
+    uri = _build_uri("wss://example.com/v3/ws", params)
+    assert "session_heartbeat" not in uri
+
+
+def test_heartbeat_event_parses_from_wire_message():
+    # Given: a raw Heartbeat wire message
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 45000,
+        "total_duration_ms": 45205,
+        "realtime_factor": 0.9964,
+        "max_speech_probability": 0.999954,
+    }
+
+    # When: routed through the shared inbound-message dispatch
+    event = StreamingClient._parse_message(data)
+
+    # Then: a fully-populated HeartbeatEvent is returned
+    assert isinstance(event, HeartbeatEvent)
+    assert event.type == "Heartbeat"
+    assert event.total_audio_received_ms == 45000
+    assert event.total_duration_ms == 45205
+    assert event.realtime_factor == 0.9964
+    assert event.max_speech_probability == 0.999954
+
+
+def test_heartbeat_max_speech_probability_defaults_to_zero():
+    # Given: a Heartbeat payload without max_speech_probability
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 1000,
+        "total_duration_ms": 1000,
+        "realtime_factor": 1.0,
+    }
+
+    # When: parsed
+    event = HeartbeatEvent.parse_obj(data)
+
+    # Then: max_speech_probability defaults to 0.0
+    assert event.max_speech_probability == 0.0
+
+
+def test_heartbeat_realtime_factor_is_unclamped():
+    # Given: a Heartbeat payload with realtime_factor above 1.0
+    data = {
+        "type": "Heartbeat",
+        "total_audio_received_ms": 1000,
+        "total_duration_ms": 1500,
+        "realtime_factor": 1.5,
+    }
+
+    # When: parsed
+    event = HeartbeatEvent.parse_obj(data)
+
+    # Then: the value passes through unclamped
+    assert event.realtime_factor == 1.5
+
+
+def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
+    # Given: a Heartbeat frame on the wire and a handler registered
+    heartbeat_json = json.dumps(
+        {
+            "type": "Heartbeat",
+            "total_audio_received_ms": 45000,
+            "total_duration_ms": 45205,
+            "realtime_factor": 0.9964,
+            "max_speech_probability": 0.999954,
+        }
+    )
+    fake_ws = _FakeWebSocket(recv_script=[heartbeat_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Heartbeat, lambda _c, event: received.append(event))
+
+    # When: the client reads the frame
+    client.connect(_default_params())
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not received:
+        time.sleep(0.02)
+    client.disconnect(terminate=False)
+
+    # Then: the handler is invoked with a parsed HeartbeatEvent
+    assert len(received) == 1
+    assert isinstance(received[0], HeartbeatEvent)
+    assert received[0].total_audio_received_ms == 45000
+    assert received[0].total_duration_ms == 45205
+    assert received[0].realtime_factor == 0.9964
+    assert received[0].max_speech_probability == 0.999954

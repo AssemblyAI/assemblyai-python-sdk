@@ -2,7 +2,16 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel
+try:
+    # pydantic v2 import
+    from pydantic import BaseModel, model_validator
+
+    pydantic_v2 = True
+except ImportError:
+    # pydantic v1 import (fallback for Python < 3.14)
+    from pydantic import BaseModel, root_validator
+
+    pydantic_v2 = False
 
 
 class LLMGatewayMessage(BaseModel):
@@ -76,6 +85,16 @@ class WarningEvent(BaseModel):
     warning: str
 
 
+class HeartbeatEvent(BaseModel):
+    type: Literal["Heartbeat"] = "Heartbeat"
+    total_audio_received_ms: int
+    total_duration_ms: int
+    # Unclamped processing speed ratio; may exceed 1.0.
+    realtime_factor: float
+    # Highest per-frame speech probability in the interval, range 0-1.
+    max_speech_probability: float = 0.0
+
+
 class LLMGatewayResponseEvent(BaseModel):
     type: Literal["LLMGatewayResponse"] = "LLMGatewayResponse"
     turn_order: int
@@ -115,6 +134,7 @@ EventMessage = Union[
     SpeechStartedEvent,
     ErrorEvent,
     WarningEvent,
+    HeartbeatEvent,
     LLMGatewayResponseEvent,
     SpeakerRevisionEvent,
 ]
@@ -126,6 +146,10 @@ class TerminateSession(BaseModel):
 
 class ForceEndpoint(BaseModel):
     type: Literal["ForceEndpoint"] = "ForceEndpoint"
+
+
+class KeepAlive(BaseModel):
+    type: Literal["KeepAlive"] = "KeepAlive"
 
 
 class StreamingSessionParameters(BaseModel):
@@ -143,11 +167,23 @@ class StreamingSessionParameters(BaseModel):
     agent_context: Optional[str] = None
     interruption_delay: Optional[int] = None
     turn_left_pad_ms: Optional[int] = None
+    language_codes: Optional[List[str]] = None
+    session_heartbeat: Optional[bool] = None
 
 
 class Encoding(str, Enum):
     pcm_s16le = "pcm_s16le"
     pcm_mulaw = "pcm_mulaw"
+    # Raw Opus packets, one packet per binary WS message. `sample_rate` may be
+    # omitted — the Opus stream is self-describing and the server ignores it.
+    opus = "opus"
+    # Ogg-encapsulated Opus byte stream (ffmpeg, gstreamer, opusenc, browser
+    # MediaRecorder output). `sample_rate` may be omitted — the Opus stream is
+    # self-describing and the server ignores it.
+    ogg_opus = "ogg_opus"
+    # AAC in an ADTS byte stream. `sample_rate` may be omitted — the ADTS
+    # headers are self-describing and the server ignores it.
+    aac = "aac"
 
     def __str__(self):
         return self.value
@@ -159,6 +195,7 @@ class SpeechModel(str, Enum):
     u3_rt_pro = "u3-rt-pro"
     u3_rt_pro_beta_1 = "u3-rt-pro-beta-1"
     whisper_rt = "whisper-rt"
+    universal_3_5_pro = "universal-3-5-pro"
     u3_pro = "u3-pro"  # Deprecated: Use u3_rt_pro instead
 
     def __str__(self):
@@ -251,9 +288,14 @@ class StreamingPiiPolicy(str, Enum):
 
 
 class StreamingParameters(StreamingSessionParameters):
-    sample_rate: int
+    # Required for PCM encodings. May be omitted for Opus encodings
+    # (opus, ogg_opus) — the stream is self-describing and the server
+    # ignores the value.
+    sample_rate: Optional[int] = None
     encoding: Optional[Encoding] = None
     speech_model: Optional[SpeechModel] = None
+    # Deprecated: use language_codes instead (pass a single-element list, e.g.
+    # ["es"], for the same behavior). Still supported for backward compatibility.
     language_code: Optional[str] = None
     language_detection: Optional[bool] = None
     domain: Optional[StreamingDomain] = None
@@ -277,6 +319,38 @@ class StreamingParameters(StreamingSessionParameters):
     redact_pii_sub: Optional[StreamingPiiSubstitution] = None
     mode: Optional[StreamingMode] = None
 
+    if pydantic_v2:
+
+        @model_validator(mode="after")
+        def _require_sample_rate(self):
+            if self.sample_rate is None and self.encoding not in (
+                Encoding.opus,
+                Encoding.ogg_opus,
+                Encoding.aac,
+            ):
+                raise ValueError(
+                    "sample_rate is required; it may only be omitted when "
+                    "encoding is 'opus', 'ogg_opus', or 'aac' (these streams "
+                    "are self-describing)."
+                )
+            return self
+
+    else:
+
+        @root_validator(skip_on_failure=True)
+        def _require_sample_rate(cls, values):
+            if values.get("sample_rate") is None and values.get("encoding") not in (
+                Encoding.opus,
+                Encoding.ogg_opus,
+                Encoding.aac,
+            ):
+                raise ValueError(
+                    "sample_rate is required; it may only be omitted when "
+                    "encoding is 'opus', 'ogg_opus', or 'aac' (these streams "
+                    "are self-describing)."
+                )
+            return values
+
 
 class UpdateConfiguration(StreamingSessionParameters):
     type: Literal["UpdateConfiguration"] = "UpdateConfiguration"
@@ -286,6 +360,7 @@ OperationMessage = Union[
     bytes,
     TerminateSession,
     ForceEndpoint,
+    KeepAlive,
     UpdateConfiguration,
 ]
 
@@ -349,5 +424,6 @@ class StreamingEvents(Enum):
     SpeechStarted = "SpeechStarted"
     Error = "Error"
     Warning = "Warning"
+    Heartbeat = "Heartbeat"
     LLMGatewayResponse = "LLMGatewayResponse"
     SpeakerRevision = "SpeakerRevision"

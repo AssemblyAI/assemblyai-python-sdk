@@ -104,7 +104,7 @@ aai.settings.api_key = "YOUR_API_KEY"
 audio_file = "./example.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     speaker_labels=True,
 )
@@ -130,7 +130,7 @@ aai.settings.api_key = "YOUR_API_KEY"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     speaker_labels=True,
 )
@@ -177,7 +177,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -214,7 +214,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -248,7 +248,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -280,7 +280,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 config.set_custom_spelling(
@@ -324,7 +324,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True
 )
 
@@ -388,6 +388,136 @@ while page.page_details.before_id_of_prev_url is not None:
 
 ---
 
+### **Sync STT Transcription Examples**
+
+`aai.SyncTranscriber` posts a whole audio file and returns the finished transcript in one round trip — no job id, no polling, no status to check. Use it for short clips where you want the answer inline; use `aai.Transcriber` for long-form audio, URLs, or the rich audio-intelligence features (speaker labels, chapters, sentiment, …) the sync API doesn't expose.
+
+<details>
+  <summary>Transcribe a local file synchronously</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+result = aai.SyncTranscriber().transcribe("./call.wav")
+
+print(result.text)
+for word in result.words:
+    print(word.text, word.confidence)
+```
+
+The input can be a local file path, raw `bytes`, or a binary file object — but not a URL. Pass a path/bytes, or use `aai.Transcriber` for URL ingestion.
+
+</details>
+
+<details>
+  <summary>Configure the transcription</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(
+    prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
+    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    conversation_context=[
+        # prior turns from the same conversation, oldest first
+        "I'd like to book a flight to Denver.",
+        "Sure, what date were you thinking?",
+    ],
+)
+
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+print(result.text)
+```
+
+Raw S16LE PCM audio needs `sample_rate` and `channels`; WAV reads them from its header.
+
+```python
+config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+result = aai.SyncTranscriber().transcribe(raw_pcm_bytes, config=config)
+```
+
+</details>
+
+<details>
+  <summary>Set the transcription language</summary>
+
+`language_codes` steers the model toward one or more languages — a single-element list for monolingual audio, or several codes for multilingual audio. It is mutually exclusive with `prompt`; pass one or the other, not both.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(language_codes=["es"])  # or ["en", "es"] for multilingual
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+print(result.text)
+```
+
+</details>
+
+<details>
+  <summary>Get word timestamps</summary>
+
+Word timestamps are opt-in. By default each word carries `text` and `confidence` only — `start`/`end` are `None`. Set `timestamps=True` to compute accurate per-word timings at a small latency cost.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.SyncTranscriptionConfig(timestamps=True)
+result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
+
+for word in result.words:
+    print(word.text, word.start, word.end)  # milliseconds
+```
+
+</details>
+
+<details>
+  <summary>Pre-warm the connection</summary>
+
+The sync API is a single request/response, so a `transcribe()` that connects on demand pays the full DNS + TCP + TLS handshake on the critical path. Call `warm()` as soon as you know audio is coming — for example while it is still being recorded — so the next `transcribe()` reuses the open connection.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+with aai.SyncTranscriber() as transcriber:
+    transcriber.warm()                      # fire as recording starts
+    audio = record_until_done()
+    result = transcriber.transcribe(audio)  # reuses the hot connection
+    print(result.text)
+```
+
+</details>
+
+<details>
+  <summary>Handle errors</summary>
+
+Failures raise `aai.SyncTranscriptError` with the HTTP `status_code`, a machine-readable `error_code` (`bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`, …), and `retry_after` (seconds) on 429/503 responses.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+try:
+    result = aai.SyncTranscriber().transcribe("./call.wav")
+    print(result.text)
+except aai.SyncTranscriptError as error:
+    print(error.status_code, error.error_code, error.retry_after)
+```
+
+</details>
+
+---
+
 ### **Speech Understanding Examples**
 
 <details>
@@ -402,7 +532,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
 ).set_redact_pii(
     policies=[
@@ -431,7 +561,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
 ).set_redact_pii(
     policies=[
@@ -465,7 +595,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     auto_chapters=True
 )
@@ -493,7 +623,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-  speech_models=["universal-3-pro", "universal-2"],
+  speech_models=["universal-3-5-pro", "universal-2"],
   language_detection=True,
   summarization=True,
   summary_model=aai.SummarizationModel.informative,
@@ -531,7 +661,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     content_safety=True
 )
@@ -583,7 +713,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     sentiment_analysis=True
 )
@@ -626,7 +756,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     entity_detection=True
 )
@@ -655,7 +785,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     iab_categories=True
 )
@@ -690,7 +820,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 audio_file = "https://assembly.ai/wildfires.mp3"
 
 config = aai.TranscriptionConfig(
-    speech_models=["universal-3-pro", "universal-2"],
+    speech_models=["universal-3-5-pro", "universal-2"],
     language_detection=True,
     auto_highlights=True
 )
@@ -710,11 +840,11 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-Real-time speech-to-text via WebSocket against the `u3-rt-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
+Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
 
 **Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncStreamingClient` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
 
-[Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/universal-3-pro)
+[Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/getting-started/transcribe-streaming-audio)
 
 <details>
   <summary>Stream a local file (sync)</summary>
@@ -745,7 +875,7 @@ client.on(StreamingEvents.Termination, on_terminated)
 client.on(StreamingEvents.Error, on_error)
 
 client.connect(StreamingParameters(
-    sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+    sample_rate=16000, speech_model="universal-3-5-pro",
 ))
 try:
     client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
@@ -775,13 +905,77 @@ def on_turn(client, event):
 
 client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
 client.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
+client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 
 try:
     client.stream(aai.extras.MicrophoneStream(sample_rate=16000))
 finally:
     client.disconnect(terminate=True)
 ```
+
+</details>
+
+<details>
+  <summary>Dual-channel: mic + system audio in one session</summary>
+
+For note-taker apps that capture two live sources (microphone **and** system/speaker output) but want them handled as **one** streaming session — while still knowing which source each word came from — wrap the client in a `ChannelStreamer`.
+
+You declare named channels and feed each channel's PCM separately. The SDK runs per-channel energy VAD, mixes the channels into a single mono stream over one websocket, and — for handlers registered on the coordinator — delivers an enriched `DualChannelTurnEvent` whose words/turn carry their originating channel (`turn.channel` and per-word `word.channel`). The base `Word` / `TurnEvent` stay unchanged, so single-stream payloads aren't affected. Attribution is fully client-side and model-agnostic, so it composes with `speaker_labels`, multilingual, and `universal-3-5-pro`. It is a **separate dimension from diarization** — `word.channel` (physical source) is independent of `word.speaker` (voice): two people on the same `system` channel get distinct speaker labels, while one person heard on two channels keeps a single speaker label.
+
+Unlike a browser sample, the SDK does not capture audio — you supply 16-bit PCM for each channel (from `sounddevice`, `pyaudio`, a loopback device, files, …).
+
+```python
+from assemblyai.streaming.v3 import (
+    ChannelStreamer, StreamingClient, StreamingClientOptions,
+    StreamingEvents, StreamingParameters,
+)
+
+def on_turn(client, event):   # event is a DualChannelTurnEvent
+    print(f"[{event.channel}] {event.transcript}")
+    for w in event.words:
+        print(f"  {w.text!r} -> channel={w.channel} speaker={w.speaker}")
+
+client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+
+# Declare the channels and the session sample rate (must be pcm_s16le).
+mixer = ChannelStreamer(client, channels=["mic", "system"], sample_rate=16000)
+# Register handlers on the mixer: Turn handlers receive the enriched event,
+# other events (Begin/Error/…) are forwarded to the client.
+mixer.on(StreamingEvents.Turn, on_turn)
+client.connect(StreamingParameters(
+    sample_rate=16000, speech_model="universal-3-5-pro", speaker_labels=True,
+))
+
+# Feed each source separately — e.g. from two capture callbacks. Send
+# continuous PCM for every channel (silence as zeros), at the same rate.
+mixer.stream("mic", mic_pcm)
+mixer.stream("system", system_pcm)
+
+mixer.flush()                    # push trailing buffered audio
+client.disconnect(terminate=True)
+```
+
+`AsyncChannelStreamer` is the asyncio-native equivalent (`await mixer.stream(...)` / `await mixer.close_channel(...)` / `await mixer.flush()`); register handlers the same way with `mixer.on(...)`.
+
+**Sources that end mid-session.** Mixing keeps channels aligned by consuming the shortest buffer, so it assumes every channel keeps delivering PCM (send silence as zeros, don't omit it). When a source genuinely ends (file EOF, screen share stopped, device removed), call `mixer.close_channel(name)` so the session degrades to the surviving channel(s) instead of stalling — the ended channel is then padded with silence.
+
+**Swappable VAD.** The default detector is the built-in energy-based `EnergyVad`. Supply your own (e.g. a DNN VAD such as Silero) via `ChannelAttributionOptions.create_vad`, which is called once per channel with the channel name; subclass `VadDetector` (`process(frame) -> VadResult`, `reset()`). Pass `on_vad=callback` to observe raw per-frame activity (e.g. a live "who's talking" meter). Tune the default with `EnergyVad(threshold_ratio=3.0, noise_floor_alpha=0.05, hangover_frames=10)` — `threshold_ratio` below ~2 is too sensitive, above ~6 misses quiet onsets/offsets.
+
+**Resolving unknown channels.** A word is `"unknown"` when no channel was clearly dominant in its window — silence, or two channels too close to call (the top must beat the runner-up by `dominance_ratio`, default 4). `ChannelAttributionOptions.resolve_unknown_channels_method` back-fills these:
+
+- `"window"` (default) — from the dominant non-`"unknown"` channel among ±`resolution_window_words` neighbor words.
+- `"speaker-history"` — from the speaker's session-wide channel evidence (requires `speaker_labels`).
+- `"none"` — leave `"unknown"` as-is.
+
+Back-filled words are flagged `word.channel_resolved = True`; confident per-word decisions are never overwritten. The method is validated at construction, so a typo raises immediately rather than silently disabling resolution.
+
+**Caveats.**
+
+- Requires 16-bit PCM (`pcm_s16le`, the default) — linear mixing is invalid for `pcm_mulaw`.
+- Capturing the system/speaker output is platform-specific: macOS needs a loopback driver (e.g. BlackHole); Windows uses WASAPI loopback; Linux a PulseAudio/PipeWire monitor source.
+- If the mic physically picks up the speakers, that bleed can pull attribution toward `mic`. Apply acoustic echo cancellation at capture (`getUserMedia({ audio: { echoCancellation: true } })` in browser front-ends, or an AEC-capable native path) — the SDK only receives already-captured PCM, so it can't apply AEC itself. Transcription quality is unaffected; only the `channel` field.
+
+See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py) for a complete runnable demo.
 
 </details>
 
@@ -810,7 +1004,7 @@ async def main():
     async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
         client.on(StreamingEvents.Turn, on_turn)
         await client.connect(StreamingParameters(
-            sample_rate=16000, speech_model="u3-rt-pro", format_turns=True,
+            sample_rate=16000, speech_model="universal-3-5-pro",
         ))
         await client.stream(stream_file_async("audio.wav", 16000))
 
@@ -890,7 +1084,7 @@ async def streaming_token():
 
 ```python
 client = StreamingClient(StreamingClientOptions(token="<TOKEN_FROM_SERVER>"))
-client.connect(StreamingParameters(sample_rate=16000, speech_model="u3-rt-pro"))
+client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 ```
 
 </details>
@@ -968,7 +1162,7 @@ transcriber = aai.Transcriber(config=config)
 transcriber.transcribe(
     "https://example.com/audio.mp3",
     # overrides the above configuration on the `Transcriber` with the following
-    config=aai.TranscriptionConfig(speech_models=["universal-3-pro", "universal-2"], multichannel=True, disfluencies=True)
+    config=aai.TranscriptionConfig(speech_models=["universal-3-5-pro", "universal-2"], multichannel=True, disfluencies=True)
 )
 ```
 

@@ -47,10 +47,17 @@ class Client:
         def _store_response(response):
             self._last_response = response
 
+        keepalive_expiry = self.settings.keepalive_expiry
+        limits = (
+            httpx.Limits(keepalive_expiry=keepalive_expiry)
+            if keepalive_expiry is not None
+            else httpx.Limits()
+        )
         self._http_client = httpx.Client(
             base_url=self.settings.base_url,
             headers=headers,
             timeout=self.settings.http_timeout,
+            limits=limits,
             event_hooks={"response": [_store_response]},
         )
 

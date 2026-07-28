@@ -872,6 +872,165 @@ async def test_set_params_with_agent_context(mocker: MockFixture):
     await client.disconnect()
 
 
+async def test_set_params_with_language_codes(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with language_codes mid-stream
+    await client.set_params(StreamingSessionParameters(language_codes=["en", "es"]))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying language_codes is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["language_codes"] == ["en", "es"]
+
+    await client.disconnect()
+
+
+async def test_set_params_with_empty_language_codes_clears_steering(
+    mocker: MockFixture,
+):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with an empty language_codes list (the
+    # server-side "clear steering" signal)
+    await client.set_params(StreamingSessionParameters(language_codes=[]))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: the empty list survives serialization (exclude_none must not drop
+    # it) so the server can clear steering
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["language_codes"] == []
+
+    await client.disconnect()
+
+
+async def test_set_params_with_session_heartbeat(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with session_heartbeat mid-stream
+    await client.set_params(StreamingSessionParameters(session_heartbeat=True))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying session_heartbeat is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["session_heartbeat"] is True
+
+    await client.disconnect()
+
+
+async def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    received = []
+
+    def on_heartbeat(_client, event):
+        received.append(event)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Heartbeat, on_heartbeat)
+    await client.connect(_default_params())
+
+    fake_ws.push_message(
+        json.dumps(
+            {
+                "type": "Heartbeat",
+                "total_audio_received_ms": 45000,
+                "total_duration_ms": 45205,
+                "realtime_factor": 0.9964,
+                "max_speech_probability": 0.999954,
+            }
+        )
+    )
+
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+
+    from assemblyai.streaming.v3.models import HeartbeatEvent
+
+    assert len(received) == 1
+    assert isinstance(received[0], HeartbeatEvent)
+    assert received[0].total_audio_received_ms == 45000
+    assert received[0].total_duration_ms == 45205
+    assert received[0].realtime_factor == 0.9964
+    assert received[0].max_speech_probability == 0.999954
+
+    await client.disconnect()
+
+
 async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)
@@ -897,6 +1056,49 @@ async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture)
     assert len(force_frames) == 1
     payload = json.loads(force_frames[0])
     assert payload["type"] == "ForceEndpoint"
+
+    await client.disconnect()
+
+
+async def test_keep_alive_before_connect_raises_runtime_error():
+    # Given: a client that has never connected
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When/Then: keep_alive raises rather than silently dropping the frame
+    with pytest.raises(RuntimeError, match="not connected"):
+        await client.keep_alive()
+
+
+async def test_keep_alive_sends_keep_alive_frame(mocker: MockFixture):
+    # Given: a connected async client over a fake websocket
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When: keep_alive is called
+    await client.keep_alive()
+
+    # Then: a single KeepAlive frame is written to the websocket
+    for _ in range(100):
+        keep_alive_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "KeepAlive" in s
+        ]
+        if keep_alive_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    keep_alive_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "KeepAlive" in s
+    ]
+    assert len(keep_alive_frames) == 1
+    payload = json.loads(keep_alive_frames[0])
+    assert payload["type"] == "KeepAlive"
 
     await client.disconnect()
 

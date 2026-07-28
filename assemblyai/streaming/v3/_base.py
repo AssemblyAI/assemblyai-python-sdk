@@ -32,6 +32,7 @@ from .models import (
     BeginEvent,
     ErrorEvent,
     EventMessage,
+    HeartbeatEvent,
     LLMGatewayResponseEvent,
     SpeakerRevisionEvent,
     SpeechStartedEvent,
@@ -135,6 +136,11 @@ def _emit_param_warnings(params: StreamingParameters) -> None:
             "`customer_support_audio_capture=True` will record session audio. "
             "Only enable this when explicitly coordinating with AssemblyAI support."
         )
+    if params.language_code is not None:
+        logger.warning(
+            "[Deprecation Warning] `language_code` is deprecated and will be removed in a future release. "
+            "Please use `language_codes` instead."
+        )
 
 
 def _build_uri(host: str, params: StreamingParameters) -> str:
@@ -236,6 +242,8 @@ class _BaseStreamingClient:
                 return _parse_model(LLMGatewayResponseEvent, data)
             elif event_type == StreamingEvents.SpeakerRevision:
                 return _parse_model(SpeakerRevisionEvent, data)
+            elif event_type == StreamingEvents.Heartbeat:
+                return _parse_model(HeartbeatEvent, data)
             elif event_type == StreamingEvents.Error:
                 return _parse_model(ErrorEvent, data)
             elif event_type == StreamingEvents.Warning:
