@@ -439,6 +439,7 @@ class SentencesResponseFactory(factory.Factory):
     sentences = factory.List([factory.SubFactory(SentenceFactory)])
     confidence = factory.Faker("pyfloat", min_value=0.0, max_value=1.0)
     audio_duration = factory.Faker("pyint")
+    speech_model_used = "universal-2"
 
 
 class ParagraphsResponseFactory(factory.Factory):
@@ -448,6 +449,7 @@ class ParagraphsResponseFactory(factory.Factory):
     paragraphs = factory.List([factory.SubFactory(ParagraphFactory)])
     confidence = factory.Faker("pyfloat", min_value=0.0, max_value=1.0)
     audio_duration = factory.Faker("pyint")
+    speech_model_used = "universal-2"
 
 
 def generate_dict_factory(f: factory.Factory) -> Callable[[], Dict[str, Any]]:
