@@ -267,6 +267,24 @@ def test_get_sentences_and_paragraphs_succeeds(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 2
 
 
+def test_sentences_and_paragraphs_parse_speech_model_used():
+    """
+    Tests that speech_model_used is parsed on the sentences and paragraphs responses.
+    """
+    mock_sentences_response = factories.generate_dict_factory(
+        factories.SentencesResponseFactory
+    )()
+    mock_paragraphs_response = factories.generate_dict_factory(
+        factories.ParagraphsResponseFactory
+    )()
+
+    sentences_response = aai.types.SentencesResponse(**mock_sentences_response)
+    paragraphs_response = aai.types.ParagraphsResponse(**mock_paragraphs_response)
+
+    assert sentences_response.speech_model_used == "universal-2"
+    assert paragraphs_response.speech_model_used == "universal-2"
+
+
 def test_get_sentences_and_paragraphs_fails(httpx_mock: HTTPXMock):
     """
     Tests whether getting sentences and paragraphs fails.

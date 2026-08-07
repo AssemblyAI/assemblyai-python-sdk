@@ -2259,6 +2259,8 @@ class SentencesResponse(BaseModel):
     sentences: List[Sentence]
     confidence: float
     audio_duration: float
+    speech_model_used: Optional[str] = None
+    "The actual speech model that was used for the transcription"
 
 
 class Paragraph(Word):
@@ -2273,6 +2275,8 @@ class ParagraphsResponse(BaseModel):
     paragraphs: List[Paragraph]
     confidence: float
     audio_duration: float
+    speech_model_used: Optional[str] = None
+    "The actual speech model that was used for the transcription"
 
 
 class BaseTranscript(BaseModel):
