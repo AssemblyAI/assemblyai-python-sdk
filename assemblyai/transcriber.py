@@ -6,7 +6,6 @@ import os
 import time
 from typing import (
     BinaryIO,
-    Dict,
     Iterator,
     List,
     Optional,
@@ -21,6 +20,7 @@ from typing_extensions import Self
 
 from . import api, lemur, types
 from . import client as _client
+from ._transcript_fields import TranscriptFields, config_from_response
 
 
 class _TranscriptImpl:
@@ -43,12 +43,7 @@ class _TranscriptImpl:
                 "Cannot access the configuration. The internal Transcript object is None."
             )
 
-        return types.TranscriptionConfig(
-            **self.transcript.dict(
-                include=set(types.RawTranscriptionConfig.__fields__),
-                exclude_none=True,
-            )
-        )
+        return config_from_response(self.transcript)
 
     @classmethod
     def from_response(
@@ -221,7 +216,7 @@ class _TranscriptImpl:
         return Transcript.from_response(client=client, response=response)
 
 
-class Transcript(types.Sourcable):
+class Transcript(TranscriptFields, types.Sourcable):
     """
     Transcript object to perform operations on the actual transcript.
     """
@@ -334,224 +329,11 @@ class Transcript(types.Sourcable):
 
         return self._impl.config
 
-    @property
-    def json_response(self) -> Optional[dict]:
-        "The full JSON response associated with the transcript."
+    def _response(self) -> types.TranscriptResponse:
         if not self._impl.transcript:
             raise ValueError("The internal Transcript object is None.")
 
-        return self._impl.transcript.dict()
-
-    @property
-    def audio_url(self) -> str:
-        "The corresponding audio url"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.audio_url
-
-    @property
-    def speech_model(self) -> Optional[str]:
-        "The speech model used for the transcription"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.speech_model
-
-    @property
-    def speech_model_used(self) -> Optional[str]:
-        "The actual speech model that was used for the transcription"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.speech_model_used
-
-    @property
-    def text(self) -> Optional[str]:
-        "The text transcription of your media file"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.text
-
-    @property
-    def translated_texts(self) -> Optional[Dict[str, str]]:
-        "The translated texts transcription of your media file"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.translated_texts
-
-    @property
-    def speech_understanding(self) -> Optional[types.SpeechUnderstandingResponse]:
-        "The text transcription of your media file"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.speech_understanding
-
-    @property
-    def summary(self) -> Optional[str]:
-        "The summarization of the transcript"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.summary
-
-    @property
-    def chapters(self) -> Optional[List[types.Chapter]]:
-        "The list of auto-chapters results"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.chapters
-
-    @property
-    def content_safety(self) -> Optional[types.ContentSafetyResponse]:
-        "The results from the content safety analysis"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.content_safety_labels
-
-    @property
-    def sentiment_analysis(self) -> Optional[List[types.Sentiment]]:
-        "The list of sentiment analysis results"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.sentiment_analysis_results
-
-    @property
-    def entities(self) -> Optional[List[types.Entity]]:
-        "The list of entity detection results"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.entities
-
-    @property
-    def iab_categories(self) -> Optional[types.IABResponse]:
-        "The results from the IAB category detection"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.iab_categories_result
-
-    @property
-    def auto_highlights(self) -> Optional[types.AutohighlightResponse]:
-        "The results from the auto-highlights model"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.auto_highlights_result
-
-    @property
-    def status(self) -> types.TranscriptStatus:
-        "The current status of the transcript"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.status
-
-    @property
-    def error(self) -> Optional[str]:
-        "The error message in case the transcription fails"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.error
-
-    @property
-    def words(self) -> Optional[List[types.Word]]:
-        "The list of words in the transcript"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.words
-
-    @property
-    def utterances(self) -> Optional[List[types.Utterance]]:
-        """
-        When `dual_channel` or `speaker_labels` is enabled,
-        a list of utterances in the transcript.
-        """
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.utterances
-
-    @property
-    def unredacted_text(self) -> Optional[str]:
-        "The unredacted transcript text, when `redact_pii_return_unredacted` was enabled."
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.unredacted_text
-
-    @property
-    def unredacted_words(self) -> Optional[List[types.Word]]:
-        "The unredacted list of words, when `redact_pii_return_unredacted` was enabled."
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.unredacted_words
-
-    @property
-    def unredacted_utterances(self) -> Optional[List[types.Utterance]]:
-        "The unredacted list of utterances, when `redact_pii_return_unredacted` was enabled."
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.unredacted_utterances
-
-    @property
-    def confidence(self) -> Optional[float]:
-        "The confidence our model has in the transcribed text, between 0 and 1"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.confidence
-
-    @property
-    def audio_duration(self) -> Optional[int]:
-        "The duration of the audio in seconds"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.audio_duration
-
-    @property
-    def webhook_status_code(self) -> Optional[int]:
-        "The status code we received from your server when delivering your webhook"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.webhook_status_code
-
-    @property
-    def webhook_auth(self) -> Optional[bool]:
-        "Whether the webhook was sent with an HTTP authentication header"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.webhook_auth
-
-    @property
-    def language_code(self) -> Optional[Union[str, types.LanguageCode]]:
-        "The language code of the transcript"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.language_code
-
-    @property
-    def language_codes(self) -> Optional[List[Union[str, types.LanguageCode]]]:
-        "The list of language codes for multilingual/code-switching audio"
-        if not self._impl.transcript:
-            raise ValueError("The internal Transcript object is None.")
-
-        return self._impl.transcript.language_codes
+        return self._impl.transcript
 
     @property
     def lemur(self) -> lemur.Lemur:

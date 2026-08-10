@@ -1,4 +1,4 @@
-from typing import BinaryIO, List, Optional, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Type, Union
 from urllib.parse import urlencode
 
 import httpx
@@ -28,22 +28,118 @@ def _get_error_message(response: httpx.Response) -> str:
         return f"\nReason: {response.text}\nRequest: {response.request}"
 
 
+def _raise_for_status(
+    response: httpx.Response,
+    message: str,
+    error_type: Type[types.AssemblyAIError] = types.TranscriptError,
+) -> None:
+    """
+    Raises `error_type` unless the response is a 200.
+
+    Shared by `api` and `async_api`, so both raise the same error per endpoint.
+
+    Args:
+        `response`: the HTTP response
+        `message`: what failed, e.g. `failed to retrieve transcript abc`. The
+            server error is appended to it.
+        `error_type`: the exception class to raise.
+    """
+
+    if response.status_code != httpx.codes.OK:
+        raise error_type(
+            f"{message}: {_get_error_message(response)}",
+            response.status_code,
+        )
+
+
+def _subtitles_params(chars_per_caption: Optional[int]) -> Dict[str, Any]:
+    return {"chars_per_caption": chars_per_caption} if chars_per_caption else {}
+
+
+def _word_search_params(words: List[str]) -> str:
+    return urlencode(
+        {
+            "words": ",".join(words),
+        }
+    )
+
+
+def _list_transcripts_params(
+    params: Optional[types.ListTranscriptParameters],
+) -> Optional[Dict[str, Any]]:
+    return (
+        params.dict(
+            exclude_none=True,
+        )
+        if params
+        else None
+    )
+
+
+def _transcript_request_json(request: types.TranscriptRequest) -> Dict[str, Any]:
+    return request.dict(
+        exclude_none=True,
+        by_alias=True,
+    )
+
+
+def _parse_redacted_audio_response(
+    response: httpx.Response,
+    transcript_id: str,
+) -> types.RedactedAudioResponse:
+    """
+    Parses a redacted-audio response. Maps the 202 and 400 statuses to
+    dedicated errors.
+
+    Raises:
+        RedactedAudioIncompleteError: If response indicates that the redacted audio is still processing
+        RedactedAudioExpiredError: If response indicates that the redacted audio is no longer available
+        TranscriptError: If we fail to get a valid response from the API at all
+    """
+
+    if response.status_code == httpx.codes.ACCEPTED:
+        raise types.RedactedAudioIncompleteError(
+            f"redacted audio for transcript {transcript_id} is not ready yet",
+            response.status_code,
+        )
+
+    if response.status_code == httpx.codes.BAD_REQUEST:
+        raise types.RedactedAudioExpiredError(
+            f"redacted audio for transcript {transcript_id} is no longer available",
+            response.status_code,
+        )
+
+    _raise_for_status(
+        response, f"failed to retrieve redacted audio for transcript {transcript_id}"
+    )
+
+    return types.RedactedAudioResponse.parse_obj(response.json())
+
+
+def _parse_lemur_response(
+    response: httpx.Response,
+) -> Union[
+    types.LemurStringResponse,
+    types.LemurQuestionResponse,
+]:
+    json_data = response.json()
+
+    if isinstance(json_data.get("response"), list):
+        return types.LemurQuestionResponse.parse_obj(json_data)
+
+    return types.LemurStringResponse.parse_obj(json_data)
+
+
 def create_transcript(
     client: httpx.Client,
     request: types.TranscriptRequest,
 ) -> types.TranscriptResponse:
     response = client.post(
         ENDPOINT_TRANSCRIPT,
-        json=request.dict(
-            exclude_none=True,
-            by_alias=True,
-        ),
+        json=_transcript_request_json(request),
     )
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to transcribe url {request.audio_url}: {_get_error_message(response)}",
-            response.status_code,
-        )
+
+    _raise_for_status(response, f"failed to transcribe url {request.audio_url}")
 
     return types.TranscriptResponse.parse_obj(response.json())
 
@@ -56,11 +152,7 @@ def get_transcript(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to retrieve transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, f"failed to retrieve transcript {transcript_id}")
 
     return types.TranscriptResponse.parse_obj(response.json())
 
@@ -73,11 +165,7 @@ def delete_transcript(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}",
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to delete transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, f"failed to delete transcript {transcript_id}")
 
     return types.TranscriptResponse.parse_obj(response.json())
 
@@ -101,11 +189,7 @@ def upload_file(
         content=audio_file,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"Failed to upload audio file: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "Failed to upload audio file")
 
     return response.json()["upload_url"]
 
@@ -115,23 +199,12 @@ def export_subtitles_srt(
     transcript_id: str,
     chars_per_caption: Optional[int],
 ) -> str:
-    params = {}
-
-    if chars_per_caption:
-        params = {
-            "chars_per_caption": chars_per_caption,
-        }
-
     response = client.get(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/srt",
-        params=params,
+        params=_subtitles_params(chars_per_caption),
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to export SRT for transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, f"failed to export SRT for transcript {transcript_id}")
 
     return response.text
 
@@ -141,23 +214,12 @@ def export_subtitles_vtt(
     transcript_id: str,
     chars_per_caption: Optional[int],
 ) -> str:
-    params = {}
-
-    if chars_per_caption:
-        params = {
-            "chars_per_caption": chars_per_caption,
-        }
-
     response = client.get(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/vtt",
-        params=params,
+        params=_subtitles_params(chars_per_caption),
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to export VTT for transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, f"failed to export VTT for transcript {transcript_id}")
 
     return response.text
 
@@ -169,18 +231,10 @@ def word_search(
 ) -> types.WordSearchMatchResponse:
     response = client.get(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/word-search",
-        params=urlencode(
-            {
-                "words": ",".join(words),
-            }
-        ),
+        params=_word_search_params(words),
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to search words in transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, f"failed to search words in transcript {transcript_id}")
 
     return types.WordSearchMatchResponse.parse_obj(response.json())
 
@@ -202,25 +256,7 @@ def get_redacted_audio(
 
     response = client.get(f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/redacted-audio")
 
-    if response.status_code == httpx.codes.ACCEPTED:
-        raise types.RedactedAudioIncompleteError(
-            f"redacted audio for transcript {transcript_id} is not ready yet",
-            response.status_code,
-        )
-
-    if response.status_code == httpx.codes.BAD_REQUEST:
-        raise types.RedactedAudioExpiredError(
-            f"redacted audio for transcript {transcript_id} is no longer available",
-            response.status_code,
-        )
-
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to retrieve redacted audio for transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
-
-    return types.RedactedAudioResponse.parse_obj(response.json())
+    return _parse_redacted_audio_response(response, transcript_id)
 
 
 def get_sentences(
@@ -231,11 +267,9 @@ def get_sentences(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/sentences",
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to retrieve sentences for transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(
+        response, f"failed to retrieve sentences for transcript {transcript_id}"
+    )
 
     return types.SentencesResponse.parse_obj(response.json())
 
@@ -248,11 +282,9 @@ def get_paragraphs(
         f"{ENDPOINT_TRANSCRIPT}/{transcript_id}/paragraphs",
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.TranscriptError(
-            f"failed to retrieve paragraphs for transcript {transcript_id}: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(
+        response, f"failed to retrieve paragraphs for transcript {transcript_id}"
+    )
 
     return types.ParagraphsResponse.parse_obj(response.json())
 
@@ -263,20 +295,10 @@ def list_transcripts(
 ) -> types.ListTranscriptResponse:
     response = client.get(
         ENDPOINT_TRANSCRIPT,
-        params=(
-            params.dict(
-                exclude_none=True,
-            )
-            if params
-            else None
-        ),
+        params=_list_transcripts_params(params),
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.AssemblyAIError(
-            f"failed to retrieve transcripts: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "failed to retrieve transcripts", types.AssemblyAIError)
 
     return types.ListTranscriptResponse.parse_obj(response.json())
 
@@ -294,11 +316,7 @@ def lemur_question(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"failed to call Lemur questions: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "failed to call Lemur questions", types.LemurError)
 
     return types.LemurQuestionResponse.parse_obj(response.json())
 
@@ -316,11 +334,7 @@ def lemur_summarize(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"failed to call Lemur summary: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "failed to call Lemur summary", types.LemurError)
 
     return types.LemurSummaryResponse.parse_obj(response.json())
 
@@ -338,11 +352,7 @@ def lemur_action_items(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"failed to call Lemur action items: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "failed to call Lemur action items", types.LemurError)
 
     return types.LemurActionItemsResponse.parse_obj(response.json())
 
@@ -360,11 +370,7 @@ def lemur_task(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"failed to call Lemur task: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(response, "failed to call Lemur task", types.LemurError)
 
     return types.LemurTaskResponse.parse_obj(response.json())
 
@@ -379,11 +385,11 @@ def lemur_purge_request_data(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(
+        response,
+        f"Failed to purge LeMUR request data for provided request ID: {request.request_id}. Error",
+        types.LemurError,
+    )
 
     return types.LemurPurgeResponse.parse_obj(response.json())
 
@@ -401,15 +407,10 @@ def lemur_get_response_data(
         timeout=http_timeout,
     )
 
-    if response.status_code != httpx.codes.OK:
-        raise types.LemurError(
-            f"Failed to get LeMUR response data for provided request ID: {request_id}. Error: {_get_error_message(response)}",
-            response.status_code,
-        )
+    _raise_for_status(
+        response,
+        f"Failed to get LeMUR response data for provided request ID: {request_id}. Error",
+        types.LemurError,
+    )
 
-    json_data = response.json()
-
-    if isinstance(json_data.get("response"), list):
-        return types.LemurQuestionResponse.parse_obj(json_data)
-
-    return types.LemurStringResponse.parse_obj(json_data)
+    return _parse_lemur_response(response)
