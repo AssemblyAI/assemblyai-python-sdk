@@ -38,6 +38,9 @@ aai.settings.api_key = "your-key"
 ## Key classes
 
 - `aai.Transcriber` — Transcribe files, URLs, or streams. Methods: `transcribe()`, `transcribe_async()`, `submit()`, `list_transcripts()`
+- `aai.AsyncTranscriber` — Asyncio counterpart of `Transcriber`. Same options, every API call a coroutine. Methods: `transcribe()`, `submit()`, `transcribe_group()`, `get_by_id()`, `delete_by_id()`, `list_transcripts()`, `upload_file()`
+- `aai.AsyncTranscript` — What `AsyncTranscriber` returns. Same fields as `Transcript`, coroutine methods
+- `aai.AsyncClient` — Shared `httpx.AsyncClient` pool for one or more `AsyncTranscriber`s
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
 - `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_async()`
@@ -79,6 +82,62 @@ config.set_redact_pii(
 ```python
 transcript = aai.Transcript.get_by_id("transcript-id")
 ```
+
+## Asyncio transcription (`AsyncTranscriber`)
+
+`AsyncTranscriber` is `Transcriber` with coroutines instead of a thread pool. Use it in
+asyncio code (FastAPI, aiohttp, voice agents). Do not use `transcribe_async()` there: its
+`concurrent.futures.Future` is not awaitable, and `.result()` blocks the event loop. Same
+`TranscriptionConfig`, same fields on the result.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
+
+async def main():
+    async with aai.AsyncTranscriber() as transcriber:
+        transcript = await transcriber.transcribe("./audio.mp3")
+        if transcript.status == aai.TranscriptStatus.error:
+            raise RuntimeError(transcript.error)
+        print(transcript.text)
+
+        sentences = await transcript.get_sentences()   # follow-ups are coroutines too
+        srt = await transcript.export_subtitles_srt()
+
+asyncio.run(main())
+```
+
+**Lifecycle**: the transcriber owns an HTTP connection pool. Use `async with`, or call
+`await transcriber.aclose()`. To share one pool, pass a client, which stays yours to close:
+```python
+async with aai.AsyncClient(settings=aai.settings) as client:
+    transcriber = aai.AsyncTranscriber(client=client)
+```
+There is **no** process-wide default async client, unlike sync `Client`. An
+`httpx.AsyncClient` pool is bound to the event loop that first used it, so a global one
+breaks under a second `asyncio.run(...)`.
+
+**Concurrency**: use `asyncio.gather(...)`, or the group helpers to cap in-flight work.
+Results come back in input order:
+```python
+transcripts = await transcriber.transcribe_group(files, max_concurrency=8)
+transcripts, errors = await transcriber.transcribe_group(files, return_failures=True)
+```
+Unlike the sync `transcribe_group`, failures are never dropped. The first error raises
+after the batch settles, or you collect them with `return_failures=True`.
+
+**Method mapping** (sync → async): `Transcript.get_by_id(id)` → `await transcriber.get_by_id(id)`;
+`Transcript.delete_by_id(id)` → `await transcriber.delete_by_id(id)`. Both moved onto the
+transcriber, which owns the connection pool.
+
+**Uploads**: local paths and file objects stream to the upload endpoint in chunks read on
+a worker thread. The request sets `Content-Length` when the size is known. A large file
+never blocks the loop and never loads fully into memory.
+
+**LeMUR** is sync-only. An `AsyncTranscript` works as a `LemurSource`, but the LeMUR call
+blocks. Run it off the loop, for example with `asyncio.to_thread`.
 
 ## Sync transcription (pre-recorded, single request)
 
@@ -323,7 +382,7 @@ async with AsyncStreamingClient(StreamingClientOptions(token=token_from_server))
 - **PII redaction uses `set_redact_pii()`**, not a constructor parameter
 - **Streaming v3 lives in its own module**: `assemblyai.streaming.v3` (there is no other streaming API in this SDK). See the "Streaming (real-time)" section above.
 - **Microphone streaming needs extras**: `pip install "assemblyai[extras]"` for `pyaudio`
-- **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine
+- **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above)
 - **Timestamps are in milliseconds** throughout the SDK
 - **Minimum Python**: 3.8+
 
