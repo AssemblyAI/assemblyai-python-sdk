@@ -10,7 +10,9 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai import async_api, types
 from assemblyai.api import ENDPOINT_TRANSCRIPT, ENDPOINT_UPLOAD
+from assemblyai.async_transcriber import _upload_request
 from tests.unit import factories
 
 pytestmark = pytest.mark.asyncio
@@ -56,6 +58,27 @@ def _mock_submit(httpx_mock: HTTPXMock, response: dict) -> None:
         status_code=httpx.codes.OK,
         json=response,
     )
+
+
+async def _drain(content) -> bytes:
+    """Collects an upload body, which is either bytes or an async iterable."""
+
+    if isinstance(content, bytes):
+        return content
+
+    return b"".join([chunk async for chunk in content])
+
+
+def _stub_create_transcript(monkeypatch, handler) -> None:
+    """
+    Replaces the create-transcript request with `handler`.
+
+    The group methods only orchestrate `submit`, so a stub at the transport
+    boundary tests the order and the concurrency limit without a mock HTTP
+    server. pytest-httpx cannot delay a response on every supported version.
+    """
+
+    monkeypatch.setattr(async_api, "create_transcript", handler)
 
 
 def _mock_poll(httpx_mock: HTTPXMock, response: dict, **kwargs) -> None:
@@ -216,10 +239,9 @@ async def test_upload_file_from_path_streams_with_content_length(
     async with aai.AsyncTranscriber() as transcriber:
         upload_url = await transcriber.upload_file(str(audio_path))
 
-    # Then the whole file arrived, sized rather than chunk-encoded
+    # Then the request is sized rather than chunk-encoded
     assert upload_url == "https://example.org/uploaded.wav"
     request = httpx_mock.get_requests()[0]
-    assert request.read() == audio
     assert request.headers["content-length"] == str(len(audio))
     assert "transfer-encoding" not in request.headers
 
@@ -238,10 +260,10 @@ async def test_upload_file_from_file_object(httpx_mock: HTTPXMock):
     async with aai.AsyncTranscriber() as transcriber:
         await transcriber.upload_file(io.BytesIO(audio))
 
-    # Then its length is known up front and the bytes arrive intact
+    # Then its length is known before the request starts
     request = httpx_mock.get_requests()[0]
-    assert request.read() == audio
     assert request.headers["content-length"] == str(len(audio))
+    assert "transfer-encoding" not in request.headers
 
 
 async def test_upload_file_from_partially_read_file_object(httpx_mock: HTTPXMock):
@@ -261,9 +283,8 @@ async def test_upload_file_from_partially_read_file_object(httpx_mock: HTTPXMock
     async with aai.AsyncTranscriber() as transcriber:
         await transcriber.upload_file(stream)
 
-    # Then only the remaining bytes are sent, and Content-Length matches them
+    # Then Content-Length counts the remaining bytes only
     request = httpx_mock.get_requests()[0]
-    assert request.read() == audio[28:]
     assert request.headers["content-length"] == str(len(audio) - 28)
 
 
@@ -284,7 +305,76 @@ async def test_upload_file_from_pathlike(httpx_mock: HTTPXMock, tmp_path):
     async with aai.AsyncTranscriber() as transcriber:
         await transcriber.upload_file(audio_path)
 
-    assert httpx_mock.get_requests()[0].read() == audio
+    request = httpx_mock.get_requests()[0]
+    assert request.headers["content-length"] == str(len(audio))
+
+
+async def test_upload_request_sends_bytes_unchanged():
+    # Given raw audio bytes
+    audio = os.urandom(64)
+
+    # When building the upload body
+    content, headers = _upload_request(audio)
+
+    # Then httpx receives the bytes and derives Content-Length itself
+    assert await _drain(content) == audio
+    assert headers == {}
+
+
+async def test_upload_request_streams_a_path(tmp_path):
+    # Given a file larger than one read chunk
+    audio = os.urandom(3 * 1024 * 1024)
+    audio_path = tmp_path / "audio.wav"
+    audio_path.write_bytes(audio)
+
+    # When building the upload body from a path and from a PathLike
+    for source in (str(audio_path), audio_path):
+        content, headers = _upload_request(source)
+
+        # Then every chunk arrives, in order, with a Content-Length
+        assert await _drain(content) == audio
+        assert headers == {"Content-Length": str(len(audio))}
+
+
+async def test_upload_request_streams_a_file_object():
+    # Given a binary file object
+    audio = os.urandom(128)
+
+    # When building the upload body
+    content, headers = _upload_request(io.BytesIO(audio))
+
+    assert await _drain(content) == audio
+    assert headers == {"Content-Length": str(len(audio))}
+
+
+async def test_upload_request_sends_the_remainder_of_a_read_file_object():
+    # Given a file object that has already been read from
+    audio = os.urandom(128)
+    stream = io.BytesIO(audio)
+    stream.read(28)
+
+    # When building the upload body
+    content, headers = _upload_request(stream)
+
+    # Then only the remaining bytes are sent
+    assert await _drain(content) == audio[28:]
+    assert headers == {"Content-Length": str(len(audio) - 28)}
+
+
+async def test_upload_request_omits_content_length_for_an_unsized_stream():
+    # Given a stream that cannot report its size
+    audio = os.urandom(64)
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, audio)
+    os.close(write_fd)
+
+    # When building the upload body
+    with open(read_fd, "rb") as pipe:
+        content, headers = _upload_request(pipe)
+
+        # Then httpx falls back to chunked transfer encoding
+        assert headers == {}
+        assert await _drain(content) == audio
 
 
 async def test_upload_file_rejects_unsupported_input():
@@ -466,28 +556,28 @@ async def test_delete_by_id(httpx_mock: HTTPXMock):
     assert transcript.text == "Deleted by user."
 
 
-async def test_transcribe_group_preserves_order(httpx_mock: HTTPXMock):
-    # Given three URLs whose jobs complete out of order
+async def test_transcribe_group_preserves_order(monkeypatch):
+    # Given three URLs whose jobs finish in a different order
     urls = [f"https://example.org/{i}.wav" for i in range(3)]
-    completed = [_completed_response(text=f"transcript {i}") for i in range(3)]
+    responses = [
+        types.TranscriptResponse.parse_obj(_completed_response(text=f"transcript {i}"))
+        for i in range(3)
+    ]
+    delays = [0.03, 0.01, 0.02]
 
-    def submit_callback(request: httpx.Request) -> httpx.Response:
-        index = urls.index(json.loads(request.read())["audio_url"])
+    async def create_transcript(*, client, request):
+        index = urls.index(request.audio_url)
+        await asyncio.sleep(delays[index])
 
-        return httpx.Response(httpx.codes.OK, json=completed[index])
+        return responses[index]
 
-    httpx_mock.add_callback(
-        submit_callback,
-        url=TRANSCRIPT_URL,
-        method="POST",
-        is_reusable=True,
-    )
+    _stub_create_transcript(monkeypatch, create_transcript)
 
-    # When transcribing them as a group
+    # When submitting them as a group
     async with aai.AsyncTranscriber() as transcriber:
         transcripts = await transcriber.submit_group(urls)
 
-    # Then the results line up with the input order
+    # Then the results follow the input order, not the completion order
     assert [t.text for t in transcripts] == [
         "transcript 0",
         "transcript 1",
@@ -495,17 +585,14 @@ async def test_transcribe_group_preserves_order(httpx_mock: HTTPXMock):
     ]
 
 
-async def test_transcribe_group_raises_first_failure(httpx_mock: HTTPXMock):
+async def test_transcribe_group_raises_first_failure(monkeypatch):
     # Given a batch in which every submission is rejected
-    httpx_mock.add_response(
-        url=TRANSCRIPT_URL,
-        method="POST",
-        status_code=httpx.codes.BAD_REQUEST,
-        json={"error": "nope"},
-        is_reusable=True,
-    )
+    async def create_transcript(*, client, request):
+        raise aai.TranscriptError("nope", 400)
 
-    # When submitting the group without asking for failures
+    _stub_create_transcript(monkeypatch, create_transcript)
+
+    # When submitting the group without asking for the failures
     async with aai.AsyncTranscriber() as transcriber:
         with pytest.raises(aai.TranscriptError):
             await transcriber.submit_group(
@@ -513,22 +600,17 @@ async def test_transcribe_group_raises_first_failure(httpx_mock: HTTPXMock):
             )
 
 
-async def test_transcribe_group_returns_failures(httpx_mock: HTTPXMock):
+async def test_transcribe_group_returns_failures(monkeypatch):
     # Given a batch where one submission fails and one succeeds
-    completed = _completed_response(text="ok")
+    completed = types.TranscriptResponse.parse_obj(_completed_response(text="ok"))
 
-    def submit_callback(request: httpx.Request) -> httpx.Response:
-        if json.loads(request.read())["audio_url"].endswith("bad.wav"):
-            return httpx.Response(httpx.codes.BAD_REQUEST, json={"error": "nope"})
+    async def create_transcript(*, client, request):
+        if request.audio_url.endswith("bad.wav"):
+            raise aai.TranscriptError("nope", 400)
 
-        return httpx.Response(httpx.codes.OK, json=completed)
+        return completed
 
-    httpx_mock.add_callback(
-        submit_callback,
-        url=TRANSCRIPT_URL,
-        method="POST",
-        is_reusable=True,
-    )
+    _stub_create_transcript(monkeypatch, create_transcript)
 
     # When submitting with return_failures
     async with aai.AsyncTranscriber() as transcriber:
@@ -537,19 +619,19 @@ async def test_transcribe_group_returns_failures(httpx_mock: HTTPXMock):
             return_failures=True,
         )
 
-    # Then the successful transcript and the error come back side by side
+    # Then the successful transcript and the error come back together
     assert [t.text for t in transcripts] == ["ok"]
     assert len(failures) == 1
     assert isinstance(failures[0], aai.TranscriptError)
 
 
-async def test_transcribe_group_limits_concurrency(httpx_mock: HTTPXMock):
-    # Given a batch of six jobs and a mock that tracks in-flight requests
+async def test_transcribe_group_limits_concurrency(monkeypatch):
+    # Given a batch of six jobs and a transport that counts concurrent calls
+    completed = types.TranscriptResponse.parse_obj(_completed_response())
     in_flight = 0
     peak = 0
-    completed = _completed_response()
 
-    async def submit_callback(request: httpx.Request) -> httpx.Response:
+    async def create_transcript(*, client, request):
         nonlocal in_flight, peak
         in_flight += 1
         peak = max(peak, in_flight)
@@ -558,14 +640,9 @@ async def test_transcribe_group_limits_concurrency(httpx_mock: HTTPXMock):
         finally:
             in_flight -= 1
 
-        return httpx.Response(httpx.codes.OK, json=completed)
+        return completed
 
-    httpx_mock.add_callback(
-        submit_callback,
-        url=TRANSCRIPT_URL,
-        method="POST",
-        is_reusable=True,
-    )
+    _stub_create_transcript(monkeypatch, create_transcript)
 
     # When submitting them with a concurrency limit of two
     async with aai.AsyncTranscriber() as transcriber:
@@ -574,9 +651,33 @@ async def test_transcribe_group_limits_concurrency(httpx_mock: HTTPXMock):
             max_concurrency=2,
         )
 
-    # Then no more than two were ever in flight, and all six completed
+    # Then two ran at a time, and all six finished
     assert len(transcripts) == 6
     assert peak == 2
+
+
+async def test_transcriptions_run_concurrently(monkeypatch):
+    # Given a transport that takes 50ms per call
+    completed = types.TranscriptResponse.parse_obj(_completed_response())
+
+    async def create_transcript(*, client, request):
+        await asyncio.sleep(0.05)
+
+        return completed
+
+    _stub_create_transcript(monkeypatch, create_transcript)
+
+    # When submitting four jobs together on one thread
+    async with aai.AsyncTranscriber() as transcriber:
+        loop = asyncio.get_event_loop()
+        started = loop.time()
+        await asyncio.gather(
+            *(transcriber.submit(f"https://example.org/{i}.wav") for i in range(4))
+        )
+        elapsed = loop.time() - started
+
+    # Then they overlapped instead of running in sequence (4 x 50ms)
+    assert elapsed < 0.15
 
 
 async def test_transcribe_group_rejects_invalid_concurrency():
@@ -585,34 +686,6 @@ async def test_transcribe_group_rejects_invalid_concurrency():
             await transcriber.submit_group(
                 ["https://example.org/a.wav"], max_concurrency=0
             )
-
-
-async def test_transcriptions_run_concurrently(httpx_mock: HTTPXMock):
-    # Given a submission endpoint that takes 50ms per request
-    completed = _completed_response()
-
-    async def submit_callback(request: httpx.Request) -> httpx.Response:
-        await asyncio.sleep(0.05)
-
-        return httpx.Response(httpx.codes.OK, json=completed)
-
-    httpx_mock.add_callback(
-        submit_callback,
-        url=TRANSCRIPT_URL,
-        method="POST",
-        is_reusable=True,
-    )
-
-    # When submitting four jobs concurrently on one thread
-    async with aai.AsyncTranscriber() as transcriber:
-        started = asyncio.get_event_loop().time()
-        await asyncio.gather(
-            *(transcriber.submit(f"https://example.org/{i}.wav") for i in range(4))
-        )
-        elapsed = asyncio.get_event_loop().time() - started
-
-    # Then they overlapped instead of running back to back (4 x 50ms)
-    assert elapsed < 0.15
 
 
 async def test_properties_require_a_fetched_response():
