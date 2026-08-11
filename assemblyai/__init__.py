@@ -1,7 +1,9 @@
 from . import extras
 from .__version__ import __version__
+from .async_client import AsyncClient
 from .client import Client
 from .lemur import Lemur
+from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
 from .sync import SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
 from .types import (
@@ -91,6 +93,9 @@ settings = Settings()
 __all__ = [
     # types
     "AssemblyAIError",
+    "AsyncClient",
+    "AsyncTranscriber",
+    "AsyncTranscript",
     "AutohighlightResponse",
     "AutohighlightResult",
     "Chapter",

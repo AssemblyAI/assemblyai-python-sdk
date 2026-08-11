@@ -49,6 +49,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
   - [Installation](#installation)
   - [Examples](#examples)
     - [**Core Examples**](#core-examples)
+    - [**Asyncio Examples**](#asyncio-examples)
     - [**Speech Understanding Examples**](#speech-understanding-examples)
     - [**Streaming Examples**](#streaming-examples)
     - [**Change the default settings**](#change-the-default-settings)
@@ -58,6 +59,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
     - [Defining Defaults](#defining-defaults)
     - [Overriding Defaults](#overriding-defaults)
   - [Synchronous vs Asynchronous](#synchronous-vs-asynchronous)
+  - [Asyncio](#asyncio)
   - [Getting the HTTP status code](#getting-the-http-status-code)
   - [Polling Intervals](#polling-intervals)
   - [Retrieving Existing Transcripts](#retrieving-existing-transcripts)
@@ -512,6 +514,146 @@ try:
     print(result.text)
 except aai.SyncTranscriptError as error:
     print(error.status_code, error.error_code, error.retry_after)
+```
+
+</details>
+
+---
+
+### **Asyncio Examples**
+
+`aai.AsyncTranscriber` is the asyncio counterpart of `aai.Transcriber`. Every method
+that calls the API is a coroutine. Hundreds of transcriptions run concurrently on one
+thread, with no thread pool.
+
+Use it in asyncio code (FastAPI, aiohttp, voice agents). Do not use
+`transcribe_async` there: it returns a
+[`concurrent.futures.Future`](https://docs.python.org/3/library/concurrent.futures.html),
+which is not awaitable.
+
+<details>
+  <summary>Transcribe a file with asyncio</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    config = aai.TranscriptionConfig(
+        speech_models=["universal-3-5-pro", "universal-2"],
+        speaker_labels=True,
+    )
+
+    async with aai.AsyncTranscriber(config=config) as transcriber:
+        transcript = await transcriber.transcribe("./example.mp3")
+
+        if transcript.status == aai.TranscriptStatus.error:
+            raise RuntimeError(f"Transcription failed: {transcript.error}")
+
+        print(transcript.text)
+
+
+asyncio.run(main())
+```
+
+The transcriber owns an HTTP connection pool. Close it with an async context manager,
+or call `await transcriber.aclose()`.
+
+</details>
+
+<details>
+  <summary>Transcribe many files concurrently</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTranscriber() as transcriber:
+        # Plain asyncio - one coroutine per file, all in flight at once.
+        transcripts = await asyncio.gather(
+            transcriber.transcribe("./one.mp3"),
+            transcriber.transcribe("./two.mp3"),
+        )
+
+        # Or let the transcriber cap how many run at a time. Results come back
+        # in the order of the input.
+        transcripts = await transcriber.transcribe_group(
+            ["./one.mp3", "./two.mp3", "./three.mp3"],
+            max_concurrency=2,
+        )
+
+        for transcript in transcripts:
+            print(transcript.text)
+
+
+asyncio.run(main())
+```
+
+Pass `return_failures=True` to get `(transcripts, errors)` instead of a raised error.
+
+</details>
+
+<details>
+  <summary>Submit now, collect later</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTranscriber() as transcriber:
+        # Returns as soon as the job is queued - no polling.
+        transcript = await transcriber.submit("https://example.org/audio.mp3")
+        print(transcript.id, transcript.status)
+
+        # Later, in the same or another process:
+        transcript = await transcriber.get_by_id(transcript.id)
+        print(transcript.text)
+
+        # Follow-up operations are coroutines too.
+        sentences = await transcript.get_sentences()
+        srt = await transcript.export_subtitles_srt()
+
+
+asyncio.run(main())
+```
+
+</details>
+
+<details>
+  <summary>Share one connection pool across transcribers</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncClient(settings=aai.settings) as client:
+        verbatim = aai.AsyncTranscriber(
+            client=client,
+            config=aai.TranscriptionConfig(disfluencies=True),
+        )
+        clean = aai.AsyncTranscriber(client=client)
+
+        # A client that was passed in is not closed by the transcribers - the
+        # `async with` above owns it.
+        await verbatim.transcribe("./interview.mp3")
+        await clean.transcribe("./interview.mp3")
 ```
 
 </details>
@@ -1175,6 +1317,48 @@ The synchronous approach halts the application's flow until the transcription ha
 The asynchronous approach allows the application to continue running while the transcription is being processed. The caller receives a [`concurrent.futures.Future`](https://docs.python.org/3/library/concurrent.futures.html) object which can be used to check the status of the transcription at a later time.
 
 You can identify those two approaches by the `_async` suffix in the `Transcriber`'s method name (e.g. `transcribe` vs `transcribe_async`).
+
+A `concurrent.futures.Future` is not awaitable, and its `.result()` blocks the event
+loop. In an asyncio application, use [`AsyncTranscriber`](#asyncio) instead.
+
+## Asyncio
+
+`aai.AsyncTranscriber` mirrors `aai.Transcriber` with coroutines instead of threads:
+
+| `Transcriber` (threads)                | `AsyncTranscriber` (asyncio)                     |
+| -------------------------------------- | ------------------------------------------------ |
+| `transcribe(...)`                      | `await transcribe(...)`                          |
+| `transcribe_async(...)` -> `Future`    | `await transcribe(...)` (or `asyncio.gather`)     |
+| `submit(...)`                          | `await submit(...)`                              |
+| `transcribe_group(...)`                | `await transcribe_group(...)`                    |
+| `Transcript.get_by_id(id)`             | `await transcriber.get_by_id(id)`                |
+| `Transcript.delete_by_id(id)`          | `await transcriber.delete_by_id(id)`             |
+| `transcript.get_sentences()`           | `await transcript.get_sentences()`               |
+| `list_transcripts(...)`                | `await list_transcripts(...)`                    |
+
+Notes:
+
+- Both transcribers live in `assemblyai.prerecorded.v2`, whose version matches
+  the `/v2/transcript` API. The top-level `aai.*` names re-export them, so
+  `aai.AsyncTranscriber` is all most callers need.
+- `AsyncTranscriber` owns an HTTP connection pool. Close it with an async context
+  manager, or call `await transcriber.aclose()`.
+- Pass `client=aai.AsyncClient(settings=aai.settings)` to share one pool between
+  transcribers. A client you pass in stays yours to close.
+- There is no process-wide default async client. An `httpx.AsyncClient` pool belongs to
+  the event loop that first used it, so a global pool fails on a second `asyncio.run()`.
+- `AsyncTranscript` carries the same fields as `Transcript`. Only the methods that call
+  the API became coroutines.
+- Uploads stream local files and file objects through a thread, so a large upload never
+  blocks the loop.
+- `transcribe_group` and `submit_group` return results in input order. Both cap in-flight
+  work at `max_concurrency`, which defaults to 8.
+- Neither group method drops a failure. Either the first error is raised, or you pass
+  `return_failures=True` and get `(transcripts, errors)`.
+- LeMUR is sync-only. An `AsyncTranscript` works as a `LemurSource`, but the LeMUR call
+  blocks. Run it in a thread, for example with `asyncio.to_thread`.
+
+For real-time streaming, use `assemblyai.streaming.v3.AsyncStreamingClient`.
 
 ## Getting the HTTP status code
 
