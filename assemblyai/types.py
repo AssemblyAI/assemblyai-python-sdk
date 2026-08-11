@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from warnings import warn
 
 if TYPE_CHECKING:
-    from .transcriber import Transcript
+    from .prerecorded.v2.transcript import Transcript
 
 try:
     # pydantic v2 import
