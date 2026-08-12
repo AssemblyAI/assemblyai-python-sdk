@@ -92,7 +92,7 @@ def test_root_api_module_reexports_prerecorded_endpoints():
             f"assemblyai.api.{name} does not match prerecorded.v2.api.{name}"
         )
 
-    for name in ("ENDPOINT_UPLOAD", "upload_file", "lemur_task", "_get_error_message"):
+    for name in ("ENDPOINT_UPLOAD", "upload_file", "_get_error_message"):
         assert hasattr(root_api, name), f"assemblyai.api.{name} is gone"
 
 

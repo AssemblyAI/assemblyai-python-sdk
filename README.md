@@ -423,7 +423,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.SyncTranscriptionConfig(
     prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 2048 chars total
     conversation_context=[
         # prior turns from the same conversation, oldest first
         "I'd like to book a flight to Denver.",
@@ -1259,7 +1259,7 @@ aai.settings.polling_interval = 10.0
 
 ## Playground
 
-Visit our Playground to try our all of our Speech AI models and LeMUR for free:
+Visit our Playground to try our all of our Speech AI models for free:
 
 - [Playground](https://www.assemblyai.com/dashboard/playground/)
 
@@ -1355,8 +1355,6 @@ Notes:
   work at `max_concurrency`, which defaults to 8.
 - Neither group method drops a failure. Either the first error is raised, or you pass
   `return_failures=True` and get `(transcripts, errors)`.
-- LeMUR is sync-only. An `AsyncTranscript` works as a `LemurSource`, but the LeMUR call
-  blocks. Run it in a thread, for example with `asyncio.to_thread`.
 
 For real-time streaming, use `assemblyai.streaming.v3.AsyncStreamingClient`.
 

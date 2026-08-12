@@ -901,20 +901,6 @@ async def test_client_requires_an_api_key():
         aai.AsyncClient(settings=settings)
 
 
-async def test_async_transcript_is_a_lemur_source(httpx_mock: HTTPXMock):
-    # Given a completed async transcript
-    completed = _completed_response()
-    _mock_submit(httpx_mock, completed)
-
-    async with aai.AsyncTranscriber() as transcriber:
-        transcript = await transcriber.submit("https://example.org/audio.wav")
-
-        # Then it can be handed to LeMUR, which only needs its id
-        source = aai.LemurSource(transcript)
-
-    assert source.source.id == completed["id"]
-
-
 async def test_both_concurrency_models_share_one_base():
     """The asyncio classes inherit the same bases as the threaded ones."""
     assert issubclass(aai.AsyncTranscript, _BaseTranscript)
