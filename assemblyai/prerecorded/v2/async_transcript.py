@@ -30,7 +30,7 @@ def _open_binary(path: str, mode: str) -> BinaryIO:
     return cast(BinaryIO, open(path, mode))
 
 
-class AsyncTranscript(_BaseTranscript, types.Sourcable):
+class AsyncTranscript(_BaseTranscript):
     """
     The asyncio counterpart of `Transcript`.
 

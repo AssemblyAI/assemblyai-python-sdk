@@ -137,9 +137,6 @@ transcriber, which owns the connection pool.
 a worker thread. The request sets `Content-Length` when the size is known. A large file
 never blocks the loop and never loads fully into memory.
 
-**LeMUR** is sync-only. An `AsyncTranscript` works as a `LemurSource`, but the LeMUR call
-blocks. Run it off the loop, for example with `asyncio.to_thread`.
-
 ## Sync transcription (pre-recorded, single request)
 
 `SyncTranscriber` posts a whole audio file and returns the finished transcript in one
@@ -167,7 +164,7 @@ pass a path/bytes or use `Transcriber` for URL ingestion.
 ```python
 config = aai.SyncTranscriptionConfig(
     prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 2048 chars total
     language_codes=["es"],                                 # or e.g. ["en", "es"] for multilingual; defaults to English
 )
 result = aai.SyncTranscriber().transcribe("./call.wav", config=config)
