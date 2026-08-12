@@ -1,11 +1,39 @@
 import sys
 import threading
-from typing import ClassVar, Optional
+from typing import ClassVar, Dict, Optional
 
 import httpx
 
 from . import types
 from .__version__ import __version__
+
+
+def _build_headers(settings: types.Settings) -> Dict[str, str]:
+    """
+    Builds the headers every request carries. Shared with `AsyncClient`.
+    """
+
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+    user_agent = f"{httpx._client.USER_AGENT} AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
+
+    headers = {"user-agent": user_agent}
+    if settings.api_key:
+        headers["authorization"] = settings.api_key
+
+    return headers
+
+
+def _build_limits(settings: types.Settings) -> httpx.Limits:
+    """Builds the pool limits from `settings.keepalive_expiry`."""
+
+    keepalive_expiry = settings.keepalive_expiry
+
+    return (
+        httpx.Limits(keepalive_expiry=keepalive_expiry)
+        if keepalive_expiry is not None
+        else httpx.Limits()
+    )
 
 
 class Client:
@@ -34,30 +62,16 @@ class Client:
                 "Please provide an API key via the ASSEMBLYAI_API_KEY environment variable or the global settings."
             )
 
-        vi = sys.version_info
-        python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
-        user_agent = f"{httpx._client.USER_AGENT} AssemblyAI/1.0 (sdk=Python/{__version__} runtime_env=Python/{python_version})"
-
-        headers = {"user-agent": user_agent}
-        if self._settings.api_key:
-            headers["authorization"] = self._settings.api_key
-
         self._last_response: Optional[httpx.Response] = None
 
         def _store_response(response):
             self._last_response = response
 
-        keepalive_expiry = self.settings.keepalive_expiry
-        limits = (
-            httpx.Limits(keepalive_expiry=keepalive_expiry)
-            if keepalive_expiry is not None
-            else httpx.Limits()
-        )
         self._http_client = httpx.Client(
             base_url=self.settings.base_url,
-            headers=headers,
+            headers=_build_headers(self._settings),
             timeout=self.settings.http_timeout,
-            limits=limits,
+            limits=_build_limits(self._settings),
             event_hooks={"response": [_store_response]},
         )
 

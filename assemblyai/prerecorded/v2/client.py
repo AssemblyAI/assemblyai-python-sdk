@@ -5,17 +5,17 @@ from __future__ import annotations
 import concurrent.futures
 import os
 from typing import BinaryIO, List, Optional, Set, Tuple, Union
-from urllib.parse import urlparse
 
 from ... import api as _root_api
 from ... import client as _client
 from ... import types
 from . import api
+from ._base import _BaseTranscriber, is_url
 from .transcript import Transcript
 from .transcript_group import TranscriptGroup
 
 
-class _TranscriberImpl:
+class _TranscriberImpl(_BaseTranscriber):
     """
     Implementation of the Transcriber class.
     """
@@ -89,10 +89,9 @@ class _TranscriberImpl:
         config: Optional[types.TranscriptionConfig],
         poll: bool,
     ) -> Transcript:
-        if config is None:
-            config = self.config
+        config = self._resolve_config(config)
 
-        if isinstance(data, str) and urlparse(data).scheme in {"http", "https"}:
+        if isinstance(data, str) and is_url(data):
             return self.transcribe_url(
                 url=data,
                 config=config,
@@ -113,8 +112,7 @@ class _TranscriberImpl:
         poll: bool,
         return_failures: Optional[bool] = False,
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
-        if config is None:
-            config = self.config
+        config = self._resolve_config(config)
 
         future_transcripts: Set[concurrent.futures.Future[Transcript]] = set()
 
@@ -170,7 +168,7 @@ class _TranscriberImpl:
         return api.list_transcripts(client=self._client.http_client, params=params)
 
 
-class Transcriber:
+class Transcriber(_BaseTranscriber):
     """
     A transcriber used for transcribing URLs or local audio files.
     """
