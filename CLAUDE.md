@@ -45,6 +45,7 @@ aai.settings.api_key = "your-key"
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
 - `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_async()`
+- `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()` and `warm()` are coroutines. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
 - `aai.SyncTranscriptionConfig` — Sync options: `model` (default `universal-3-5-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.StreamingClient` — Real-time streaming with event-based API (threaded)
@@ -209,8 +210,42 @@ result = aai.SyncTranscriber().transcribe(raw_pcm_bytes, config=config)
 ```
 
 **Concurrency**: `transcribe_async()` returns a `concurrent.futures.Future` (thread-based,
-not asyncio) for fanning out a handful of files. (An asyncio-native `AsyncSyncTranscriber`
-is a planned follow-up for high-concurrency servers and event-loop codebases.)
+not asyncio) for fanning out a handful of files. In asyncio code use
+`aai.AsyncSyncTranscriber` instead (see "Asyncio sync transcription" below).
+
+## Asyncio sync transcription (`AsyncSyncTranscriber`)
+
+`AsyncSyncTranscriber` is `SyncTranscriber` for the event loop: same input types
+(path/bytes/file object — no URLs), same `SyncTranscriptionConfig`, same
+`SyncTranscriptResponse` and `SyncTranscriptError`, with `transcribe()` and `warm()`
+as coroutines. Path and file-object reads run off the loop. Use it in FastAPI,
+aiohttp, and voice agents, where the threaded `transcribe()` would block the loop
+and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
+
+async def main():
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        asyncio.create_task(transcriber.warm())   # optional: fire as recording starts
+        audio = await record_until_done()
+        result = await transcriber.transcribe(audio)
+        print(result.text)
+
+asyncio.run(main())
+```
+
+**Lifecycle**: like `AsyncTranscriber`, it owns an HTTP connection pool — use
+`async with`, or call `await transcriber.aclose()`. To share one pool, pass an
+`aai.AsyncClient`, which stays yours to close. There is no process-wide default
+async client (an `httpx.AsyncClient` pool is bound to the event loop that first
+used it).
+
+**Concurrency**: plain asyncio — `await asyncio.gather(transcriber.transcribe(a),
+transcriber.transcribe(b))`. There is no `transcribe_async()` and no thread pool.
 
 **Errors**: failures raise `aai.SyncTranscriptError` with `.status_code`, a
 machine-readable `.error_code` — the snake_cased problem-details `title` from the
@@ -380,7 +415,7 @@ async with AsyncStreamingClient(StreamingClientOptions(token=token_from_server))
 - **PII redaction uses `set_redact_pii()`**, not a constructor parameter
 - **Streaming v3 lives in its own module**: `assemblyai.streaming.v3` (there is no other streaming API in this SDK). See the "Streaming (real-time)" section above.
 - **Microphone streaming needs extras**: `pip install "assemblyai[extras]"` for `pyaudio`
-- **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above)
+- **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above) — or `aai.AsyncSyncTranscriber` for the sync API
 - **Timestamps are in milliseconds** throughout the SDK
 - **Minimum Python**: 3.8+
 
