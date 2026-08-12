@@ -3,8 +3,7 @@ from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
 from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
-from .sync import SyncTranscriber
-from .sync.v1 import AsyncSyncTranscriber
+from .sync.v1 import AsyncSyncTranscriber, SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
 from .types import (
     AssemblyAIError,
