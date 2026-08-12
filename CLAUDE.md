@@ -311,7 +311,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**Microphone streaming** (both clients): `pip install "assemblyai[extras]"` for `pyaudio`, then pass `aai.extras.MicrophoneStream(sample_rate=16000)` to `client.stream(...)`.
+**Microphone streaming**: the SDK does not capture audio — supply 16-bit PCM chunks yourself (e.g. via `pyaudio` or `sounddevice`) and pass the iterable to `client.stream(...)`.
 
 **Voice-agent tuning** (knobs that matter most when building a voice agent):
 ```python
@@ -372,7 +372,7 @@ async with AsyncStreamingClient(StreamingClientOptions(token=token_from_server))
 ```
 
 **Other gotchas**:
-- Don't pass `aai.extras.stream_file(...)` to `AsyncStreamingClient.stream()` — it uses blocking `time.sleep` and starves the read task. Use an `async def` generator with `await asyncio.sleep(...)` instead.
+- Don't feed `AsyncStreamingClient.stream()` from a sync generator that blocks (e.g. `time.sleep` pacing) — it starves the read task. Use an `async def` generator with `await asyncio.sleep(...)` instead.
 - `format_turns=True` enables punctuation/casing on confirmed end-of-turns. Toggle mid-session via `client.set_params(StreamingSessionParameters(format_turns=True))`.
 - `AsyncStreamingClient` used as `async with` calls `disconnect(terminate=True)` on normal block exit and `disconnect(terminate=False)` on exception — no explicit `disconnect()` needed inside the block.
 
@@ -382,14 +382,14 @@ async with AsyncStreamingClient(StreamingClientOptions(token=token_from_server))
 - **`speech_models` takes a list** with fallback ordering: `["universal-3-5-pro", "universal-2"]`
 - **PII redaction uses `set_redact_pii()`**, not a constructor parameter
 - **Streaming v3 lives in its own module**: `assemblyai.streaming.v3` (there is no other streaming API in this SDK). See the "Streaming (real-time)" section above.
-- **Microphone streaming needs extras**: `pip install "assemblyai[extras]"` for `pyaudio`
+- **The SDK does not capture microphone audio**: bring your own capture (e.g. `pyaudio`, `sounddevice`) and stream the PCM chunks
 - **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above)
 - **Timestamps are in milliseconds** throughout the SDK
 - **Minimum Python**: 3.8+
 
 ## Dependencies
 
-`httpx`, `pydantic`, `typing-extensions`, `websockets`. Optional: `pyaudio` via `[extras]`.
+`httpx`, `pydantic`, `typing-extensions`, `websockets`.
 
 ## Docs
 

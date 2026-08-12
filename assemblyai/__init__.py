@@ -1,4 +1,3 @@
-from . import extras
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
@@ -180,8 +179,6 @@ __all__ = [
     "WordSearchMatch",
     # package globals
     "settings",
-    # packages
-    "extras",
     # version
     "__version__",
 ]

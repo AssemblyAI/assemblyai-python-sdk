@@ -27,9 +27,6 @@ setup(
         "typing-extensions>=3.7",
         "websockets>=11.0",
     ],
-    extras_require={
-        "extras": ["pyaudio>=0.2.13"],
-    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
