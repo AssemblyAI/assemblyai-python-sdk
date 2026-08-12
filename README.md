@@ -500,6 +500,31 @@ with aai.SyncTranscriber() as transcriber:
 </details>
 
 <details>
+  <summary>Use it from asyncio (`AsyncSyncTranscriber`)</summary>
+
+`aai.AsyncSyncTranscriber` is the asyncio counterpart of `aai.SyncTranscriber` — same input types, config, result, and errors, with `transcribe()` and `warm()` as coroutines. Use it in asyncio code (FastAPI, aiohttp, voice agents), where the threaded `transcribe()` would block the event loop and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+async def main():
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        asyncio.create_task(transcriber.warm())   # optional: fire as recording starts
+        audio = await record_until_done()
+        result = await transcriber.transcribe(audio)
+        print(result.text)
+
+asyncio.run(main())
+```
+
+The transcriber owns an HTTP connection pool: use `async with`, or call `await transcriber.aclose()`. To share one pool between transcribers, pass an `aai.AsyncClient`, which stays yours to close. Concurrency is plain asyncio — `await asyncio.gather(transcriber.transcribe(a), transcriber.transcribe(b))`.
+
+</details>
+
+<details>
   <summary>Handle errors</summary>
 
 Failures raise `aai.SyncTranscriptError` with the HTTP `status_code`, a machine-readable `error_code` (`bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`, …), and `retry_after` (seconds) on 429/503 responses.
