@@ -423,7 +423,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.SyncTranscriptionConfig(
     prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 2048 chars total
     conversation_context=[
         # prior turns from the same conversation, oldest first
         "I'd like to book a flight to Denver.",
@@ -496,6 +496,31 @@ with aai.SyncTranscriber() as transcriber:
     result = transcriber.transcribe(audio)  # reuses the hot connection
     print(result.text)
 ```
+
+</details>
+
+<details>
+  <summary>Use it from asyncio (`AsyncSyncTranscriber`)</summary>
+
+`aai.AsyncSyncTranscriber` is the asyncio counterpart of `aai.SyncTranscriber` — same input types, config, result, and errors, with `transcribe()` and `warm()` as coroutines. Use it in asyncio code (FastAPI, aiohttp, voice agents), where the threaded `transcribe()` would block the event loop and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+async def main():
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        asyncio.create_task(transcriber.warm())   # optional: fire as recording starts
+        audio = await record_until_done()
+        result = await transcriber.transcribe(audio)
+        print(result.text)
+
+asyncio.run(main())
+```
+
+The transcriber owns an HTTP connection pool: use `async with`, or call `await transcriber.aclose()`. To share one pool between transcribers, pass an `aai.AsyncClient`, which stays yours to close. Concurrency is plain asyncio — `await asyncio.gather(transcriber.transcribe(a), transcriber.transcribe(b))`.
 
 </details>
 
@@ -1237,7 +1262,7 @@ aai.settings.polling_interval = 10.0
 
 ## Playground
 
-Visit our Playground to try our all of our Speech AI models and LeMUR for free:
+Visit our Playground to try our all of our Speech AI models for free:
 
 - [Playground](https://www.assemblyai.com/dashboard/playground/)
 
@@ -1333,8 +1358,6 @@ Notes:
   work at `max_concurrency`, which defaults to 8.
 - Neither group method drops a failure. Either the first error is raised, or you pass
   `return_failures=True` and get `(transcripts, errors)`.
-- LeMUR is sync-only. An `AsyncTranscript` works as a `LemurSource`, but the LeMUR call
-  blocks. Run it in a thread, for example with `asyncio.to_thread`.
 
 For real-time streaming, use `assemblyai.streaming.v3.AsyncStreamingClient`.
 

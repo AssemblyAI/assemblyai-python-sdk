@@ -8,7 +8,7 @@ from typing import Iterator, List, Optional, Set, Tuple, Union
 from typing_extensions import Self
 
 from ... import client as _client
-from ... import lemur, types
+from ... import types
 from .transcript import Transcript
 
 
@@ -142,17 +142,6 @@ class TranscriptGroup:
             return types.TranscriptStatus.completed
         else:
             raise ValueError(f"Unexpected status type: {all_status}")
-
-    @property
-    def lemur(self) -> lemur.Lemur:
-        """
-        Access AssemblyAI's LeMUR functionality.
-        """
-
-        return lemur.Lemur(
-            client=self._impl._client,
-            sources=[types.LemurSource(t) for t in self.transcripts],
-        )
 
     def add_transcript(
         self,

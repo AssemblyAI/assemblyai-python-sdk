@@ -1,9 +1,8 @@
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
-from .lemur import Lemur
 from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
-from .sync import SyncTranscriber
+from .sync.v1 import AsyncSyncTranscriber, SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
 from .types import (
     AssemblyAIError,
@@ -24,21 +23,6 @@ from .types import (
     KeytermsPromptOptions,
     LanguageCode,
     LanguageDetectionOptions,
-    LemurActionItemsResponse,
-    LemurError,
-    LemurModel,
-    LemurPurgeRequest,
-    LemurPurgeResponse,
-    LemurQuestion,
-    LemurQuestionAnswer,
-    LemurQuestionResponse,
-    LemurSource,
-    LemurSourceType,
-    LemurStringResponse,
-    LemurSummaryResponse,
-    LemurTaskResponse,
-    LemurTranscriptSource,
-    LemurUsage,
     ListTranscriptParameters,
     ListTranscriptResponse,
     PageDetails,
@@ -93,6 +77,7 @@ __all__ = [
     # types
     "AssemblyAIError",
     "AsyncClient",
+    "AsyncSyncTranscriber",
     "AsyncTranscriber",
     "AsyncTranscript",
     "AutohighlightResponse",
@@ -113,22 +98,6 @@ __all__ = [
     "KeytermsPromptOptions",
     "LanguageCode",
     "LanguageDetectionOptions",
-    "Lemur",
-    "LemurActionItemsResponse",
-    "LemurError",
-    "LemurModel",
-    "LemurPurgeRequest",
-    "LemurPurgeResponse",
-    "LemurSource",
-    "LemurSourceType",
-    "LemurTranscriptSource",
-    "LemurQuestion",
-    "LemurQuestionAnswer",
-    "LemurQuestionResponse",
-    "LemurStringResponse",
-    "LemurSummaryResponse",
-    "LemurTaskResponse",
-    "LemurUsage",
     "ListTranscriptParameters",
     "ListTranscriptResponse",
     "PageDetails",
