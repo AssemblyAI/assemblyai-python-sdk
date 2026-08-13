@@ -1017,11 +1017,19 @@ Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. Th
   <summary>Stream a local file (sync)</summary>
 
 ```python
-import assemblyai as aai
+import time
+
 from assemblyai.streaming.v3 import (
     BeginEvent, StreamingClient, StreamingClientOptions, StreamingError,
     StreamingEvents, StreamingParameters, TerminationEvent, TurnEvent,
 )
+
+def stream_file(path: str, sample_rate: int, chunk_duration: float = 0.3):
+    bytes_per_chunk = int(sample_rate * chunk_duration) * 2
+    with open(path, "rb") as f:
+        while chunk := f.read(bytes_per_chunk):
+            yield chunk
+            time.sleep(chunk_duration)
 
 def on_begin(client, event: BeginEvent):
     print(f"Session started: {event.id}")
@@ -1045,37 +1053,7 @@ client.connect(StreamingParameters(
     sample_rate=16000, speech_model="universal-3-5-pro",
 ))
 try:
-    client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
-finally:
-    client.disconnect(terminate=True)
-```
-
-</details>
-
-<details>
-  <summary>Stream your microphone (sync)</summary>
-
-`MicrophoneStream` requires PyAudio:
-
-```bash
-pip install -U "assemblyai[extras]"
-```
-
-```python
-import assemblyai as aai
-from assemblyai.streaming.v3 import (
-    StreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
-)
-
-def on_turn(client, event):
-    print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
-
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
-client.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
-
-try:
-    client.stream(aai.extras.MicrophoneStream(sample_rate=16000))
+    client.stream(stream_file("audio.wav", sample_rate=16000))
 finally:
     client.disconnect(terminate=True)
 ```
@@ -1149,7 +1127,7 @@ See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py)
 <details>
   <summary>Stream a local file (async)</summary>
 
-`AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Don't pass `extras.stream_file` directly (it uses blocking `time.sleep`); pace from an async generator instead.
+`AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Pace the audio from an async generator so the event loop is never blocked.
 
 ```python
 import asyncio
