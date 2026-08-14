@@ -45,6 +45,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
 - [AssemblyAI's Python SDK](#assemblyais-python-sdk)
 - [Overview](#overview)
 - [Documentation](#documentation)
+- [Migrating to 1.0](MIGRATION.md)
 - [Quick Start](#quick-start)
   - [Installation](#installation)
   - [Examples](#examples)
@@ -80,6 +81,8 @@ Visit our [AssemblyAI API Documentation](https://www.assemblyai.com/docs) to get
 pip install -U assemblyai
 ```
 
+Upgrading from 0.x? See the [**1.0 migration guide**](MIGRATION.md) for the breaking changes (LeMUR and the audio-capture extras were removed) and the recommended patterns going forward.
+
 ## Examples
 
 Before starting, you need to set the API key. If you don't have one yet, [**sign up for one**](https://www.assemblyai.com/dashboard/signup)!
@@ -97,12 +100,14 @@ aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 
 | Class | Use it for |
 | --- | --- |
-| `aai.Transcriber` | Long-form audio, URLs, and the audio-intelligence features (speaker labels, chapters, sentiment, …), over the polled job API |
-| `aai.AsyncTranscriber` | The same, from asyncio code |
-| `aai.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency |
-| `aai.AsyncSyncTranscriber` | The same, from asyncio code |
+| `assemblyai.prerecorded.v2.Transcriber` | Long-form audio, URLs, and the audio-intelligence features (speaker labels, chapters, sentiment, …), over the polled job API |
+| `assemblyai.prerecorded.v2.AsyncTranscriber` | The same, from asyncio code |
+| `assemblyai.sync.v1.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency |
+| `assemblyai.sync.v1.AsyncSyncTranscriber` | The same, from asyncio code |
 | `assemblyai.streaming.v3.RealTimeTranscriber` | Live audio (microphone, telephony, voice agents), transcribed as it arrives over a websocket session |
 | `assemblyai.streaming.v3.AsyncRealTimeTranscriber` | The same, from asyncio code |
+
+The versioned path is the preferred import for new code. The prerecorded and sync classes are also available as top-level shortcuts (`aai.Transcriber`, `aai.SyncTranscriber`, …) — see [Migrating to 1.0](MIGRATION.md) for the details.
 
 ---
 
