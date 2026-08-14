@@ -12,7 +12,7 @@ from typing_extensions import Self
 from ... import async_client as _async_client
 from ... import types
 from . import api, async_api
-from ._base import AudioInput, _config_to_json, _resolve_audio
+from ._base import AudioInput, _config_to_json, _resolve_audio, check_config
 
 _T = TypeVar("_T")
 
@@ -88,7 +88,12 @@ class AsyncSyncTranscriber:
                 transcriber builds and owns a client made from a copy of that
                 client's settings with the key replaced, and the given client is
                 left untouched and stays the caller's to close.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
+
         self._owns_client = client is None or api_key is not None
         self._client = _async_client._resolve_client(client, api_key)
         self.config = config or types.SyncTranscriptionConfig()
@@ -115,8 +120,12 @@ class AsyncSyncTranscriber:
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used.
 
-        Raises: `SyncTranscriptError` if the request fails.
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            SyncTranscriptError: if the request fails.
         """
+        check_config(type(self).__name__, config)
+
         config = config or self.config
         audio, filename, content_type = await _run_in_thread(
             _resolve_audio, data, config

@@ -13,7 +13,7 @@ subclasses use ``async def``. That return-type divergence is why the I/O
 methods are not ``@abstractmethod`` here.
 """
 
-from typing import Dict, List, Optional, Type, Union
+from typing import ClassVar, Dict, List, Optional, Type, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -54,6 +54,45 @@ def is_url(data: str) -> bool:
     """Reports whether `data` is an HTTP audio URL rather than a local path."""
 
     return urlparse(data).scheme in {"http", "https"}
+
+
+def _poll_timeout_message(
+    *,
+    transcript_id: str,
+    status: types.TranscriptStatus,
+    poll_timeout: float,
+) -> str:
+    """
+    Builds the message for a poll that ran out of time.
+
+    Names the transcript and its last-seen status, so the caller can pick the
+    transcript back up by id.
+    """
+
+    return (
+        f"transcript {transcript_id} did not finish within {poll_timeout} seconds; "
+        f"its last status was {types.TranscriptStatus(status).value}. It keeps "
+        f'processing, so fetch it later by id, e.g. get_by_id("{transcript_id}").'
+    )
+
+
+def check_config(owner: str, config: Optional[types.TranscriptionConfig]) -> None:
+    """
+    Raises unless `config` is a `TranscriptionConfig` or `None`.
+
+    The sync API's `SyncTranscriptionConfig` is a different, non-interchangeable
+    type, so passing it here is a mistake worth naming.
+
+    Args:
+        `owner`: the class to name in the message, e.g. `Transcriber`.
+        `config`: the configuration to check.
+    """
+
+    if config is not None and not isinstance(config, types.TranscriptionConfig):
+        raise TypeError(
+            f"{owner} expects TranscriptionConfig, got {type(config).__name__}. "
+            "Use aai.TranscriptionConfig."
+        )
 
 
 def config_from_response(
@@ -304,10 +343,21 @@ class _BaseTranscriber:
 
     config: types.TranscriptionConfig
 
+    # The class named when a config of the wrong type is rejected. The
+    # implementation classes are internal, so they name their public wrapper.
+    _config_owner: ClassVar[str] = "Transcriber"
+
     def _resolve_config(
         self,
         config: Optional[types.TranscriptionConfig],
     ) -> types.TranscriptionConfig:
-        """Returns the per-call config, or the transcriber's default."""
+        """
+        Returns the per-call config, or the transcriber's default.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
+        """
+
+        check_config(self._config_owner, config)
 
         return config if config is not None else self.config

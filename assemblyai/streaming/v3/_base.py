@@ -1,7 +1,7 @@
 """Sync/async-agnostic core for streaming v3 clients.
 
 Houses the pieces that are *exactly* the same between the threaded
-``StreamingClient`` and the asyncio-based ``AsyncStreamingClient``:
+``RealTimeTranscriber`` and the asyncio-based ``AsyncRealTimeTranscriber``:
 
 - Wire-format helpers (``_dump_model``, ``_parse_model``, ``_build_uri``,
   ``_build_headers``, parameter normalization, user-agent construction).
@@ -34,13 +34,13 @@ from .models import (
     EventMessage,
     HeartbeatEvent,
     LLMGatewayResponseEvent,
+    RealTimeError,
+    RealTimeErrorCodes,
+    RealTimeEvents,
+    RealTimeParameters,
+    RealTimeTranscriberOptions,
     SpeakerRevisionEvent,
     SpeechStartedEvent,
-    StreamingClientOptions,
-    StreamingError,
-    StreamingErrorCodes,
-    StreamingEvents,
-    StreamingParameters,
     TerminationEvent,
     TurnEvent,
     WarningEvent,
@@ -125,7 +125,7 @@ def _user_agent() -> str:
     )
 
 
-def _emit_param_warnings(params: StreamingParameters) -> None:
+def _emit_param_warnings(params: RealTimeParameters) -> None:
     if params.speech_model == "u3-pro":
         logger.warning(
             "[Deprecation Warning] The speech model `u3-pro` is deprecated and will be removed in a future release. "
@@ -143,7 +143,7 @@ def _emit_param_warnings(params: StreamingParameters) -> None:
         )
 
 
-def _build_uri(host: str, params: StreamingParameters) -> str:
+def _build_uri(host: str, params: RealTimeParameters) -> str:
     params_dict = _normalize_voice_focus(
         _normalize_min_turn_silence(_dump_model(params))
     )
@@ -162,7 +162,7 @@ def _build_uri(host: str, params: StreamingParameters) -> str:
     return f"wss://{host}/v3/ws?{params_encoded}"
 
 
-def _build_headers(options: StreamingClientOptions) -> Dict[str, Optional[str]]:
+def _build_headers(options: RealTimeTranscriberOptions) -> Dict[str, Optional[str]]:
     # Matches the pre-refactor sync behavior: ``Authorization`` is left as the
     # raw value (may be ``None`` when neither ``token`` nor ``api_key`` is set,
     # which surfaces the misconfiguration through the websockets/httpx layer).
@@ -174,9 +174,9 @@ def _build_headers(options: StreamingClientOptions) -> Dict[str, Optional[str]]:
 
 
 def _resolve_options(
-    options: Optional[StreamingClientOptions],
+    options: Optional[RealTimeTranscriberOptions],
     api_key: Optional[str],
-) -> StreamingClientOptions:
+) -> RealTimeTranscriberOptions:
     """Returns the options a streaming client is configured with.
 
     ``api_key`` takes precedence: given alongside ``options``, it replaces
@@ -184,7 +184,7 @@ def _resolve_options(
     as the caller set it. The caller's ``options`` object is never mutated.
 
     Args:
-        ``options``: an explicit ``StreamingClientOptions``, or ``None``.
+        ``options``: an explicit ``RealTimeTranscriberOptions``, or ``None``.
             Returned as-is when no ``api_key`` accompanies it.
         ``api_key``: an API key, or ``None``. On its own it builds options
             with every other field left at its default.
@@ -204,12 +204,12 @@ def _resolve_options(
         return options
 
     if api_key is not None:
-        return StreamingClientOptions(api_key=api_key)
+        return RealTimeTranscriberOptions(api_key=api_key)
 
     raise ValueError(
         "Please provide credentials: pass api_key= to the client, or pass "
-        "options=StreamingClientOptions(api_key=...) — or "
-        "options=StreamingClientOptions(token=...) for a temporary token."
+        "options=RealTimeTranscriberOptions(api_key=...) — or "
+        "options=RealTimeTranscriberOptions(token=...) for a temporary token."
     )
 
 
@@ -223,10 +223,10 @@ class _BaseStreamingClient:
     divergence is why these aren't ``@abstractmethod`` on this base.
     """
 
-    def __init__(self, options: StreamingClientOptions):
+    def __init__(self, options: RealTimeTranscriberOptions):
         self._options = options
-        self._handlers: Dict[StreamingEvents, List[Callable]] = {
-            event: [] for event in StreamingEvents.__members__.values()
+        self._handlers: Dict[RealTimeEvents, List[Callable]] = {
+            event: [] for event in RealTimeEvents.__members__.values()
         }
         # Dedup flags for one-time error dispatch. ``_report_connection_closed``
         # and ``_report_server_error`` perform their flag check + set
@@ -242,26 +242,26 @@ class _BaseStreamingClient:
         self._server_error_reported = False
         self._websocket: Optional[Any] = None
 
-    def on(self, event: StreamingEvents, handler: Callable) -> None:
+    def on(self, event: RealTimeEvents, handler: Callable) -> None:
         """Register a handler for a streaming event.
 
-        ``event`` is a value from ``StreamingEvents`` (``Begin``, ``Turn``,
+        ``event`` is a value from ``RealTimeEvents`` (``Begin``, ``Turn``,
         ``Termination``, ``SpeechStarted``, ``Error``, ``Warning``,
         ``LLMGatewayResponse``). ``handler`` is invoked as
-        ``handler(client, event)``. For ``AsyncStreamingClient``, async
+        ``handler(client, event)``. For ``AsyncRealTimeTranscriber``, async
         handlers are awaited inline on the read task. Exceptions raised by
         handlers are logged and swallowed — they do not terminate the
         session.
         """
-        if event in StreamingEvents.__members__.values() and callable(handler):
+        if event in RealTimeEvents.__members__.values() and callable(handler):
             self._handlers[event].append(handler)
 
     @staticmethod
-    def _parse_event_type(message_type: Optional[Any]) -> Optional[StreamingEvents]:
+    def _parse_event_type(message_type: Optional[Any]) -> Optional[RealTimeEvents]:
         if not isinstance(message_type, str):
             return None
         try:
-            return StreamingEvents[message_type]
+            return RealTimeEvents[message_type]
         except KeyError:
             return None
 
@@ -270,23 +270,23 @@ class _BaseStreamingClient:
         if "type" in data:
             event_type = cls._parse_event_type(data.get("type"))
 
-            if event_type == StreamingEvents.Begin:
+            if event_type == RealTimeEvents.Begin:
                 return _parse_model(BeginEvent, data)
-            elif event_type == StreamingEvents.Termination:
+            elif event_type == RealTimeEvents.Termination:
                 return _parse_model(TerminationEvent, data)
-            elif event_type == StreamingEvents.Turn:
+            elif event_type == RealTimeEvents.Turn:
                 return _parse_model(TurnEvent, data)
-            elif event_type == StreamingEvents.SpeechStarted:
+            elif event_type == RealTimeEvents.SpeechStarted:
                 return _parse_model(SpeechStartedEvent, data)
-            elif event_type == StreamingEvents.LLMGatewayResponse:
+            elif event_type == RealTimeEvents.LLMGatewayResponse:
                 return _parse_model(LLMGatewayResponseEvent, data)
-            elif event_type == StreamingEvents.SpeakerRevision:
+            elif event_type == RealTimeEvents.SpeakerRevision:
                 return _parse_model(SpeakerRevisionEvent, data)
-            elif event_type == StreamingEvents.Heartbeat:
+            elif event_type == RealTimeEvents.Heartbeat:
                 return _parse_model(HeartbeatEvent, data)
-            elif event_type == StreamingEvents.Error:
+            elif event_type == RealTimeEvents.Error:
                 return _parse_model(ErrorEvent, data)
-            elif event_type == StreamingEvents.Warning:
+            elif event_type == RealTimeEvents.Warning:
                 return _parse_model(WarningEvent, data)
             else:
                 return None
@@ -297,22 +297,22 @@ class _BaseStreamingClient:
     @staticmethod
     def _build_connection_closed_error(
         error: Union[
-            StreamingError,
+            RealTimeError,
             ErrorEvent,
             websockets.exceptions.ConnectionClosed,
             OSError,
         ],
-    ) -> Optional[StreamingError]:
-        if isinstance(error, StreamingError):
+    ) -> Optional[RealTimeError]:
+        if isinstance(error, RealTimeError):
             return error
         if isinstance(error, ErrorEvent):
-            return StreamingError(message=error.error, code=error.error_code)
+            return RealTimeError(message=error.error, code=error.error_code)
         if isinstance(error, websockets.exceptions.ConnectionClosed):
             if error.code == 1000:
                 return None
-            if error.code is not None and error.code in StreamingErrorCodes:
-                message = StreamingErrorCodes[error.code]
+            if error.code is not None and error.code in RealTimeErrorCodes:
+                message = RealTimeErrorCodes[error.code]
             else:
                 message = error.reason or f"Connection closed (code={error.code})"
-            return StreamingError(message=message, code=error.code)
-        return StreamingError(message=f"Connection failed: {error}")
+            return RealTimeError(message=message, code=error.code)
+        return RealTimeError(message=f"Connection failed: {error}")

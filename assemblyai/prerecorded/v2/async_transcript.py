@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, BinaryIO, Callable, List, Optional, TypeVar, cast
 
 import httpx
@@ -11,7 +12,7 @@ from typing_extensions import Self
 from ... import async_client as _async_client
 from ... import types
 from . import async_api
-from ._base import TERMINAL_STATUSES, _BaseTranscript
+from ._base import TERMINAL_STATUSES, _BaseTranscript, _poll_timeout_message
 
 _T = TypeVar("_T")
 
@@ -80,17 +81,29 @@ class AsyncTranscript(_BaseTranscript):
 
         return self._transcript_id
 
-    async def wait_for_completion(self) -> Self:
+    async def wait_for_completion(
+        self,
+        *,
+        poll_timeout: Optional[float] = None,
+    ) -> Self:
         """
         Polls the transcript until its status is `completed` or `error`.
 
         Sleeps `settings.polling_interval` seconds between polls. Other tasks
         run during the sleep.
 
+        Args:
+            poll_timeout: How long to poll, in seconds. `None` polls until the
+                transcript reaches a terminal status.
+
         Returns: this `AsyncTranscript`, with the finished response.
+
+        Raises:
+            TranscriptError: if `poll_timeout` elapses first.
         """
 
         transcript_id = self._require_id("wait for completion")
+        start = time.monotonic()
 
         while True:
             # No try-except - if there is an HTTP error then surface it to user
@@ -101,6 +114,15 @@ class AsyncTranscript(_BaseTranscript):
 
             if self._transcript.status in TERMINAL_STATUSES:
                 return self
+
+            if poll_timeout is not None and time.monotonic() - start >= poll_timeout:
+                raise types.TranscriptError(
+                    _poll_timeout_message(
+                        transcript_id=transcript_id,
+                        status=self._transcript.status,
+                        poll_timeout=poll_timeout,
+                    )
+                )
 
             await asyncio.sleep(self._client.settings.polling_interval)
 

@@ -73,6 +73,25 @@ settings = Settings()
 """Global settings object that applies to all classes that use the `Client` class."""
 
 
+def __getattr__(name: str):
+    """
+    Resolves `assemblyai.streaming` on first access.
+
+    Streaming pulls in `websockets`, so the subpackage is imported when it is
+    asked for rather than at `import assemblyai` time. The import binds
+    `streaming` as a real attribute, so this runs only once.
+    """
+
+    if name == "streaming":
+        import importlib
+
+        importlib.import_module(".streaming.v3", __name__)
+
+        return importlib.import_module(".streaming", __name__)
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     # types
     "AssemblyAIError",
@@ -146,6 +165,8 @@ __all__ = [
     "Word",
     "WordBoost",
     "WordSearchMatch",
+    # subpackages
+    "streaming",
     # package globals
     "settings",
     # version
