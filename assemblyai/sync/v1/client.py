@@ -39,6 +39,7 @@ class SyncTranscriber:
         client: Optional[_client.Client] = None,
         config: Optional[types.SyncTranscriptionConfig] = None,
         max_workers: Optional[int] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         """
         Creates a `SyncTranscriber`.
@@ -48,8 +49,13 @@ class SyncTranscriber:
             config: Default transcription options. Per-call `config` overrides it.
             max_workers: Thread pool size for `transcribe_async`. Defaults to
                 the CPU count minus one.
+            api_key: The API key to authenticate with. Builds a `Client` for this
+                transcriber. Given alongside `client`, it takes precedence: the
+                transcriber builds its own client from a copy of that client's
+                settings with the key replaced, and the given client is left
+                untouched.
         """
-        self._client = client or _client.Client.get_default()
+        self._client = _client._resolve_client(client, api_key)
         self._impl = _SyncTranscriberImpl(
             client=self._client,
             config=config or types.SyncTranscriptionConfig(),

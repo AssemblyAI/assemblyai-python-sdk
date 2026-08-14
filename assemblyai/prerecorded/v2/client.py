@@ -179,6 +179,7 @@ class Transcriber(_BaseTranscriber):
         client: Optional[_client.Client] = None,
         config: Optional[types.TranscriptionConfig] = None,
         max_workers: Optional[int] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         """
         Initializes the `Transcriber` with the given parameters.
@@ -190,6 +191,11 @@ class Transcriber(_BaseTranscriber):
                 the default configuration of a `TranscriptionConfig` will be used.
             `max_workers`: The maximum number of parallel jobs when using the `_async`
                 methods on the `Transcriber`. By default it uses `os.cpu_count() - 1`
+            `api_key`: The API key to authenticate with. Builds a `Client` for this
+                `Transcriber`. Given alongside `client`, it takes precedence: the
+                `Transcriber` builds its own client from a copy of that client's
+                settings with the key replaced, and the given client is left
+                untouched.
 
         Example:
             To use the `Transcriber` with the default settings, you can simply do:
@@ -204,7 +210,7 @@ class Transcriber(_BaseTranscriber):
             transcriber = aai.Transcriber(config=config)
             ```
         """
-        self._client = client or _client.Client.get_default()
+        self._client = _client._resolve_client(client, api_key)
 
         self._impl = _TranscriberImpl(
             client=self._client,

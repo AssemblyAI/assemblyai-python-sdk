@@ -70,6 +70,7 @@ class AsyncSyncTranscriber:
         *,
         client: Optional[_async_client.AsyncClient] = None,
         config: Optional[types.SyncTranscriptionConfig] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         """
         Creates an `AsyncSyncTranscriber`.
@@ -81,11 +82,15 @@ class AsyncSyncTranscriber:
                 transcribers.
             config: Default transcription options. Per-call `config`
                 overrides it.
+            api_key: The API key to authenticate with. The transcriber builds
+                its own `AsyncClient` from it and closes that client on
+                `aclose()`. Given alongside `client`, it takes precedence: the
+                transcriber builds and owns a client made from a copy of that
+                client's settings with the key replaced, and the given client is
+                left untouched and stays the caller's to close.
         """
-        from ... import settings as default_settings
-
-        self._owns_client = client is None
-        self._client = client or _async_client.AsyncClient(settings=default_settings)
+        self._owns_client = client is None or api_key is not None
+        self._client = _async_client._resolve_client(client, api_key)
         self.config = config or types.SyncTranscriptionConfig()
 
     @property

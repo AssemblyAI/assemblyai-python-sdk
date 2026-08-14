@@ -173,6 +173,46 @@ def _build_headers(options: StreamingClientOptions) -> Dict[str, Optional[str]]:
     }
 
 
+def _resolve_options(
+    options: Optional[StreamingClientOptions],
+    api_key: Optional[str],
+) -> StreamingClientOptions:
+    """Returns the options a streaming client is configured with.
+
+    ``api_key`` takes precedence: given alongside ``options``, it replaces
+    the key on a copy of ``options`` and every other field is carried over
+    as the caller set it. The caller's ``options`` object is never mutated.
+
+    Args:
+        ``options``: an explicit ``StreamingClientOptions``, or ``None``.
+            Returned as-is when no ``api_key`` accompanies it.
+        ``api_key``: an API key, or ``None``. On its own it builds options
+            with every other field left at its default.
+
+    Raises:
+        ValueError: if neither is given.
+    """
+
+    if options is not None:
+        if api_key is not None:
+            # pydantic v2 renamed `copy(update=...)` to `model_copy(update=...)`.
+            if hasattr(options, "model_copy"):
+                return options.model_copy(update={"api_key": api_key})
+
+            return options.copy(update={"api_key": api_key})
+
+        return options
+
+    if api_key is not None:
+        return StreamingClientOptions(api_key=api_key)
+
+    raise ValueError(
+        "Please provide credentials: pass api_key= to the client, or pass "
+        "options=StreamingClientOptions(api_key=...) — or "
+        "options=StreamingClientOptions(token=...) for a temporary token."
+    )
+
+
 class _BaseStreamingClient:
     """Sync/async-agnostic core for streaming clients.
 
