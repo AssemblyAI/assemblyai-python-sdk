@@ -36,6 +36,12 @@ def _build_limits(settings: types.Settings) -> httpx.Limits:
     )
 
 
+_MISSING_API_KEY_ERROR = (
+    "Please provide an API key: set the ASSEMBLYAI_API_KEY environment variable, "
+    "set aai.settings.api_key, or pass api_key= to the transcriber or client."
+)
+
+
 class Client:
     _default: ClassVar[Optional["Client"]] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
@@ -43,24 +49,30 @@ class Client:
     def __init__(
         self,
         *,
-        settings: types.Settings,
+        settings: Optional[types.Settings] = None,
+        api_key: Optional[str] = None,
         api_key_required: bool = True,
     ) -> None:
         """
         Creates the AssemblyAI client.
 
         Args:
-            settings: The settings to use for the client.
+            settings: The settings to use for the client. If `None` is given, the global
+                settings are used. The client holds a copy, so the given settings object
+                is never modified.
+            api_key: The API key to authenticate with. Overrides the key on `settings`.
             api_key_required: If an API key is required (either as environment variable or the global settings).
                 Can be set to `False` if a different authentication method is used, e.g., a temporary token.
         """
+        from . import settings as default_settings
 
-        self._settings = settings.copy()
+        self._settings = (settings if settings is not None else default_settings).copy()
+
+        if api_key is not None:
+            self._settings.api_key = api_key
 
         if api_key_required and not self._settings.api_key:
-            raise ValueError(
-                "Please provide an API key via the ASSEMBLYAI_API_KEY environment variable or the global settings."
-            )
+            raise ValueError(_MISSING_API_KEY_ERROR)
 
         self._last_response: Optional[httpx.Response] = None
 
@@ -128,3 +140,36 @@ class Client:
                     )
 
         return cls._default
+
+
+def _resolve_client(
+    client: Optional[Client],
+    api_key: Optional[str],
+) -> Client:
+    """
+    Returns the client a transcriber sends its requests with.
+
+    `api_key` takes precedence. A client's credentials are baked into its
+    connection pool when it is built, so a key given alongside a `client`
+    derives a new client from a copy of that client's settings rather than
+    changing anything on it. The given client is left untouched and unused.
+
+    A client returned here is the transcriber's own except when it is the
+    caller's `client` passed without an `api_key`.
+
+    Args:
+        client: An explicit `Client`, or `None`.
+        api_key: An API key, or `None`.
+    """
+
+    if client is not None:
+        if api_key is not None:
+            # `Client.__init__` copies the settings it is given.
+            return Client(settings=client.settings, api_key=api_key)
+
+        return client
+
+    if api_key is not None:
+        return Client(api_key=api_key)
+
+    return Client.get_default()

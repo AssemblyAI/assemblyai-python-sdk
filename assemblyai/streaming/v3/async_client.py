@@ -31,6 +31,7 @@ from ._base import (
     _dump_model_json,
     _emit_param_warnings,
     _normalize_min_turn_silence,
+    _resolve_options,
     _user_agent,
 )
 from .models import (
@@ -94,7 +95,28 @@ class AsyncStreamingClient(_BaseStreamingClient):
       raises.
     """
 
-    def __init__(self, options: StreamingClientOptions):
+    def __init__(
+        self,
+        options: Optional[StreamingClientOptions] = None,
+        *,
+        api_key: Optional[str] = None,
+    ):
+        """Create an asyncio streaming client.
+
+        Args:
+            ``options``: the full client configuration — credentials, host,
+                timeouts, retries.
+            ``api_key``: the API key to authenticate with. On its own it
+                builds ``StreamingClientOptions`` with every other option left
+                at its default. Passed alongside ``options`` it takes
+                precedence, replacing the key while every other field is
+                carried over; the ``options`` object itself is left untouched.
+
+        Raises:
+            ValueError: if neither ``options`` nor ``api_key`` is given.
+        """
+        options = _resolve_options(options, api_key)
+
         super().__init__(options)
 
         self._client = _AsyncHTTPClient(
