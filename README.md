@@ -48,6 +48,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
 - [Quick Start](#quick-start)
   - [Installation](#installation)
   - [Examples](#examples)
+    - [Choosing a transcriber](#choosing-a-transcriber)
     - [**Core Examples**](#core-examples)
     - [**Asyncio Examples**](#asyncio-examples)
     - [**Speech Understanding Examples**](#speech-understanding-examples)
@@ -89,6 +90,19 @@ import assemblyai as aai
 # set the API key
 aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 ```
+
+---
+
+### Choosing a transcriber
+
+| Class | Use it for |
+| --- | --- |
+| `aai.Transcriber` | Long-form audio, URLs, and the audio-intelligence features (speaker labels, chapters, sentiment, …), over the polled job API |
+| `aai.AsyncTranscriber` | The same, from asyncio code |
+| `aai.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency |
+| `aai.AsyncSyncTranscriber` | The same, from asyncio code |
+| `assemblyai.streaming.v3.RealTimeTranscriber` | Live audio (microphone, telephony, voice agents), transcribed as it arrives over a websocket session |
+| `assemblyai.streaming.v3.AsyncRealTimeTranscriber` | The same, from asyncio code |
 
 ---
 
@@ -1007,9 +1021,11 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
+Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `RealTimeTranscriber` (threaded) and `AsyncRealTimeTranscriber` (asyncio). Pick whichever fits your codebase.
 
-**Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncStreamingClient` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
+> The former `Streaming*` names (`StreamingClient`, `AsyncStreamingClient`, `StreamingClientOptions`, `StreamingParameters`, `StreamingSessionParameters`, `StreamingEvents`, `StreamingError`, `StreamingErrorCodes`) remain available as aliases of the `RealTime*` names — same objects, so existing code keeps working unchanged.
+
+**Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncRealTimeTranscriber` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
 
 [Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/getting-started/transcribe-streaming-audio)
 
@@ -1020,8 +1036,8 @@ Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. Th
 import time
 
 from assemblyai.streaming.v3 import (
-    BeginEvent, StreamingClient, StreamingClientOptions, StreamingError,
-    StreamingEvents, StreamingParameters, TerminationEvent, TurnEvent,
+    BeginEvent, RealTimeTranscriber, RealTimeTranscriberOptions, RealTimeError,
+    RealTimeEvents, RealTimeParameters, TerminationEvent, TurnEvent,
 )
 
 def stream_file(path: str, sample_rate: int, chunk_duration: float = 0.3):
@@ -1040,16 +1056,16 @@ def on_turn(client, event: TurnEvent):
 def on_terminated(client, event: TerminationEvent):
     print(f"Done: {event.audio_duration_seconds}s of audio processed")
 
-def on_error(client, error: StreamingError):
+def on_error(client, error: RealTimeError):
     print(f"Error: {error} (code={error.code})")
 
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
-client.on(StreamingEvents.Begin, on_begin)
-client.on(StreamingEvents.Turn, on_turn)
-client.on(StreamingEvents.Termination, on_terminated)
-client.on(StreamingEvents.Error, on_error)
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
+client.on(RealTimeEvents.Begin, on_begin)
+client.on(RealTimeEvents.Turn, on_turn)
+client.on(RealTimeEvents.Termination, on_terminated)
+client.on(RealTimeEvents.Error, on_error)
 
-client.connect(StreamingParameters(
+client.connect(RealTimeParameters(
     sample_rate=16000, speech_model="universal-3-5-pro",
 ))
 try:
@@ -1071,8 +1087,8 @@ Unlike a browser sample, the SDK does not capture audio — you supply 16-bit PC
 
 ```python
 from assemblyai.streaming.v3 import (
-    ChannelStreamer, StreamingClient, StreamingClientOptions,
-    StreamingEvents, StreamingParameters,
+    ChannelStreamer, RealTimeTranscriber, RealTimeTranscriberOptions,
+    RealTimeEvents, RealTimeParameters,
 )
 
 def on_turn(client, event):   # event is a DualChannelTurnEvent
@@ -1080,14 +1096,14 @@ def on_turn(client, event):   # event is a DualChannelTurnEvent
     for w in event.words:
         print(f"  {w.text!r} -> channel={w.channel} speaker={w.speaker}")
 
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
 
 # Declare the channels and the session sample rate (must be pcm_s16le).
 mixer = ChannelStreamer(client, channels=["mic", "system"], sample_rate=16000)
 # Register handlers on the mixer: Turn handlers receive the enriched event,
 # other events (Begin/Error/…) are forwarded to the client.
-mixer.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(
+mixer.on(RealTimeEvents.Turn, on_turn)
+client.connect(RealTimeParameters(
     sample_rate=16000, speech_model="universal-3-5-pro", speaker_labels=True,
 ))
 
@@ -1127,12 +1143,12 @@ See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py)
 <details>
   <summary>Stream a local file (async)</summary>
 
-`AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Pace the audio from an async generator so the event loop is never blocked.
+`AsyncRealTimeTranscriber` mirrors `RealTimeTranscriber` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Pace the audio from an async generator so the event loop is never blocked.
 
 ```python
 import asyncio
 from assemblyai.streaming.v3 import (
-    AsyncStreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
+    AsyncRealTimeTranscriber, RealTimeTranscriberOptions, RealTimeEvents, RealTimeParameters,
 )
 
 async def stream_file_async(path: str, sample_rate: int, chunk_duration: float = 0.3):
@@ -1146,9 +1162,9 @@ async def on_turn(client, event):
     print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
 
 async def main():
-    async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
-        client.on(StreamingEvents.Turn, on_turn)
-        await client.connect(StreamingParameters(
+    async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>")) as client:
+        client.on(RealTimeEvents.Turn, on_turn)
+        await client.connect(RealTimeParameters(
             sample_rate=16000, speech_model="universal-3-5-pro",
         ))
         await client.stream(stream_file_async("audio.wav", 16000))
@@ -1161,15 +1177,15 @@ asyncio.run(main())
 <details>
   <summary>Handle errors</summary>
 
-Server-side errors arrive on the `Error` event rather than being raised. The handler receives a `StreamingError` (an `Exception` subclass) with `.code: int | None` — **not** the wire `ErrorEvent` class.
+Server-side errors arrive on the `Error` event rather than being raised. The handler receives a `RealTimeError` (an `Exception` subclass) with `.code: int | None` — **not** the wire `ErrorEvent` class.
 
-`StreamingErrorCodes` is a `dict[int, str]` mapping wire codes to human-readable messages. Use `.get(...)` for lookup:
+`RealTimeErrorCodes` is a `dict[int, str]` mapping wire codes to human-readable messages. Use `.get(...)` for lookup:
 
 ```python
-from assemblyai.streaming.v3 import StreamingErrorCodes
+from assemblyai.streaming.v3 import RealTimeErrorCodes
 
 def on_error(client, error):
-    message = StreamingErrorCodes.get(error.code, str(error))
+    message = RealTimeErrorCodes.get(error.code, str(error))
     print(f"Streaming error {error.code}: {message}")
 ```
 
@@ -1183,11 +1199,11 @@ Common codes: `4001` Not Authorized, `4002` Insufficient Funds, `4029` Client se
 `set_params` updates an active session. Typical use: enable turn formatting (punctuation, casing) only on confirmed end-of-turn so partial transcripts stay raw:
 
 ```python
-from assemblyai.streaming.v3 import StreamingSessionParameters
+from assemblyai.streaming.v3 import RealTimeSessionParameters
 
 def on_turn(client, event):
     if event.end_of_turn and not event.turn_is_formatted:
-        client.set_params(StreamingSessionParameters(format_turns=True))
+        client.set_params(RealTimeSessionParameters(format_turns=True))
 ```
 
 For voice agents, `force_endpoint()` flushes the current turn — useful when an external signal (UI button, barge-in detection) determines the user has stopped speaking before VAD does:
@@ -1205,7 +1221,7 @@ Don't ship your API key to browsers. Mint a short-lived token server-side and pa
 
 **Sync server (Flask / WSGI / scripts):**
 ```python
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
 token = client.create_temporary_token(expires_in_seconds=60)
 # Send `token` to the browser, which connects with options(token=token).
 ```
@@ -1214,22 +1230,22 @@ token = client.create_temporary_token(expires_in_seconds=60)
 
 ```python
 from fastapi import FastAPI
-from assemblyai.streaming.v3 import AsyncStreamingClient, StreamingClientOptions
+from assemblyai.streaming.v3 import AsyncRealTimeTranscriber, RealTimeTranscriberOptions
 
 app = FastAPI()
 MASTER_KEY = "<YOUR_API_KEY>"
 
 @app.get("/streaming-token")
 async def streaming_token():
-    async with AsyncStreamingClient(StreamingClientOptions(api_key=MASTER_KEY)) as client:
+    async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(api_key=MASTER_KEY)) as client:
         return {"token": await client.create_temporary_token(expires_in_seconds=60)}
 ```
 
-**Browser / edge client:** pass the token via `StreamingClientOptions(token=...)`:
+**Browser / edge client:** pass the token via `RealTimeTranscriberOptions(token=...)`:
 
 ```python
-client = StreamingClient(StreamingClientOptions(token="<TOKEN_FROM_SERVER>"))
-client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(token="<TOKEN_FROM_SERVER>"))
+client.connect(RealTimeParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 ```
 
 </details>
@@ -1359,7 +1375,7 @@ Notes:
 - Neither group method drops a failure. Either the first error is raised, or you pass
   `return_failures=True` and get `(transcripts, errors)`.
 
-For real-time streaming, use `assemblyai.streaming.v3.AsyncStreamingClient`.
+For real-time streaming, use `assemblyai.streaming.v3.AsyncRealTimeTranscriber`.
 
 ## Getting the HTTP status code
 

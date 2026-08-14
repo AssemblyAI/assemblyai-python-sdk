@@ -36,11 +36,11 @@ from typing import (
     Union,
 )
 
-from .models import StreamingEvents, TurnEvent, Word
+from .models import RealTimeEvents, TurnEvent, Word
 
 if TYPE_CHECKING:  # avoid an import cycle; only used for type hints
-    from .async_client import AsyncStreamingClient
-    from .client import StreamingClient
+    from .async_client import AsyncRealTimeTranscriber
+    from .client import RealTimeTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ class VadTimeline:
         self._window_ms = window_ms
         self._frames: List[VadFrame] = []
         self._head = 0
-        # The threaded ``StreamingClient`` runs ``frames_in_window`` on the read
+        # The threaded ``RealTimeTranscriber`` runs ``frames_in_window`` on the read
         # thread while the user thread runs ``push_frame``; compaction swaps
         # ``_frames`` / ``_head`` non-atomically. The lock keeps push/read/compact
         # mutually exclusive. Uncontended on the async / single-threaded paths.
@@ -363,10 +363,10 @@ def resolve_unknown_channels_by_speaker_history(
     for w in turn.words:
         if w.channel != UNKNOWN_CHANNEL or not w.speaker:
             continue
-        entry = speaker_history.get(w.speaker)
-        if not entry or sum(entry.values()) < min_rms_evidence:
+        evidence = speaker_history.get(w.speaker)
+        if not evidence or sum(evidence.values()) < min_rms_evidence:
             continue
-        winner = _top_by_ratio(entry, dominance_ratio)
+        winner = _top_by_ratio(evidence, dominance_ratio)
         if winner is not None:
             w.channel = winner
             w.channel_resolved = True
@@ -563,7 +563,7 @@ def _validate_channels(channels: Sequence[str]) -> List[str]:
 class _BaseChannelStreamer:
     """Shared dual/multi-channel coordination independent of the wrapped
     client's sync/async I/O. Channel config lives here, never on
-    ``StreamingParameters`` (it must not reach the websocket URL); the wrapped
+    ``RealTimeParameters`` (it must not reach the websocket URL); the wrapped
     client streams ordinary mono audio and is otherwise untouched.
     """
 
@@ -581,13 +581,13 @@ class _BaseChannelStreamer:
         self._speaker_history: Dict[str, Dict[str, float]] = {}
         self._turn_handlers: List[Callable] = []
         # Set by each subclass in __init__ (the concrete sync/async client).
-        self._client: Union["StreamingClient", "AsyncStreamingClient"]
+        self._client: Union["RealTimeTranscriber", "AsyncRealTimeTranscriber"]
 
-    def on(self, event: StreamingEvents, handler: Callable) -> None:
+    def on(self, event: RealTimeEvents, handler: Callable) -> None:
         """Register an event handler. ``Turn`` events are delivered as an
         enriched ``DualChannelTurnEvent``; all other events are forwarded to the
         underlying client unchanged."""
-        if event == StreamingEvents.Turn:
+        if event == RealTimeEvents.Turn:
             self._turn_handlers.append(handler)
         else:
             self._client.on(event, handler)
@@ -634,7 +634,7 @@ class _BaseChannelStreamer:
 
 
 class ChannelStreamer(_BaseChannelStreamer):
-    """Dual/multi-channel coordinator for the threaded ``StreamingClient``.
+    """Dual/multi-channel coordinator for the threaded ``RealTimeTranscriber``.
 
     Feed each named channel's 16-bit little-endian PCM via ``stream(channel,
     data)``; the channels are summed into one mono stream over the client's
@@ -652,7 +652,7 @@ class ChannelStreamer(_BaseChannelStreamer):
 
     def __init__(
         self,
-        client: "StreamingClient",
+        client: "RealTimeTranscriber",
         channels: Sequence[str],
         sample_rate: int,
         attribution: Optional[ChannelAttributionOptions] = None,
@@ -660,7 +660,7 @@ class ChannelStreamer(_BaseChannelStreamer):
     ):
         super().__init__(channels, sample_rate, attribution, on_vad)
         self._client = client
-        client.on(StreamingEvents.Turn, self._handle_turn)
+        client.on(RealTimeEvents.Turn, self._handle_turn)
 
     def _handle_turn(self, client: object, base_turn: TurnEvent) -> None:
         enriched = self._enrich(base_turn)
@@ -695,14 +695,18 @@ class ChannelStreamer(_BaseChannelStreamer):
 
 class AsyncChannelStreamer(_BaseChannelStreamer):
     """Asyncio-native counterpart to ``ChannelStreamer`` (wraps
-    ``AsyncStreamingClient``); ``stream`` / ``close_channel`` / ``flush`` are
+    ``AsyncRealTimeTranscriber``); ``stream`` / ``close_channel`` / ``flush`` are
     coroutines. ``Turn`` handlers may be sync or ``async`` (awaited inline on the
     read task). See ``ChannelStreamer`` for requirements.
     """
 
+    # Narrows the base's sync-or-async union: this streamer only ever wraps the
+    # async client, so `stream(...)` here is always awaitable.
+    _client: "AsyncRealTimeTranscriber"
+
     def __init__(
         self,
-        client: "AsyncStreamingClient",
+        client: "AsyncRealTimeTranscriber",
         channels: Sequence[str],
         sample_rate: int,
         attribution: Optional[ChannelAttributionOptions] = None,
@@ -710,7 +714,7 @@ class AsyncChannelStreamer(_BaseChannelStreamer):
     ):
         super().__init__(channels, sample_rate, attribution, on_vad)
         self._client = client
-        client.on(StreamingEvents.Turn, self._handle_turn)
+        client.on(RealTimeEvents.Turn, self._handle_turn)
 
     async def _handle_turn(self, client: object, base_turn: TurnEvent) -> None:
         enriched = self._enrich(base_turn)

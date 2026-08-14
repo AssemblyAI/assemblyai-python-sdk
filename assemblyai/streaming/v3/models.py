@@ -152,7 +152,7 @@ class KeepAlive(BaseModel):
     type: Literal["KeepAlive"] = "KeepAlive"
 
 
-class StreamingSessionParameters(BaseModel):
+class RealTimeSessionParameters(BaseModel):
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = (
         None  # Deprecated: Use min_turn_silence instead
@@ -169,6 +169,10 @@ class StreamingSessionParameters(BaseModel):
     turn_left_pad_ms: Optional[int] = None
     language_codes: Optional[List[str]] = None
     session_heartbeat: Optional[bool] = None
+
+
+# Alias: the former name for `RealTimeSessionParameters`, bound to the same object.
+StreamingSessionParameters = RealTimeSessionParameters
 
 
 class Encoding(str, Enum):
@@ -287,7 +291,7 @@ class StreamingPiiPolicy(str, Enum):
         return self.value
 
 
-class StreamingParameters(StreamingSessionParameters):
+class RealTimeParameters(RealTimeSessionParameters):
     # Required for PCM encodings. May be omitted for Opus encodings
     # (opus, ogg_opus) — the stream is self-describing and the server
     # ignores the value.
@@ -352,7 +356,11 @@ class StreamingParameters(StreamingSessionParameters):
             return values
 
 
-class UpdateConfiguration(StreamingSessionParameters):
+# Alias: the former name for `RealTimeParameters`, bound to the same object.
+StreamingParameters = RealTimeParameters
+
+
+class UpdateConfiguration(RealTimeSessionParameters):
     type: Literal["UpdateConfiguration"] = "UpdateConfiguration"
 
 
@@ -365,7 +373,7 @@ OperationMessage = Union[
 ]
 
 
-class StreamingClientOptions(BaseModel):
+class RealTimeTranscriberOptions(BaseModel):
     api_host: str = "streaming.assemblyai.com"
     api_key: Optional[str] = None
     token: Optional[str] = None
@@ -383,13 +391,21 @@ class StreamingClientOptions(BaseModel):
     terminate_timeout: float = 5.0
 
 
-class StreamingError(Exception):
+# Alias: the former name for `RealTimeTranscriberOptions`, bound to the same object.
+StreamingClientOptions = RealTimeTranscriberOptions
+
+
+class RealTimeError(Exception):
     def __init__(self, message: str, code: Optional[int] = None):
         super().__init__(message)
         self.code = code
 
 
-StreamingErrorCodes = {
+# Alias: the former name for `RealTimeError`, bound to the same object.
+StreamingError = RealTimeError
+
+
+RealTimeErrorCodes = {
     3005: "Server error",
     3006: "Input validation error",
     3007: "Audio chunk duration violation",
@@ -416,8 +432,11 @@ StreamingErrorCodes = {
     1013: "Temporary server condition forced blocking client's request",
 }
 
+# Alias: the former name for `RealTimeErrorCodes`, bound to the same object.
+StreamingErrorCodes = RealTimeErrorCodes
 
-class StreamingEvents(Enum):
+
+class RealTimeEvents(Enum):
     Begin = "Begin"
     Termination = "Termination"
     Turn = "Turn"
@@ -427,3 +446,7 @@ class StreamingEvents(Enum):
     Heartbeat = "Heartbeat"
     LLMGatewayResponse = "LLMGatewayResponse"
     SpeakerRevision = "SpeakerRevision"
+
+
+# Alias: the former name for `RealTimeEvents`, bound to the same object.
+StreamingEvents = RealTimeEvents

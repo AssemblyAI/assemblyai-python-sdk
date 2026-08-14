@@ -24,10 +24,10 @@ from typing_extensions import Self
 from ... import async_client as _async_client
 from ... import types
 from . import async_api
-from ._base import _BaseTranscriber, is_url
+from ._base import _BaseTranscriber, check_config, is_url
 from .async_transcript import AsyncTranscript, _open_binary, _run_in_thread
 
-AudioSource = Union[str, bytes, "os.PathLike[str]", BinaryIO]
+AudioSource = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
 """An audio URL, a local file path, raw `bytes`, or an opened binary file."""
 
 # Read this much per thread hop when streaming a file off disk into an upload.
@@ -165,6 +165,8 @@ class AsyncTranscriber(_BaseTranscriber):
         ```
     """
 
+    _config_owner = "AsyncTranscriber"
+
     def __init__(
         self,
         *,
@@ -188,7 +190,12 @@ class AsyncTranscriber(_BaseTranscriber):
                 transcriber builds and owns a client made from a copy of that
                 client's settings with the key replaced, and the given client is
                 left untouched and stays the caller's to close.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
+
         self._owns_client = client is None or api_key is not None
         self._client = _async_client._resolve_client(client, api_key)
         self.config = config or types.TranscriptionConfig()
@@ -262,6 +269,8 @@ class AsyncTranscriber(_BaseTranscriber):
         self,
         data: AudioSource,
         config: Optional[types.TranscriptionConfig] = None,
+        *,
+        poll_timeout: Optional[float] = None,
     ) -> AsyncTranscript:
         """
         Transcribes an audio file and waits for the result. Accepts a local
@@ -271,15 +280,25 @@ class AsyncTranscriber(_BaseTranscriber):
             data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the
                 transcriber's default configuration will be used.
+            poll_timeout: How long to poll for the result, in seconds. If `None`
+                is given, polling continues until the transcript reaches a
+                terminal status.
 
         Returns: The completed `AsyncTranscript`. Check its `status`. A
-            server-side failure returns `TranscriptStatus.error` and does not
-            raise.
+            transcription the server failed to complete comes back with
+            `TranscriptStatus.error` and the reason in `error`, without raising;
+            `text` and `words` are `None` then.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
+            TranscriptError: if `poll_timeout` elapses before the transcript
+                reaches a terminal status. The transcript keeps processing
+                server-side; fetch it later with `get_by_id`.
         """
 
         transcript = await self.submit(data=data, config=config)
 
-        return await transcript.wait_for_completion()
+        return await transcript.wait_for_completion(poll_timeout=poll_timeout)
 
     async def submit_group(
         self,

@@ -10,9 +10,12 @@ from ... import api as _root_api
 from ... import client as _client
 from ... import types
 from . import api
-from ._base import _BaseTranscriber, is_url
+from ._base import _BaseTranscriber, check_config, is_url
 from .transcript import Transcript
 from .transcript_group import TranscriptGroup
+
+AudioSource = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
+"""An audio URL, a local file path, raw `bytes`, or an opened binary file."""
 
 
 class _TranscriberImpl(_BaseTranscriber):
@@ -29,18 +32,27 @@ class _TranscriberImpl(_BaseTranscriber):
         self._client = client
         self.config = config
 
-    def upload_file(self, data: Union[str, bytes, BinaryIO]) -> str:
-        if isinstance(data, str):
-            with open(data, "rb") as audio_file:
+    def upload_file(self, data: AudioSource) -> str:
+        if isinstance(data, (str, os.PathLike)):
+            with open(os.fspath(data), "rb") as audio_file:
                 return _root_api.upload_file(
                     client=self._client.http_client,
                     audio_file=audio_file,
                 )
-        else:
+
+        if isinstance(data, (bytes, bytearray)):
+            return _root_api.upload_file(
+                client=self._client.http_client,
+                audio_file=bytes(data),
+            )
+
+        if hasattr(data, "read"):
             return _root_api.upload_file(
                 client=self._client.http_client,
                 audio_file=data,
             )
+
+        raise TypeError(f"unsupported audio input type: {type(data).__name__}")
 
     def transcribe_url(
         self,
@@ -48,6 +60,7 @@ class _TranscriberImpl(_BaseTranscriber):
         url: str,
         config: types.TranscriptionConfig,
         poll: bool,
+        poll_timeout: Optional[float] = None,
     ) -> Transcript:
         transcript_request = types.TranscriptRequest(
             audio_url=url,
@@ -63,16 +76,17 @@ class _TranscriberImpl(_BaseTranscriber):
         )
 
         if poll:
-            return transcript.wait_for_completion()
+            return transcript.wait_for_completion(poll_timeout=poll_timeout)
 
         return transcript
 
     def transcribe_file(
         self,
         *,
-        data: Union[str, bytes, BinaryIO],
+        data: AudioSource,
         config: types.TranscriptionConfig,
         poll: bool,
+        poll_timeout: Optional[float] = None,
     ) -> Transcript:
         # Note: If uploading fails, it should raise an Exception to the user, hence no try-except here.
         audio_url = self.upload_file(data)
@@ -81,13 +95,15 @@ class _TranscriberImpl(_BaseTranscriber):
             url=audio_url,
             config=config,
             poll=poll,
+            poll_timeout=poll_timeout,
         )
 
     def transcribe(
         self,
-        data: Union[str, bytes, BinaryIO],
+        data: AudioSource,
         config: Optional[types.TranscriptionConfig],
         poll: bool,
+        poll_timeout: Optional[float] = None,
     ) -> Transcript:
         config = self._resolve_config(config)
 
@@ -96,18 +112,20 @@ class _TranscriberImpl(_BaseTranscriber):
                 url=data,
                 config=config,
                 poll=poll,
+                poll_timeout=poll_timeout,
             )
 
         return self.transcribe_file(
             data=data,
             config=config,
             poll=poll,
+            poll_timeout=poll_timeout,
         )
 
     def transcribe_group(
         self,
         *,
-        data: List[Union[str, bytes, BinaryIO]],
+        data: List[AudioSource],
         config: Optional[types.TranscriptionConfig],
         poll: bool,
         return_failures: Optional[bool] = False,
@@ -197,6 +215,9 @@ class Transcriber(_BaseTranscriber):
                 settings with the key replaced, and the given client is left
                 untouched.
 
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
+
         Example:
             To use the `Transcriber` with the default settings, you can simply do:
             ```
@@ -210,6 +231,8 @@ class Transcriber(_BaseTranscriber):
             transcriber = aai.Transcriber(config=config)
             ```
         """
+        check_config(type(self).__name__, config)
+
         self._client = _client._resolve_client(client, api_key)
 
         self._impl = _TranscriberImpl(
@@ -242,28 +265,31 @@ class Transcriber(_BaseTranscriber):
 
         Args:
             `config`: The new default configuration.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
+
         self._impl.config = config
 
-    def upload_file(self, data: Union[str, bytes, BinaryIO]) -> str:
+    def upload_file(self, data: AudioSource) -> str:
         """
         Uploads an audio file which can be specified as local path or binary object.
 
         Args:
-            `data`: A local file (as path), or a binary object.
+            `data`: A local file (as path), raw `bytes`, or a binary object.
 
         Returns: The URL of the uploaded audio file.
         """
         return self._impl.upload_file(data=data)
 
-    def upload_file_async(
-        self, data: Union[str, bytes, BinaryIO]
-    ) -> concurrent.futures.Future[str]:
+    def upload_file_async(self, data: AudioSource) -> concurrent.futures.Future[str]:
         """
         Uploads an audio file which can be specified as local path or binary object.
 
         Args:
-            `data`: A local file (as path), or a binary object.
+            `data`: A local file (as path), raw `bytes`, or a binary object.
 
         Returns: The URL of the uploaded audio file.
         """
@@ -274,7 +300,7 @@ class Transcriber(_BaseTranscriber):
 
     def submit(
         self,
-        data: Union[str, bytes, BinaryIO],
+        data: AudioSource,
         config: Optional[types.TranscriptionConfig] = None,
     ) -> Transcript:
         """
@@ -293,7 +319,7 @@ class Transcriber(_BaseTranscriber):
 
     def submit_group(
         self,
-        data: List[Union[str, bytes, BinaryIO]],
+        data: List[AudioSource],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
@@ -315,8 +341,10 @@ class Transcriber(_BaseTranscriber):
 
     def transcribe(
         self,
-        data: Union[str, bytes, BinaryIO],
+        data: AudioSource,
         config: Optional[types.TranscriptionConfig] = None,
+        *,
+        poll_timeout: Optional[float] = None,
     ) -> Transcript:
         """
         Transcribes an audio file which can be specified as local path, URL, raw `bytes`, or binary object.
@@ -325,18 +353,34 @@ class Transcriber(_BaseTranscriber):
             data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
+            poll_timeout: How long to poll for the result, in seconds. If `None` is given,
+                polling continues until the transcript reaches a terminal status.
+
+        Returns: The finished `Transcript`. A transcription the server failed to
+            complete comes back with `status` `TranscriptStatus.error` and the
+            reason in `error`; `text` and `words` are `None` then. Check `status`
+            before reading the result.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
+            TranscriptError: if `poll_timeout` elapses before the transcript
+                reaches a terminal status. The transcript keeps processing
+                server-side; fetch it later with `Transcript.get_by_id`.
         """
 
         return self._impl.transcribe(
             data=data,
             config=config,
             poll=True,
+            poll_timeout=poll_timeout,
         )
 
     def transcribe_async(
         self,
-        data: Union[str, bytes, BinaryIO],
+        data: AudioSource,
         config: Optional[types.TranscriptionConfig] = None,
+        *,
+        poll_timeout: Optional[float] = None,
     ) -> concurrent.futures.Future[Transcript]:
         """
         Transcribes an audio file which can be specified as local path, URL, raw `bytes`, or binary object.
@@ -345,18 +389,34 @@ class Transcriber(_BaseTranscriber):
             data: An URL, a local file (as path), raw `bytes`, or a binary object.
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
+            poll_timeout: How long to poll for the result, in seconds. If `None` is given,
+                polling continues until the transcript reaches a terminal status.
+
+        Returns: A future resolving to the finished `Transcript`. A transcription
+            the server failed to complete comes back with `status`
+            `TranscriptStatus.error` and the reason in `error`; `text` and `words`
+            are `None` then. Check `status` before reading the result.
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`. The future
+                itself raises `TranscriptError` if `poll_timeout` elapses before
+                the transcript reaches a terminal status. The transcript keeps
+                processing server-side; fetch it later with
+                `Transcript.get_by_id`.
         """
+        check_config(type(self).__name__, config)
 
         return self._executor.submit(
             self._impl.transcribe,
             data=data,
             config=config,
             poll=True,
+            poll_timeout=poll_timeout,
         )
 
     def transcribe_group(
         self,
-        data: List[Union[str, bytes, BinaryIO]],
+        data: List[AudioSource],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
@@ -379,7 +439,7 @@ class Transcriber(_BaseTranscriber):
 
     def transcribe_group_async(
         self,
-        data: List[Union[str, bytes, BinaryIO]],
+        data: List[AudioSource],
         config: Optional[types.TranscriptionConfig] = None,
         return_failures: Optional[bool] = False,
     ) -> concurrent.futures.Future[
@@ -393,7 +453,11 @@ class Transcriber(_BaseTranscriber):
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
+
+        Raises:
+            TypeError: if `config` is not a `TranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
 
         return self._executor.submit(
             self._impl.transcribe_group,

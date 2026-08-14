@@ -9,7 +9,7 @@ import httpx
 from ... import client as _client
 from ... import types
 from . import api
-from ._base import AudioInput, _SyncTranscriberImpl
+from ._base import AudioInput, _SyncTranscriberImpl, check_config
 
 
 class SyncTranscriber:
@@ -54,7 +54,12 @@ class SyncTranscriber:
                 transcriber builds its own client from a copy of that client's
                 settings with the key replaced, and the given client is left
                 untouched.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
+
         self._client = _client._resolve_client(client, api_key)
         self._impl = _SyncTranscriberImpl(
             client=self._client,
@@ -76,6 +81,8 @@ class SyncTranscriber:
 
     @config.setter
     def config(self, config: types.SyncTranscriptionConfig) -> None:
+        check_config(type(self).__name__, config)
+
         self._impl.config = config
 
     def transcribe(
@@ -92,8 +99,12 @@ class SyncTranscriber:
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used.
 
-        Raises: `SyncTranscriptError` if the request fails.
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            SyncTranscriptError: if the request fails.
         """
+        check_config(type(self).__name__, config)
+
         return self._impl.transcribe(data=data, config=config)
 
     def transcribe_async(
@@ -107,7 +118,12 @@ class SyncTranscriber:
         Returns a `concurrent.futures.Future` (not an asyncio coroutine); call
         `.result()` to block for the transcript. Useful for fanning out a
         handful of files concurrently.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
         """
+        check_config(type(self).__name__, config)
+
         return self._executor.submit(
             self._impl.transcribe,
             data=data,

@@ -19,7 +19,8 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
     The service returns an RFC 9457 problem-details envelope
     (`{"status", "title", "detail"}`); `error_code` is the snake_cased
     `title` (e.g. `"Audio Too Large"` -> `audio_too_large`). Older envelopes
-    (`{"error_code", "message"}` and `{"detail"}`) are still accepted.
+    (`{"error_code", "message"}`, `{"detail"}`, and `{"error"}`) are still
+    accepted; a bare `error` string carries no `error_code`.
     """
     error_code: Optional[str] = None
     message: Optional[str] = None
@@ -32,6 +33,10 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
             if error_code is None and isinstance(title, str) and title:
                 error_code = title.lower().replace(" ", "_")
             message = body.get("detail") or body.get("message")
+            if not message:
+                error = body.get("error")
+                if isinstance(error, str) and error:
+                    message = error
     except Exception:
         message = response.text or None
 

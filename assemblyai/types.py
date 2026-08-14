@@ -1005,6 +1005,13 @@ class RawTranscriptionConfig(BaseModel):
 
 
 class TranscriptionConfig:
+    """
+    Options for a transcription request against the `/v2/transcript` job API.
+
+    Every option is a constructor parameter — see `__init__` for the full list —
+    and each is also readable and writable as an attribute afterwards.
+    """
+
     def __init__(
         self,
         language_code: Optional[Union[str, LanguageCode]] = None,
