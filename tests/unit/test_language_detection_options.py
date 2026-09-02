@@ -192,3 +192,51 @@ def test_transcription_config_with_on_low_confidence_in_options():
     assert config.language_confidence_threshold == 0.9
     assert config.language_detection_options.fallback_language == "en"
     assert config.language_detection_options.on_low_language_confidence == "fallback"
+
+
+def test_language_detection_options_localization():
+    """Test that localization is accepted and serialized into the raw request body."""
+    options = aai.LanguageDetectionOptions(localization=["en_au"])
+
+    config = aai.TranscriptionConfig(
+        language_detection=True, language_detection_options=options
+    )
+
+    assert config.language_detection_options.localization == ["en_au"]
+    assert config.raw.dict(exclude_none=True)["language_detection_options"][
+        "localization"
+    ] == ["en_au"]
+
+
+def test_set_language_detection_localization_only():
+    """Test set_language_detection with only the localization parameter."""
+    config = aai.TranscriptionConfig().set_language_detection(localization=["en_uk"])
+
+    assert config.language_detection is True
+    assert config.language_detection_options is not None
+    assert config.language_detection_options.localization == ["en_uk"]
+    assert config.language_detection_options.expected_languages is None
+    assert config.language_detection_options.fallback_language is None
+    assert config.language_detection_options.on_low_language_confidence is None
+
+
+def test_set_language_detection_localization_with_other_options():
+    """Test set_language_detection with localization alongside the other options."""
+    config = aai.TranscriptionConfig().set_language_detection(
+        expected_languages=["en"],
+        fallback_language="en",
+        localization=["en_au"],
+    )
+
+    assert config.language_detection is True
+    assert config.language_detection_options.expected_languages == ["en"]
+    assert config.language_detection_options.fallback_language == "en"
+    assert config.language_detection_options.localization == ["en_au"]
+
+
+def test_localization_default_none():
+    """Test that localization defaults to None and is omitted from the request body."""
+    options = aai.LanguageDetectionOptions()
+
+    assert options.localization is None
+    assert "localization" not in options.dict(exclude_none=True)
