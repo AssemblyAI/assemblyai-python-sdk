@@ -19,6 +19,8 @@ setup(
     author="AssemblyAI",
     author_email="engineering.sdk@assemblyai.com",
     packages=find_packages(exclude=["tests", "tests.*"]),
+    package_data={"assemblyai": ["py.typed"]},
+    zip_safe=False,
     install_requires=[
         "httpx>=0.19.0",
         "pydantic>=2.0; python_version>='3.14'",
