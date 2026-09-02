@@ -892,3 +892,31 @@ def test_list_transcripts_parameters(httpx_mock: HTTPXMock):
 
     # check whether we mocked everything
     assert len(httpx_mock.get_requests()) == 1
+
+
+def test_list_transcripts_query_string(httpx_mock: HTTPXMock):
+    """
+    Tests the query string that actually goes out, rather than the one
+    `ListTranscriptParameters.dict()` builds. `test_list_transcripts_parameters`
+    derives its expected URL from that same call, so it cannot catch a
+    serialization bug in the model itself.
+    """
+
+    mock_list_transcript_response = factories.generate_dict_factory(
+        factories.ListTranscriptResponse
+    )()
+
+    httpx_mock.add_response(
+        status_code=httpx.codes.OK,
+        method="GET",
+        json=mock_list_transcript_response,
+    )
+
+    aai.Transcriber().list_transcripts(
+        aai.ListTranscriptParameters(limit=2, status=aai.TranscriptStatus.completed)
+    )
+
+    query = httpx_mock.get_requests()[0].url.query.decode()
+
+    assert "status=completed" in query
+    assert "model_config" not in query

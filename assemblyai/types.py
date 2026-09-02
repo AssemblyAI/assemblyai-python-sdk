@@ -1007,7 +1007,12 @@ class RawTranscriptionConfig(BaseModel):
     domain: Optional[str] = None
     "The domain to use for the transcription (e.g. 'medical-v1')."
 
-    model_config = ConfigDict(extra="allow")
+    if pydantic_v2:
+        model_config = ConfigDict(extra="allow")
+    else:
+
+        class Config:
+            extra = "allow"
 
 
 class TranscriptionConfig:
@@ -2593,7 +2598,12 @@ class ListTranscriptParameters(BaseModel):
     ] = None
     "Get only throttled transcripts, overrides the status filter"
 
-    model_config = ConfigDict(use_enum_values=True)
+    if pydantic_v2:
+        model_config = ConfigDict(use_enum_values=True)
+    else:
+
+        class Config:
+            use_enum_values = True
 
 
 class PageDetails(BaseModel):
