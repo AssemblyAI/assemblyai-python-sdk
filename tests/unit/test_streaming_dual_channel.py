@@ -128,6 +128,19 @@ def test_timeline_prunes_beyond_window():
     assert all(f.ts >= 800 for f in tl.frames_in_window(0, 2000))
 
 
+def test_timeline_window_spans_every_channel_when_runs_interleave():
+    # The mixer appends a whole per-channel run at a time, so timestamps are
+    # monotonic per channel but not across the buffer. A channel pushed after
+    # one that already overshot the window must still be found.
+    tl = VadTimeline(window_ms=30_000)
+    for ts in (0, 100, 200, 300, 400):
+        tl.push_frame(_active_frame("mic", ts))
+    for ts in (0, 100, 200, 300, 400):
+        tl.push_frame(_active_frame("system", ts))
+    frames = tl.frames_in_window(100, 300)
+    assert sorted(f.channel for f in frames) == ["mic"] * 3 + ["system"] * 3
+
+
 # --------------------------------------------------------------------------- #
 # word / turn attribution
 # --------------------------------------------------------------------------- #
@@ -464,3 +477,22 @@ async def test_async_channel_streamer_sends_mixed_mono():
     out = array("h")
     out.frombytes(b"".join(client.sent))
     assert all(s == 1500 for s in out)
+
+
+@pytest.mark.parametrize("order", [("mic", "system"), ("system", "mic")])
+def test_mixer_attribution_is_independent_of_channel_feed_order(order):
+    # Only "system" carries energy, so a word inside the fed span belongs to it
+    # no matter which channel ingest() saw first.
+    mixer = _mixer()
+    n = 3200  # 200ms @ 16kHz
+    audio = {"mic": _pcm(0, n), "system": _pcm(12000, n)}
+    for _ in range(2):
+        for channel in order:
+            mixer.ingest(channel, audio[channel])
+    word = _word(20, 100)
+    assert (
+        attribute_word(
+            word, mixer.timeline, ChannelAttributionOptions().dominance_ratio
+        )
+        == "system"
+    )
