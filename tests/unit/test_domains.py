@@ -28,7 +28,6 @@ def test_configuration_drift():
 
     # just retrieve the names
     raw_member_names = set(aai.RawTranscriptionConfig.__fields__.keys())
-    raw_member_names.discard("model_config")
     non_raw_member_names = set(
         name for name, _ in non_raw_members if not name.startswith("_")
     )
@@ -43,3 +42,17 @@ def test_configuration_drift():
 
     # no differences: no drift.
     assert not differences
+
+
+def test_raw_config_allows_unmodeled_fields():
+    """
+    `RawTranscriptionConfig` sets `extra="allow"` so callers can pass server
+    fields the SDK does not model yet. The config has to survive a round trip.
+    """
+
+    config = aai.RawTranscriptionConfig(punctuate=True, not_modeled_yet="x")
+
+    assert config.dict(exclude_none=True) == {
+        "punctuate": True,
+        "not_modeled_yet": "x",
+    }
