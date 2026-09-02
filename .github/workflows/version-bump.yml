@@ -1,0 +1,68 @@
+name: Version Bump Check
+
+# Every PR into master must increase assemblyai/__version__.py, because
+# publishing to PyPI is tag-driven and a tag is cut from master after merge.
+# Add the `skip-version-bump` label to a PR that intentionally ships no
+# release (CI-only, docs-only, etc.) to bypass this check.
+on:
+  pull_request:
+    branches: ["master"]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: concurrency-group::${{ github.workflow }}::pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  version-bump:
+    name: Version incremented
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-version-bump') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # Full history so the base branch's version file is available locally.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install packaging
+        run: pip install packaging
+
+      - name: Compare version against base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          VERSION_FILE=assemblyai/__version__.py
+          git show "${BASE_SHA}:${VERSION_FILE}" > /tmp/base_version.py
+          python - <<'PY'
+          import os, sys
+          from packaging.version import InvalidVersion, Version
+
+          def read(path):
+              ns = {}
+              with open(path) as f:
+                  exec(f.read(), ns)
+              return ns["__version__"]
+
+          base_raw = read("/tmp/base_version.py")
+          head_raw = read("assemblyai/__version__.py")
+          try:
+              base, head = Version(base_raw), Version(head_raw)
+          except InvalidVersion as e:
+              print(f"::error::Could not parse version: {e}")
+              sys.exit(1)
+
+          print(f"base: {base_raw}  ->  head: {head_raw}")
+          if head <= base:
+              print(
+                  "::error file=assemblyai/__version__.py::"
+                  f"__version__ must be incremented in every PR (base is {base_raw}, PR has {head_raw}). "
+                  "Bump it, or add the 'skip-version-bump' label if this PR intentionally ships no release."
+              )
+              sys.exit(1)
+          print("Version bump OK")
+          PY

@@ -171,7 +171,11 @@ class EnergyVad(VadDetector):
 
 
 class VadTimeline:
-    """Append-only ring buffer of ``VadFrame``s in stream-relative ms order.
+    """Append-only ring buffer of ``VadFrame``s stamped in stream-relative ms.
+
+    One timeline holds every channel, and ``_ChannelMixer.ingest`` appends a
+    whole per-channel run at a time, so timestamps are monotonic per channel but
+    not across the buffer.
 
     ``push_frame`` is amortized O(1); ``frames_in_window`` is O(n) over kept
     frames, fine for the per-word lookups done here.
@@ -205,11 +209,8 @@ class VadTimeline:
         with self._lock:
             for i in range(self._head, len(self._frames)):
                 f = self._frames[i]
-                if f.ts < start_ms:
-                    continue
-                if f.ts > end_ms:
-                    break
-                out.append(f)
+                if start_ms <= f.ts <= end_ms:
+                    out.append(f)
         return out
 
     def clear(self) -> None:
