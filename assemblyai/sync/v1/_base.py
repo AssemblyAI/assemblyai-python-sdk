@@ -14,6 +14,25 @@ AudioInput = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
 _PCM_SUFFIXES = (".pcm", ".raw")
 
 
+def check_config(owner: str, config: Optional[types.SyncTranscriptionConfig]) -> None:
+    """
+    Raises unless `config` is a `SyncTranscriptionConfig` or `None`.
+
+    The job API's `TranscriptionConfig` is a different, non-interchangeable
+    type, so passing it here is a mistake worth naming.
+
+    Args:
+        owner: the class to name in the message, e.g. `SyncTranscriber`.
+        config: the configuration to check.
+    """
+
+    if config is not None and not isinstance(config, types.SyncTranscriptionConfig):
+        raise TypeError(
+            f"{owner} expects SyncTranscriptionConfig, got {type(config).__name__}. "
+            "Use aai.SyncTranscriptionConfig."
+        )
+
+
 def _resolve_audio(
     data: AudioInput,
     config: types.SyncTranscriptionConfig,

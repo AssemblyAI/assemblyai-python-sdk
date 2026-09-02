@@ -18,6 +18,7 @@ from ._base import (
     _dump_model_json,
     _emit_param_warnings,
     _normalize_min_turn_silence,
+    _resolve_options,
     _user_agent,
 )
 from .models import (
@@ -26,11 +27,11 @@ from .models import (
     ForceEndpoint,
     KeepAlive,
     OperationMessage,
-    StreamingClientOptions,
-    StreamingError,
-    StreamingEvents,
-    StreamingParameters,
-    StreamingSessionParameters,
+    RealTimeError,
+    RealTimeEvents,
+    RealTimeParameters,
+    RealTimeSessionParameters,
+    RealTimeTranscriberOptions,
     TerminateSession,
     TerminationEvent,
     UpdateConfiguration,
@@ -40,8 +41,29 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-class StreamingClient(_BaseStreamingClient):
-    def __init__(self, options: StreamingClientOptions):
+class RealTimeTranscriber(_BaseStreamingClient):
+    def __init__(
+        self,
+        options: Optional[RealTimeTranscriberOptions] = None,
+        *,
+        api_key: Optional[str] = None,
+    ):
+        """Create a streaming transcriber.
+
+        Args:
+            ``options``: the full client configuration — credentials, host,
+                timeouts, retries.
+            ``api_key``: the API key to authenticate with. On its own it
+                builds ``RealTimeTranscriberOptions`` with every other option left
+                at its default. Passed alongside ``options`` it takes
+                precedence, replacing the key while every other field is
+                carried over; the ``options`` object itself is left untouched.
+
+        Raises:
+            ValueError: if neither ``options`` nor ``api_key`` is given.
+        """
+        options = _resolve_options(options, api_key)
+
         super().__init__(options)
 
         self._client = _HTTPClient(api_host=options.api_host, api_key=options.api_key)
@@ -56,7 +78,7 @@ class StreamingClient(_BaseStreamingClient):
         # (read side), which together give a happens-before within ~1s.
         self._pending_close_error: Optional[Exception] = None
 
-    def connect(self, params: StreamingParameters) -> None:
+    def connect(self, params: RealTimeParameters) -> None:
         """Open the WebSocket session and start the read/write threads.
 
         Blocks until the handshake completes. A transient handshake failure
@@ -64,7 +86,7 @@ class StreamingClient(_BaseStreamingClient):
         ``options.max_connection_retries`` times before the failure is
         reported. If the server rejects the handshake at the HTTP layer (auth
         error, etc.) ``Error`` is dispatched to any
-        ``on(StreamingEvents.Error, ...)`` handler rather than raised, so
+        ``on(RealTimeEvents.Error, ...)`` handler rather than raised, so
         registration order matters: call ``on()`` before ``connect()``.
         """
         _emit_param_warnings(params)
@@ -88,7 +110,7 @@ class StreamingClient(_BaseStreamingClient):
                     getattr(exc, "response", None), "status_code", None
                 )
                 self._report_connection_closed(
-                    StreamingError(
+                    RealTimeError(
                         message=f"WebSocket handshake rejected (HTTP {status_code})",
                         code=status_code,
                     )
@@ -186,7 +208,7 @@ class StreamingClient(_BaseStreamingClient):
                 return
             self._write_queue.put(chunk)
 
-    def set_params(self, params: StreamingSessionParameters):
+    def set_params(self, params: RealTimeSessionParameters):
         message_dict = _normalize_min_turn_silence(_dump_model(params))
         message = UpdateConfiguration(**message_dict)
         self._write_queue.put(message)
@@ -279,7 +301,7 @@ class StreamingClient(_BaseStreamingClient):
         if isinstance(message, TerminationEvent):
             self._stop_event.set()
 
-        event_type = StreamingEvents[message.type]
+        event_type = RealTimeEvents[message.type]
 
         for handler in self._handlers[event_type]:
             try:
@@ -291,7 +313,7 @@ class StreamingClient(_BaseStreamingClient):
         logger.warning(
             "Streaming warning (code=%s): %s", warning.warning_code, warning.warning
         )
-        for handler in self._handlers[StreamingEvents.Warning]:
+        for handler in self._handlers[RealTimeEvents.Warning]:
             try:
                 handler(self, warning)
             except Exception:
@@ -299,7 +321,7 @@ class StreamingClient(_BaseStreamingClient):
 
     def _report_server_error(self, error: ErrorEvent) -> None:
         self._server_error_reported = True
-        streaming_error = StreamingError(
+        streaming_error = RealTimeError(
             message=error.error,
             code=error.error_code,
         )
@@ -316,7 +338,7 @@ class StreamingClient(_BaseStreamingClient):
     def _report_connection_closed(
         self,
         error: Union[
-            StreamingError,
+            RealTimeError,
             ErrorEvent,
             websockets.exceptions.ConnectionClosed,
             OSError,
@@ -354,8 +376,8 @@ class StreamingClient(_BaseStreamingClient):
 
         self._close_websocket()
 
-    def _dispatch_error(self, error: StreamingError) -> None:
-        for handler in self._handlers[StreamingEvents.Error]:
+    def _dispatch_error(self, error: RealTimeError) -> None:
+        for handler in self._handlers[RealTimeEvents.Error]:
             try:
                 handler(self, error)
             except Exception:
@@ -370,6 +392,10 @@ class StreamingClient(_BaseStreamingClient):
             expires_in_seconds=expires_in_seconds,
             max_session_duration_seconds=max_session_duration_seconds,
         )
+
+
+# Alias: the former name for `RealTimeTranscriber`, bound to the same object.
+StreamingClient = RealTimeTranscriber
 
 
 class _HTTPClient:

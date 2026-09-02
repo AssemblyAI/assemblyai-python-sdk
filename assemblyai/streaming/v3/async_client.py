@@ -31,6 +31,7 @@ from ._base import (
     _dump_model_json,
     _emit_param_warnings,
     _normalize_min_turn_silence,
+    _resolve_options,
     _user_agent,
 )
 from .models import (
@@ -39,11 +40,11 @@ from .models import (
     ForceEndpoint,
     KeepAlive,
     OperationMessage,
-    StreamingClientOptions,
-    StreamingError,
-    StreamingEvents,
-    StreamingParameters,
-    StreamingSessionParameters,
+    RealTimeError,
+    RealTimeEvents,
+    RealTimeParameters,
+    RealTimeSessionParameters,
+    RealTimeTranscriberOptions,
     TerminateSession,
     TerminationEvent,
     UpdateConfiguration,
@@ -69,8 +70,8 @@ def websocket_connect_async(
     return _ws_connect(uri, **{_WS_HEADER_KW: additional_headers})
 
 
-class AsyncStreamingClient(_BaseStreamingClient):
-    """Asyncio-native counterpart to ``StreamingClient``.
+class AsyncRealTimeTranscriber(_BaseStreamingClient):
+    """Asyncio-native counterpart to ``RealTimeTranscriber``.
 
     The public API mirrors the thread-based client one-to-one — same options,
     parameters, events, and event-handler registration. Methods that touch the
@@ -79,7 +80,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
     internal read task. Handlers should therefore avoid indefinite blocking,
     just as with the sync client.
 
-    Behavioral notes vs. the sync ``StreamingClient``:
+    Behavioral notes vs. the sync ``RealTimeTranscriber``:
 
     - ``stream`` / ``set_params`` / ``force_endpoint`` / ``keep_alive`` raise
       ``RuntimeError`` when called before ``connect()`` — silent drop would
@@ -94,7 +95,28 @@ class AsyncStreamingClient(_BaseStreamingClient):
       raises.
     """
 
-    def __init__(self, options: StreamingClientOptions):
+    def __init__(
+        self,
+        options: Optional[RealTimeTranscriberOptions] = None,
+        *,
+        api_key: Optional[str] = None,
+    ):
+        """Create an asyncio streaming transcriber.
+
+        Args:
+            ``options``: the full client configuration — credentials, host,
+                timeouts, retries.
+            ``api_key``: the API key to authenticate with. On its own it
+                builds ``RealTimeTranscriberOptions`` with every other option left
+                at its default. Passed alongside ``options`` it takes
+                precedence, replacing the key while every other field is
+                carried over; the ``options`` object itself is left untouched.
+
+        Raises:
+            ValueError: if neither ``options`` nor ``api_key`` is given.
+        """
+        options = _resolve_options(options, api_key)
+
         super().__init__(options)
 
         self._client = _AsyncHTTPClient(
@@ -110,7 +132,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
         self._read_task: Optional[asyncio.Task] = None
         self._write_task: Optional[asyncio.Task] = None
 
-    async def connect(self, params: StreamingParameters) -> None:
+    async def connect(self, params: RealTimeParameters) -> None:
         # Single-use: a client whose connection went down (success or
         # handshake failure) sets ``_connection_closed_reported``; reusing
         # it would yield a silently dead read/write loop because
@@ -122,7 +144,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
         )
         if already_used:
             raise RuntimeError(
-                "AsyncStreamingClient has already been connected; "
+                "AsyncRealTimeTranscriber has already been connected; "
                 "create a new instance for a new connection."
             )
 
@@ -149,7 +171,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
                     getattr(exc, "response", None), "status_code", None
                 )
                 await self._report_connection_closed(
-                    StreamingError(
+                    RealTimeError(
                         message=f"WebSocket handshake rejected (HTTP {status_code})",
                         code=status_code,
                     )
@@ -181,10 +203,10 @@ class AsyncStreamingClient(_BaseStreamingClient):
                 return
 
         self._read_task = asyncio.create_task(
-            self._read_loop(), name="AsyncStreamingClient._read_loop"
+            self._read_loop(), name="AsyncRealTimeTranscriber._read_loop"
         )
         self._write_task = asyncio.create_task(
-            self._write_loop(), name="AsyncStreamingClient._write_loop"
+            self._write_loop(), name="AsyncRealTimeTranscriber._write_loop"
         )
 
         logger.debug("Connected to WebSocket server")
@@ -275,7 +297,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
                 return
             await write_queue.put(chunk)
 
-    async def set_params(self, params: StreamingSessionParameters) -> None:
+    async def set_params(self, params: RealTimeSessionParameters) -> None:
         write_queue, stop_event = self._ensure_connected("set_params")
         if stop_event.is_set():
             return
@@ -303,7 +325,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
         # (mypy can't propagate narrowing through a separate method call).
         if self._write_queue is None or self._stop_event is None:
             raise RuntimeError(
-                f"AsyncStreamingClient is not connected; call connect() before {method}()"
+                f"AsyncRealTimeTranscriber is not connected; call connect() before {method}()"
             )
         return self._write_queue, self._stop_event
 
@@ -312,7 +334,9 @@ class AsyncStreamingClient(_BaseStreamingClient):
         # the primitives are initialized. ``if`` (not ``assert``) so it
         # survives ``python -O`` if the invariant is ever violated.
         if self._write_queue is None or self._stop_event is None:
-            raise RuntimeError("AsyncStreamingClient internal state not initialized")
+            raise RuntimeError(
+                "AsyncRealTimeTranscriber internal state not initialized"
+            )
         while True:
             if not self._websocket:
                 raise ValueError("Not connected to the WebSocket server")
@@ -358,7 +382,9 @@ class AsyncStreamingClient(_BaseStreamingClient):
         # ``_stop_event`` is initialized. ``if`` (not ``assert``) so it
         # survives ``python -O`` if the invariant is ever violated.
         if self._stop_event is None:
-            raise RuntimeError("AsyncStreamingClient internal state not initialized")
+            raise RuntimeError(
+                "AsyncRealTimeTranscriber internal state not initialized"
+            )
         while True:
             if not self._websocket:
                 raise ValueError("Not connected to the WebSocket server")
@@ -393,11 +419,13 @@ class AsyncStreamingClient(_BaseStreamingClient):
         # ``_handle_message`` is only reached from ``_read_loop``, which only
         # runs after ``connect()`` has initialized ``_stop_event``.
         if self._stop_event is None:
-            raise RuntimeError("AsyncStreamingClient internal state not initialized")
+            raise RuntimeError(
+                "AsyncRealTimeTranscriber internal state not initialized"
+            )
         if isinstance(message, TerminationEvent):
             self._stop_event.set()
 
-        event_type = StreamingEvents[message.type]
+        event_type = RealTimeEvents[message.type]
 
         for handler in self._handlers[event_type]:
             await self._invoke_handler(handler, message, event_type)
@@ -406,15 +434,17 @@ class AsyncStreamingClient(_BaseStreamingClient):
         logger.warning(
             "Streaming warning (code=%s): %s", warning.warning_code, warning.warning
         )
-        for handler in self._handlers[StreamingEvents.Warning]:
-            await self._invoke_handler(handler, warning, StreamingEvents.Warning)
+        for handler in self._handlers[RealTimeEvents.Warning]:
+            await self._invoke_handler(handler, warning, RealTimeEvents.Warning)
 
     async def _report_server_error(self, error: ErrorEvent) -> None:
         # Only reachable from ``_read_loop`` (after primitives are initialized).
         if self._stop_event is None:
-            raise RuntimeError("AsyncStreamingClient internal state not initialized")
+            raise RuntimeError(
+                "AsyncRealTimeTranscriber internal state not initialized"
+            )
         self._server_error_reported = True
-        streaming_error = StreamingError(message=error.error, code=error.error_code)
+        streaming_error = RealTimeError(message=error.error, code=error.error_code)
         logger.error("Streaming error: %s (code=%s)", error.error, error.error_code)
         await self._dispatch_error(streaming_error)
         # Tear down locally so a server that sends Error without a trailing
@@ -428,7 +458,7 @@ class AsyncStreamingClient(_BaseStreamingClient):
     async def _report_connection_closed(
         self,
         error: Union[
-            StreamingError,
+            RealTimeError,
             ErrorEvent,
             websockets.exceptions.ConnectionClosed,
             OSError,
@@ -437,7 +467,9 @@ class AsyncStreamingClient(_BaseStreamingClient):
         # Callers (``connect()`` failure path, ``_read_loop``, ``_write_loop``)
         # all run after ``_stop_event`` is initialized.
         if self._stop_event is None:
-            raise RuntimeError("AsyncStreamingClient internal state not initialized")
+            raise RuntimeError(
+                "AsyncRealTimeTranscriber internal state not initialized"
+            )
         if self._connection_closed_reported:
             return
         self._connection_closed_reported = True
@@ -467,15 +499,15 @@ class AsyncStreamingClient(_BaseStreamingClient):
 
         await self._close_websocket()
 
-    async def _dispatch_error(self, error: StreamingError) -> None:
-        for handler in self._handlers[StreamingEvents.Error]:
-            await self._invoke_handler(handler, error, StreamingEvents.Error)
+    async def _dispatch_error(self, error: RealTimeError) -> None:
+        for handler in self._handlers[RealTimeEvents.Error]:
+            await self._invoke_handler(handler, error, RealTimeEvents.Error)
 
     async def _invoke_handler(
         self,
         handler: Callable,
         payload: Any,
-        event_type: StreamingEvents,
+        event_type: RealTimeEvents,
     ) -> None:
         try:
             result = handler(self, payload)
@@ -494,17 +526,21 @@ class AsyncStreamingClient(_BaseStreamingClient):
             max_session_duration_seconds=max_session_duration_seconds,
         )
 
-    async def __aenter__(self) -> "AsyncStreamingClient":
+    async def __aenter__(self) -> "AsyncRealTimeTranscriber":
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.disconnect(terminate=exc_type is None)
 
 
+# Alias: the former name for `AsyncRealTimeTranscriber`, bound to the same object.
+AsyncStreamingClient = AsyncRealTimeTranscriber
+
+
 class _AsyncHTTPClient:
     def __init__(self, api_host: str, api_key: Optional[str] = None):
         # Lazy: don't instantiate httpx.AsyncClient here. Bare construction of
-        # an AsyncStreamingClient that's never connected (or used only for
+        # an AsyncRealTimeTranscriber that's never connected (or used only for
         # connect() — which doesn't go through the HTTP client) must not
         # leak an httpx pool.
         self._api_host = api_host

@@ -89,7 +89,7 @@ def test_transcribe_sends_prompt_and_keyterms_prompt(httpx_mock: HTTPXMock):
     # When transcribing with a prompt and keyterms_prompt
     config = aai.SyncTranscriptionConfig(
         prompt="Transcribe verbatim.",
-        keyterms_prompt=["AssemblyAI", "  Lemur  ", ""],
+        keyterms_prompt=["AssemblyAI", "  Universal  ", ""],
     )
     aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes", config=config)
 
@@ -98,7 +98,7 @@ def test_transcribe_sends_prompt_and_keyterms_prompt(httpx_mock: HTTPXMock):
     assert b'name="config"' in body
     assert b"Transcribe verbatim." in body
     assert b'"AssemblyAI"' in body
-    assert b'"Lemur"' in body  # whitespace stripped, empty term dropped
+    assert b'"Universal"' in body  # whitespace stripped, empty term dropped
     # And the routing model is never placed in the body
     assert b'"model"' not in body
 

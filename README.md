@@ -45,10 +45,13 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
 - [AssemblyAI's Python SDK](#assemblyais-python-sdk)
 - [Overview](#overview)
 - [Documentation](#documentation)
+- [Migrating to 1.0](MIGRATION.md)
 - [Quick Start](#quick-start)
   - [Installation](#installation)
   - [Examples](#examples)
+    - [Choosing a transcriber](#choosing-a-transcriber)
     - [**Core Examples**](#core-examples)
+    - [**Asyncio Examples**](#asyncio-examples)
     - [**Speech Understanding Examples**](#speech-understanding-examples)
     - [**Streaming Examples**](#streaming-examples)
     - [**Change the default settings**](#change-the-default-settings)
@@ -58,6 +61,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
     - [Defining Defaults](#defining-defaults)
     - [Overriding Defaults](#overriding-defaults)
   - [Synchronous vs Asynchronous](#synchronous-vs-asynchronous)
+  - [Asyncio](#asyncio)
   - [Getting the HTTP status code](#getting-the-http-status-code)
   - [Polling Intervals](#polling-intervals)
   - [Retrieving Existing Transcripts](#retrieving-existing-transcripts)
@@ -77,6 +81,8 @@ Visit our [AssemblyAI API Documentation](https://www.assemblyai.com/docs) to get
 pip install -U assemblyai
 ```
 
+Upgrading from 0.x? See the [**1.0 migration guide**](MIGRATION.md) for the breaking changes (LeMUR and the audio-capture extras were removed) and the recommended patterns going forward.
+
 ## Examples
 
 Before starting, you need to set the API key. If you don't have one yet, [**sign up for one**](https://www.assemblyai.com/dashboard/signup)!
@@ -87,6 +93,21 @@ import assemblyai as aai
 # set the API key
 aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 ```
+
+---
+
+### Choosing a transcriber
+
+| Class | Use it for |
+| --- | --- |
+| `assemblyai.prerecorded.v2.Transcriber` | Long-form audio, URLs, and the audio-intelligence features (speaker labels, chapters, sentiment, …), over the polled job API |
+| `assemblyai.prerecorded.v2.AsyncTranscriber` | The same, from asyncio code |
+| `assemblyai.sync.v1.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency |
+| `assemblyai.sync.v1.AsyncSyncTranscriber` | The same, from asyncio code |
+| `assemblyai.streaming.v3.RealTimeTranscriber` | Live audio (microphone, telephony, voice agents), transcribed as it arrives over a websocket session |
+| `assemblyai.streaming.v3.AsyncRealTimeTranscriber` | The same, from asyncio code |
+
+The versioned path is the preferred import for new code. The prerecorded and sync classes are also available as top-level shortcuts (`aai.Transcriber`, `aai.SyncTranscriber`, …) — see [Migrating to 1.0](MIGRATION.md) for the details.
 
 ---
 
@@ -421,7 +442,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.SyncTranscriptionConfig(
     prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    keyterms_prompt=["AssemblyAI", "Lemur", "U3-Pro"],     # max 2048 chars total
+    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 2048 chars total
     conversation_context=[
         # prior turns from the same conversation, oldest first
         "I'd like to book a flight to Denver.",
@@ -498,6 +519,31 @@ with aai.SyncTranscriber() as transcriber:
 </details>
 
 <details>
+  <summary>Use it from asyncio (`AsyncSyncTranscriber`)</summary>
+
+`aai.AsyncSyncTranscriber` is the asyncio counterpart of `aai.SyncTranscriber` — same input types, config, result, and errors, with `transcribe()` and `warm()` as coroutines. Use it in asyncio code (FastAPI, aiohttp, voice agents), where the threaded `transcribe()` would block the event loop and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+async def main():
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        asyncio.create_task(transcriber.warm())   # optional: fire as recording starts
+        audio = await record_until_done()
+        result = await transcriber.transcribe(audio)
+        print(result.text)
+
+asyncio.run(main())
+```
+
+The transcriber owns an HTTP connection pool: use `async with`, or call `await transcriber.aclose()`. To share one pool between transcribers, pass an `aai.AsyncClient`, which stays yours to close. Concurrency is plain asyncio — `await asyncio.gather(transcriber.transcribe(a), transcriber.transcribe(b))`.
+
+</details>
+
+<details>
   <summary>Handle errors</summary>
 
 Failures raise `aai.SyncTranscriptError` with the HTTP `status_code`, a machine-readable `error_code` (`bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`, …), and `retry_after` (seconds) on 429/503 responses.
@@ -512,6 +558,146 @@ try:
     print(result.text)
 except aai.SyncTranscriptError as error:
     print(error.status_code, error.error_code, error.retry_after)
+```
+
+</details>
+
+---
+
+### **Asyncio Examples**
+
+`aai.AsyncTranscriber` is the asyncio counterpart of `aai.Transcriber`. Every method
+that calls the API is a coroutine. Hundreds of transcriptions run concurrently on one
+thread, with no thread pool.
+
+Use it in asyncio code (FastAPI, aiohttp, voice agents). Do not use
+`transcribe_async` there: it returns a
+[`concurrent.futures.Future`](https://docs.python.org/3/library/concurrent.futures.html),
+which is not awaitable.
+
+<details>
+  <summary>Transcribe a file with asyncio</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    config = aai.TranscriptionConfig(
+        speech_models=["universal-3-5-pro", "universal-2"],
+        speaker_labels=True,
+    )
+
+    async with aai.AsyncTranscriber(config=config) as transcriber:
+        transcript = await transcriber.transcribe("./example.mp3")
+
+        if transcript.status == aai.TranscriptStatus.error:
+            raise RuntimeError(f"Transcription failed: {transcript.error}")
+
+        print(transcript.text)
+
+
+asyncio.run(main())
+```
+
+The transcriber owns an HTTP connection pool. Close it with an async context manager,
+or call `await transcriber.aclose()`.
+
+</details>
+
+<details>
+  <summary>Transcribe many files concurrently</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTranscriber() as transcriber:
+        # Plain asyncio - one coroutine per file, all in flight at once.
+        transcripts = await asyncio.gather(
+            transcriber.transcribe("./one.mp3"),
+            transcriber.transcribe("./two.mp3"),
+        )
+
+        # Or let the transcriber cap how many run at a time. Results come back
+        # in the order of the input.
+        transcripts = await transcriber.transcribe_group(
+            ["./one.mp3", "./two.mp3", "./three.mp3"],
+            max_concurrency=2,
+        )
+
+        for transcript in transcripts:
+            print(transcript.text)
+
+
+asyncio.run(main())
+```
+
+Pass `return_failures=True` to get `(transcripts, errors)` instead of a raised error.
+
+</details>
+
+<details>
+  <summary>Submit now, collect later</summary>
+
+```python
+import asyncio
+
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTranscriber() as transcriber:
+        # Returns as soon as the job is queued - no polling.
+        transcript = await transcriber.submit("https://example.org/audio.mp3")
+        print(transcript.id, transcript.status)
+
+        # Later, in the same or another process:
+        transcript = await transcriber.get_by_id(transcript.id)
+        print(transcript.text)
+
+        # Follow-up operations are coroutines too.
+        sentences = await transcript.get_sentences()
+        srt = await transcript.export_subtitles_srt()
+
+
+asyncio.run(main())
+```
+
+</details>
+
+<details>
+  <summary>Share one connection pool across transcribers</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncClient(settings=aai.settings) as client:
+        verbatim = aai.AsyncTranscriber(
+            client=client,
+            config=aai.TranscriptionConfig(disfluencies=True),
+        )
+        clean = aai.AsyncTranscriber(client=client)
+
+        # A client that was passed in is not closed by the transcribers - the
+        # `async with` above owns it.
+        await verbatim.transcribe("./interview.mp3")
+        await clean.transcribe("./interview.mp3")
 ```
 
 </details>
@@ -840,9 +1026,11 @@ for result in transcript.auto_highlights.results:
 
 ### **Streaming Examples**
 
-Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `StreamingClient` (threaded) and `AsyncStreamingClient` (asyncio). Pick whichever fits your codebase.
+Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. The SDK ships two clients with identical option/event/handler surfaces — `RealTimeTranscriber` (threaded) and `AsyncRealTimeTranscriber` (asyncio). Pick whichever fits your codebase.
 
-**Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncStreamingClient` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
+> The former `Streaming*` names (`StreamingClient`, `AsyncStreamingClient`, `StreamingClientOptions`, `StreamingParameters`, `StreamingSessionParameters`, `StreamingEvents`, `StreamingError`, `StreamingErrorCodes`) remain available as aliases of the `RealTime*` names — same objects, so existing code keeps working unchanged.
+
+**Handler contract**: every handler is called as `handler(client, event)`. Plain functions and `async def` functions both work; `AsyncRealTimeTranscriber` awaits async handlers inline on the read task, so don't block — use `asyncio.create_task(...)` if you need concurrent work.
 
 [Read more about the streaming service.](https://www.assemblyai.com/docs/streaming/getting-started/transcribe-streaming-audio)
 
@@ -850,11 +1038,19 @@ Real-time speech-to-text via WebSocket against the `universal-3-5-pro` model. Th
   <summary>Stream a local file (sync)</summary>
 
 ```python
-import assemblyai as aai
+import time
+
 from assemblyai.streaming.v3 import (
-    BeginEvent, StreamingClient, StreamingClientOptions, StreamingError,
-    StreamingEvents, StreamingParameters, TerminationEvent, TurnEvent,
+    BeginEvent, RealTimeTranscriber, RealTimeTranscriberOptions, RealTimeError,
+    RealTimeEvents, RealTimeParameters, TerminationEvent, TurnEvent,
 )
+
+def stream_file(path: str, sample_rate: int, chunk_duration: float = 0.3):
+    bytes_per_chunk = int(sample_rate * chunk_duration) * 2
+    with open(path, "rb") as f:
+        while chunk := f.read(bytes_per_chunk):
+            yield chunk
+            time.sleep(chunk_duration)
 
 def on_begin(client, event: BeginEvent):
     print(f"Session started: {event.id}")
@@ -865,50 +1061,20 @@ def on_turn(client, event: TurnEvent):
 def on_terminated(client, event: TerminationEvent):
     print(f"Done: {event.audio_duration_seconds}s of audio processed")
 
-def on_error(client, error: StreamingError):
+def on_error(client, error: RealTimeError):
     print(f"Error: {error} (code={error.code})")
 
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
-client.on(StreamingEvents.Begin, on_begin)
-client.on(StreamingEvents.Turn, on_turn)
-client.on(StreamingEvents.Termination, on_terminated)
-client.on(StreamingEvents.Error, on_error)
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
+client.on(RealTimeEvents.Begin, on_begin)
+client.on(RealTimeEvents.Turn, on_turn)
+client.on(RealTimeEvents.Termination, on_terminated)
+client.on(RealTimeEvents.Error, on_error)
 
-client.connect(StreamingParameters(
+client.connect(RealTimeParameters(
     sample_rate=16000, speech_model="universal-3-5-pro",
 ))
 try:
-    client.stream(aai.extras.stream_file(filepath="audio.wav", sample_rate=16000))
-finally:
-    client.disconnect(terminate=True)
-```
-
-</details>
-
-<details>
-  <summary>Stream your microphone (sync)</summary>
-
-`MicrophoneStream` requires PyAudio:
-
-```bash
-pip install -U "assemblyai[extras]"
-```
-
-```python
-import assemblyai as aai
-from assemblyai.streaming.v3 import (
-    StreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
-)
-
-def on_turn(client, event):
-    print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
-
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
-client.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
-
-try:
-    client.stream(aai.extras.MicrophoneStream(sample_rate=16000))
+    client.stream(stream_file("audio.wav", sample_rate=16000))
 finally:
     client.disconnect(terminate=True)
 ```
@@ -926,8 +1092,8 @@ Unlike a browser sample, the SDK does not capture audio — you supply 16-bit PC
 
 ```python
 from assemblyai.streaming.v3 import (
-    ChannelStreamer, StreamingClient, StreamingClientOptions,
-    StreamingEvents, StreamingParameters,
+    ChannelStreamer, RealTimeTranscriber, RealTimeTranscriberOptions,
+    RealTimeEvents, RealTimeParameters,
 )
 
 def on_turn(client, event):   # event is a DualChannelTurnEvent
@@ -935,14 +1101,14 @@ def on_turn(client, event):   # event is a DualChannelTurnEvent
     for w in event.words:
         print(f"  {w.text!r} -> channel={w.channel} speaker={w.speaker}")
 
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
 
 # Declare the channels and the session sample rate (must be pcm_s16le).
 mixer = ChannelStreamer(client, channels=["mic", "system"], sample_rate=16000)
 # Register handlers on the mixer: Turn handlers receive the enriched event,
 # other events (Begin/Error/…) are forwarded to the client.
-mixer.on(StreamingEvents.Turn, on_turn)
-client.connect(StreamingParameters(
+mixer.on(RealTimeEvents.Turn, on_turn)
+client.connect(RealTimeParameters(
     sample_rate=16000, speech_model="universal-3-5-pro", speaker_labels=True,
 ))
 
@@ -982,12 +1148,12 @@ See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py)
 <details>
   <summary>Stream a local file (async)</summary>
 
-`AsyncStreamingClient` mirrors `StreamingClient` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Don't pass `extras.stream_file` directly (it uses blocking `time.sleep`); pace from an async generator instead.
+`AsyncRealTimeTranscriber` mirrors `RealTimeTranscriber` with async methods. It's safe to use as an async context manager — `disconnect()` runs on block exit even if user code raises. Pace the audio from an async generator so the event loop is never blocked.
 
 ```python
 import asyncio
 from assemblyai.streaming.v3 import (
-    AsyncStreamingClient, StreamingClientOptions, StreamingEvents, StreamingParameters,
+    AsyncRealTimeTranscriber, RealTimeTranscriberOptions, RealTimeEvents, RealTimeParameters,
 )
 
 async def stream_file_async(path: str, sample_rate: int, chunk_duration: float = 0.3):
@@ -1001,9 +1167,9 @@ async def on_turn(client, event):
     print(f"{event.transcript} (end_of_turn={event.end_of_turn})")
 
 async def main():
-    async with AsyncStreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>")) as client:
-        client.on(StreamingEvents.Turn, on_turn)
-        await client.connect(StreamingParameters(
+    async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>")) as client:
+        client.on(RealTimeEvents.Turn, on_turn)
+        await client.connect(RealTimeParameters(
             sample_rate=16000, speech_model="universal-3-5-pro",
         ))
         await client.stream(stream_file_async("audio.wav", 16000))
@@ -1016,15 +1182,15 @@ asyncio.run(main())
 <details>
   <summary>Handle errors</summary>
 
-Server-side errors arrive on the `Error` event rather than being raised. The handler receives a `StreamingError` (an `Exception` subclass) with `.code: int | None` — **not** the wire `ErrorEvent` class.
+Server-side errors arrive on the `Error` event rather than being raised. The handler receives a `RealTimeError` (an `Exception` subclass) with `.code: int | None` — **not** the wire `ErrorEvent` class.
 
-`StreamingErrorCodes` is a `dict[int, str]` mapping wire codes to human-readable messages. Use `.get(...)` for lookup:
+`RealTimeErrorCodes` is a `dict[int, str]` mapping wire codes to human-readable messages. Use `.get(...)` for lookup:
 
 ```python
-from assemblyai.streaming.v3 import StreamingErrorCodes
+from assemblyai.streaming.v3 import RealTimeErrorCodes
 
 def on_error(client, error):
-    message = StreamingErrorCodes.get(error.code, str(error))
+    message = RealTimeErrorCodes.get(error.code, str(error))
     print(f"Streaming error {error.code}: {message}")
 ```
 
@@ -1038,11 +1204,11 @@ Common codes: `4001` Not Authorized, `4002` Insufficient Funds, `4029` Client se
 `set_params` updates an active session. Typical use: enable turn formatting (punctuation, casing) only on confirmed end-of-turn so partial transcripts stay raw:
 
 ```python
-from assemblyai.streaming.v3 import StreamingSessionParameters
+from assemblyai.streaming.v3 import RealTimeSessionParameters
 
 def on_turn(client, event):
     if event.end_of_turn and not event.turn_is_formatted:
-        client.set_params(StreamingSessionParameters(format_turns=True))
+        client.set_params(RealTimeSessionParameters(format_turns=True))
 ```
 
 For voice agents, `force_endpoint()` flushes the current turn — useful when an external signal (UI button, barge-in detection) determines the user has stopped speaking before VAD does:
@@ -1060,7 +1226,7 @@ Don't ship your API key to browsers. Mint a short-lived token server-side and pa
 
 **Sync server (Flask / WSGI / scripts):**
 ```python
-client = StreamingClient(StreamingClientOptions(api_key="<YOUR_API_KEY>"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(api_key="<YOUR_API_KEY>"))
 token = client.create_temporary_token(expires_in_seconds=60)
 # Send `token` to the browser, which connects with options(token=token).
 ```
@@ -1069,22 +1235,22 @@ token = client.create_temporary_token(expires_in_seconds=60)
 
 ```python
 from fastapi import FastAPI
-from assemblyai.streaming.v3 import AsyncStreamingClient, StreamingClientOptions
+from assemblyai.streaming.v3 import AsyncRealTimeTranscriber, RealTimeTranscriberOptions
 
 app = FastAPI()
 MASTER_KEY = "<YOUR_API_KEY>"
 
 @app.get("/streaming-token")
 async def streaming_token():
-    async with AsyncStreamingClient(StreamingClientOptions(api_key=MASTER_KEY)) as client:
+    async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(api_key=MASTER_KEY)) as client:
         return {"token": await client.create_temporary_token(expires_in_seconds=60)}
 ```
 
-**Browser / edge client:** pass the token via `StreamingClientOptions(token=...)`:
+**Browser / edge client:** pass the token via `RealTimeTranscriberOptions(token=...)`:
 
 ```python
-client = StreamingClient(StreamingClientOptions(token="<TOKEN_FROM_SERVER>"))
-client.connect(StreamingParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
+client = RealTimeTranscriber(RealTimeTranscriberOptions(token="<TOKEN_FROM_SERVER>"))
+client.connect(RealTimeParameters(sample_rate=16000, speech_model="universal-3-5-pro"))
 ```
 
 </details>
@@ -1117,7 +1283,7 @@ aai.settings.polling_interval = 10.0
 
 ## Playground
 
-Visit our Playground to try our all of our Speech AI models and LeMUR for free:
+Visit our Playground to try our all of our Speech AI models for free:
 
 - [Playground](https://www.assemblyai.com/dashboard/playground/)
 
@@ -1175,6 +1341,46 @@ The synchronous approach halts the application's flow until the transcription ha
 The asynchronous approach allows the application to continue running while the transcription is being processed. The caller receives a [`concurrent.futures.Future`](https://docs.python.org/3/library/concurrent.futures.html) object which can be used to check the status of the transcription at a later time.
 
 You can identify those two approaches by the `_async` suffix in the `Transcriber`'s method name (e.g. `transcribe` vs `transcribe_async`).
+
+A `concurrent.futures.Future` is not awaitable, and its `.result()` blocks the event
+loop. In an asyncio application, use [`AsyncTranscriber`](#asyncio) instead.
+
+## Asyncio
+
+`aai.AsyncTranscriber` mirrors `aai.Transcriber` with coroutines instead of threads:
+
+| `Transcriber` (threads)                | `AsyncTranscriber` (asyncio)                     |
+| -------------------------------------- | ------------------------------------------------ |
+| `transcribe(...)`                      | `await transcribe(...)`                          |
+| `transcribe_async(...)` -> `Future`    | `await transcribe(...)` (or `asyncio.gather`)     |
+| `submit(...)`                          | `await submit(...)`                              |
+| `transcribe_group(...)`                | `await transcribe_group(...)`                    |
+| `Transcript.get_by_id(id)`             | `await transcriber.get_by_id(id)`                |
+| `Transcript.delete_by_id(id)`          | `await transcriber.delete_by_id(id)`             |
+| `transcript.get_sentences()`           | `await transcript.get_sentences()`               |
+| `list_transcripts(...)`                | `await list_transcripts(...)`                    |
+
+Notes:
+
+- Both transcribers live in `assemblyai.prerecorded.v2`, whose version matches
+  the `/v2/transcript` API. The top-level `aai.*` names re-export them, so
+  `aai.AsyncTranscriber` is all most callers need.
+- `AsyncTranscriber` owns an HTTP connection pool. Close it with an async context
+  manager, or call `await transcriber.aclose()`.
+- Pass `client=aai.AsyncClient(settings=aai.settings)` to share one pool between
+  transcribers. A client you pass in stays yours to close.
+- There is no process-wide default async client. An `httpx.AsyncClient` pool belongs to
+  the event loop that first used it, so a global pool fails on a second `asyncio.run()`.
+- `AsyncTranscript` carries the same fields as `Transcript`. Only the methods that call
+  the API became coroutines.
+- Uploads stream local files and file objects through a thread, so a large upload never
+  blocks the loop.
+- `transcribe_group` and `submit_group` return results in input order. Both cap in-flight
+  work at `max_concurrency`, which defaults to 8.
+- Neither group method drops a failure. Either the first error is raised, or you pass
+  `return_failures=True` and get `(transcripts, errors)`.
+
+For real-time streaming, use `assemblyai.streaming.v3.AsyncRealTimeTranscriber`.
 
 ## Getting the HTTP status code
 

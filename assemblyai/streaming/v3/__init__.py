@@ -1,5 +1,5 @@
-from .async_client import AsyncStreamingClient
-from .client import StreamingClient
+from .async_client import AsyncRealTimeTranscriber, AsyncStreamingClient
+from .client import RealTimeTranscriber, StreamingClient
 from .extras import (
     AsyncChannelStreamer,
     ChannelAttributionOptions,
@@ -19,6 +19,12 @@ from .models import (
     HeartbeatEvent,
     LLMGatewayResponseEvent,
     NoiseSuppressionModel,
+    RealTimeError,
+    RealTimeErrorCodes,
+    RealTimeEvents,
+    RealTimeParameters,
+    RealTimeSessionParameters,
+    RealTimeTranscriberOptions,
     SessionConfiguration,
     SpeakerRevisionEvent,
     SpeakerRevisionItem,
@@ -41,7 +47,7 @@ from .models import (
 
 __all__ = [
     "AsyncChannelStreamer",
-    "AsyncStreamingClient",
+    "AsyncRealTimeTranscriber",
     "BeginEvent",
     "ChannelAttributionOptions",
     "ChannelStreamer",
@@ -53,21 +59,21 @@ __all__ = [
     "HeartbeatEvent",
     "LLMGatewayResponseEvent",
     "NoiseSuppressionModel",
+    "RealTimeError",
+    "RealTimeErrorCodes",
+    "RealTimeEvents",
+    "RealTimeParameters",
+    "RealTimeSessionParameters",
+    "RealTimeTranscriber",
+    "RealTimeTranscriberOptions",
     "SpeakerRevisionEvent",
     "SpeakerRevisionItem",
     "SpeechModel",
     "SessionConfiguration",
     "SpeechStartedEvent",
-    "StreamingClient",
-    "StreamingClientOptions",
-    "StreamingError",
-    "StreamingErrorCodes",
-    "StreamingEvents",
     "StreamingMode",
-    "StreamingParameters",
     "StreamingPiiPolicy",
     "StreamingPiiSubstitution",
-    "StreamingSessionParameters",
     "TerminationEvent",
     "TurnEvent",
     "VadDetector",
@@ -76,4 +82,14 @@ __all__ = [
     "WarningEvent",
     "Word",
     "attribute_turn",
+    # Aliases: the former names, each bound to the same object as its
+    # RealTime* counterpart above.
+    "AsyncStreamingClient",
+    "StreamingClient",
+    "StreamingClientOptions",
+    "StreamingError",
+    "StreamingErrorCodes",
+    "StreamingEvents",
+    "StreamingParameters",
+    "StreamingSessionParameters",
 ]
