@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     sync_http_timeout: float = 60.0
     "The HTTP timeout for synchronous transcription requests. Kept above the server's 30s deadline so the client doesn't race it."
 
+    dictation_base_url: str = "https://dictation.assemblyai.com"
+    "The base URL for the Dictation API (used by `DictationTranscriber`)"
+
+    dictation_http_timeout: float = 300.0
+    "The HTTP timeout for Dictation API requests. The documented client timeout for dictation, which may run an LLM pass over the transcript."
+
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
 

@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import httpx
 
@@ -12,15 +12,28 @@ ENDPOINT_WARM = "/v1/warm"
 MODEL_HEADER = "X-AAI-Model"
 
 
-def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
+_ErrorFactory = Callable[..., types.AssemblyAIError]
+
+
+def _error_from_response(
+    response: httpx.Response,
+    error_cls: _ErrorFactory = types.SyncTranscriptError,
+    what: str = "sync transcription",
+) -> types.AssemblyAIError:
     """
-    Builds a `SyncTranscriptError` from a non-200 response.
+    Builds an error from a non-200 response.
 
     The service returns an RFC 9457 problem-details envelope
     (`{"status", "title", "detail"}`); `error_code` is the snake_cased
     `title` (e.g. `"Audio Too Large"` -> `audio_too_large`). Older envelopes
     (`{"error_code", "message"}`, `{"detail"}`, and `{"error"}`) are still
     accepted; a bare `error` string carries no `error_code`.
+
+    Args:
+        response: the non-200 response.
+        error_cls: the exception class to build, taking `message`,
+            `status_code`, `error_code`, and `retry_after`.
+        what: the operation to name in the fallback message.
     """
     error_code: Optional[str] = None
     message: Optional[str] = None
@@ -41,7 +54,7 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
         message = response.text or None
 
     if not message:
-        message = f"sync transcription failed with status {response.status_code}"
+        message = f"{what} failed with status {response.status_code}"
 
     retry_after_header = response.headers.get("retry-after")
     retry_after = (
@@ -50,7 +63,7 @@ def _error_from_response(response: httpx.Response) -> types.SyncTranscriptError:
         else None
     )
 
-    return types.SyncTranscriptError(
+    return error_cls(
         message,
         status_code=response.status_code,
         error_code=error_code,

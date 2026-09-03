@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-import os
-from typing import BinaryIO, Optional, Tuple, Union
-from urllib.parse import urlparse
+from typing import Mapping, Optional, Tuple
 
+from ... import _audio, types
 from ... import client as _client
-from ... import types
+from ..._audio import _PCM_SUFFIXES, AudioInput
 from . import api
 
-AudioInput = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
+__all__ = [
+    "_PCM_SUFFIXES",
+    "AudioInput",
+    "_SyncTranscriberImpl",
+    "_config_to_json",
+    "_resolve_audio",
+    "check_config",
+]
 
-# Extensions that signal raw S16LE PCM rather than a WAV container.
-_PCM_SUFFIXES = (".pcm", ".raw")
+# The sync API decodes a WAV container or raw PCM; every other extension is
+# posted as WAV and left to the server to sniff.
+_CONTENT_TYPES: Mapping[str, str] = {}
 
 
 def check_config(owner: str, config: Optional[types.SyncTranscriptionConfig]) -> None:
@@ -26,11 +33,7 @@ def check_config(owner: str, config: Optional[types.SyncTranscriptionConfig]) ->
         config: the configuration to check.
     """
 
-    if config is not None and not isinstance(config, types.SyncTranscriptionConfig):
-        raise TypeError(
-            f"{owner} expects SyncTranscriptionConfig, got {type(config).__name__}. "
-            "Use aai.SyncTranscriptionConfig."
-        )
+    _audio.check_config(owner, config, types.SyncTranscriptionConfig)
 
 
 def _resolve_audio(
@@ -48,51 +51,21 @@ def _resolve_audio(
 
     Returns: `(audio_bytes, filename, content_type)`.
     """
-    suffix = ""
-    filename: Optional[str] = None
 
-    if isinstance(data, (bytes, bytearray)):
-        audio = bytes(data)
-    elif isinstance(data, (str, os.PathLike)):
-        path = os.fspath(data)
-        if urlparse(path).scheme in ("http", "https"):
-            raise ValueError(
-                "SyncTranscriber does not accept URLs. Pass a local file path or "
-                "audio bytes, or use aai.Transcriber for URL/async transcription."
-            )
-        with open(path, "rb") as f:
-            audio = f.read()
-        filename = os.path.basename(path)
-        suffix = os.path.splitext(path)[1].lower()
-    elif hasattr(data, "read"):
-        audio = data.read()
-        name = getattr(data, "name", None)
-        if name:
-            filename = os.path.basename(name)
-            suffix = os.path.splitext(name)[1].lower()
-    else:
-        raise TypeError(f"unsupported audio input type: {type(data).__name__}")
-
-    wants_pcm = config.sample_rate is not None or config.channels is not None
-    is_pcm = suffix in _PCM_SUFFIXES or wants_pcm
-    if is_pcm and (config.sample_rate is None or config.channels is None):
-        raise ValueError(
-            "raw PCM audio requires both sample_rate and channels in "
-            "SyncTranscriptionConfig"
-        )
-
-    content_type = "audio/pcm" if is_pcm else "audio/wav"
-    if not filename:
-        filename = "audio.pcm" if is_pcm else "audio.wav"
-
-    return audio, filename, content_type
+    return _audio._resolve_audio(
+        data,
+        sample_rate=config.sample_rate,
+        channels=config.channels,
+        owner="SyncTranscriber",
+        config_name="SyncTranscriptionConfig",
+        content_types=_CONTENT_TYPES,
+    )
 
 
 def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
     """Serializes the config to the JSON `config` part, dropping the routing model."""
-    data = config.dict(exclude_none=True)
-    data.pop("model", None)
-    return data or None
+
+    return _audio._config_to_json(config, exclude=("model",))
 
 
 class _SyncTranscriberImpl:
