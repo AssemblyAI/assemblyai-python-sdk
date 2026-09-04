@@ -1141,7 +1141,25 @@ Back-filled words are flagged `word.channel_resolved = True`; confident per-word
 - Capturing the system/speaker output is platform-specific: macOS needs a loopback driver (e.g. BlackHole); Windows uses WASAPI loopback; Linux a PulseAudio/PipeWire monitor source.
 - If the mic physically picks up the speakers, that bleed can pull attribution toward `mic`. Apply acoustic echo cancellation at capture (`getUserMedia({ audio: { echoCancellation: true } })` in browser front-ends, or an AEC-capable native path) — the SDK only receives already-captured PCM, so it can't apply AEC itself. Transcription quality is unaffected; only the `channel` field.
 
-See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py) for a complete runnable demo.
+The runnable example uses PocketStation to capture one desktop application and,
+when requested, the default microphone as separate sources. PocketStation does
+not require a virtual audio device for application capture.
+
+```bash
+python -m pip install assemblyai==1.3.0 pocketstation==0.1.3
+export ASSEMBLYAI_API_KEY=your_api_key
+python examples/streaming_dual_channel.py
+```
+
+The example asks which running application to transcribe. Add the microphone
+explicitly when you need both sides of a conversation:
+
+```bash
+python examples/streaming_dual_channel.py --application Zoom --microphone
+```
+
+See [`examples/streaming_dual_channel.py`](./examples/streaming_dual_channel.py)
+for the complete program.
 
 </details>
 
