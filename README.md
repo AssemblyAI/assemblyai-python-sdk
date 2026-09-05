@@ -62,7 +62,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
     - [Overriding Defaults](#overriding-defaults)
   - [Synchronous vs Asynchronous](#synchronous-vs-asynchronous)
   - [Asyncio](#asyncio)
-  - [Getting the HTTP status code](#getting-the-http-status-code)
+  - [Error Handling](#error-handling)
   - [Polling Intervals](#polling-intervals)
   - [Retrieving Existing Transcripts](#retrieving-existing-transcripts)
     - [Retrieving a Single Transcript](#retrieving-a-single-transcript)
@@ -1382,30 +1382,104 @@ Notes:
 
 For real-time streaming, use `assemblyai.streaming.v3.AsyncRealTimeTranscriber`.
 
-## Getting the HTTP status code
+## Error Handling
 
-There are two ways of accessing the HTTP status code:
+The SDK provides specific exception classes and status checks to help you handle various error conditions (e.g., authentication failures, invalid audio formats, rate limits, or streaming disconnections).
 
-- All custom AssemblyAI Error classes have a `status_code` attribute.
-- The latest HTTP response is stored in `aai.Client.get_default().latest_response` after every API call. This approach works also if no Exception is thrown.
+### Exception Hierarchy
+
+All custom SDK exceptions inherit from `aai.AssemblyAIError`:
+
+| Exception Class | Description | Key Attributes |
+|---|---|---|
+| `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
+| `aai.TranscriptError` | Raised when an asynchronous transcription job fails. | `status_code: Optional[int]` |
+| `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
+| `aai.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
+| `aai.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
+| `aai.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
+| `aai.streaming.v3.RealTimeError` *(alias `StreamingError`)* | Dispatched via the `RealTimeEvents.Error` event during WebSocket streaming. | `code: Optional[int]` |
+
+### Catching Specific Exceptions
+
+You can catch specific exceptions to provide differentiated behavior based on the failure type:
 
 ```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
 transcriber = aai.Transcriber()
 
-# Option 1: Catch the error
 try:
-    transcript = transcriber.submit("./example.mp3")
+    transcript = transcriber.transcribe("./audio.mp3")
+    if transcript.status == aai.TranscriptStatus.error:
+        print(f"Transcription failed: {transcript.error}")
+except aai.TranscriptError as e:
+    print(f"Transcript error (HTTP {e.status_code}): {e}")
 except aai.AssemblyAIError as e:
-    print(e.status_code)
+    print(f"AssemblyAI API error (HTTP {e.status_code}): {e}")
+```
 
-# Option 2: Access the latest response through the client
+### Handling Synchronous Errors (`SyncTranscriptError`)
+
+When using `aai.SyncTranscriber`, failures raise `aai.SyncTranscriptError`. It carries machine-readable `error_code` strings (such as `bad_audio`, `audio_too_short`, `audio_too_large`, `capacity_exceeded`, `inference_timeout`) and `retry_after` (in seconds) on `429` (rate limit) or `503` (service unavailable) responses:
+
+```python
+import time
+import assemblyai as aai
+
+try:
+    result = aai.SyncTranscriber().transcribe("./call.wav")
+    print(result.text)
+except aai.SyncTranscriptError as error:
+    if error.status_code == 429:
+        print(f"Rate limited. Waiting {error.retry_after}s before retrying...")
+        time.sleep(error.retry_after or 5)
+    elif error.error_code == "bad_audio":
+        print(f"Unsupported or corrupt audio file: {error}")
+    else:
+        print(f"Sync transcription failed [{error.error_code}]: {error}")
+```
+
+### Inspecting the Raw HTTP Response
+
+To inspect the raw HTTP response from the most recent request:
+
+- All custom AssemblyAI exception classes provide the `status_code` attribute.
+- The latest `httpx.Response` object is stored in `aai.Client.get_default().last_response` after every API call (even when no exception is thrown):
+
+```python
+import assemblyai as aai
+
 client = aai.Client.get_default()
 
 try:
-    transcript = transcriber.submit("./example.mp3")
-except:
-    print(client.last_response)
-    print(client.last_response.status_code)
+    transcript = aai.Transcriber().submit("./example.mp3")
+except aai.AssemblyAIError as e:
+    print(f"HTTP Status: {e.status_code}")
+    if client.last_response is not None:
+        print(f"Response headers: {client.last_response.headers}")
+        print(f"Response body: {client.last_response.text}")
+```
+
+### Handling Real-Time Streaming Errors
+
+For WebSocket streaming (`RealTimeTranscriber` or `AsyncRealTimeTranscriber`), server-side errors arrive on the `Error` event instead of being raised. The handler receives a `RealTimeError` with `.code`:
+
+```python
+from assemblyai.streaming.v3 import RealTimeError, RealTimeErrorCodes
+
+def on_error(client, error: RealTimeError):
+    description = RealTimeErrorCodes.get(error.code, str(error))
+    print(f"Streaming error {error.code}: {description}")
+
+    if error.code == 4001:
+        print("Invalid or missing API key.")
+    elif error.code == 4002:
+        print("Insufficient funds on account.")
+    elif error.code == 4029:
+        print("Client is sending audio faster than real-time.")
 ```
 
 ## Polling Intervals
