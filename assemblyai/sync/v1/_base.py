@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from ... import client as _client
 from ... import types
 from . import api
+from ._multipart import AudioChunks
 
 AudioInput = Union[str, bytes, bytearray, "os.PathLike[str]", BinaryIO]
 
@@ -73,6 +74,35 @@ def _resolve_audio(
     else:
         raise TypeError(f"unsupported audio input type: {type(data).__name__}")
 
+    resolved_filename, content_type = resolve_format(config, suffix, filename)
+
+    return audio, resolved_filename, content_type
+
+
+def resolve_format(
+    config: types.SyncTranscriptionConfig,
+    suffix: str = "",
+    filename: Optional[str] = None,
+) -> Tuple[str, str]:
+    """
+    Decides the multipart filename and Content-Type for the audio part.
+
+    PCM is selected when `suffix` is a PCM extension or when
+    `sample_rate`/`channels` are set on the config — the fields the sync API
+    requires only for raw PCM — and both must then be present. Everything else
+    is treated as a WAV container.
+
+    Split out of `_resolve_audio` so the streamed path can reach the same
+    decision without holding the audio: a stream has no bytes to inspect, only
+    the config and an optional filename.
+
+    Args:
+        config: the transcription options.
+        suffix: the source's lowercased file extension, if any.
+        filename: the name for the multipart part; defaulted when absent.
+
+    Returns: `(filename, content_type)`.
+    """
     wants_pcm = config.sample_rate is not None or config.channels is not None
     is_pcm = suffix in _PCM_SUFFIXES or wants_pcm
     if is_pcm and (config.sample_rate is None or config.channels is None):
@@ -85,7 +115,7 @@ def _resolve_audio(
     if not filename:
         filename = "audio.pcm" if is_pcm else "audio.wav"
 
-    return audio, filename, content_type
+    return filename, content_type
 
 
 def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
@@ -93,6 +123,46 @@ def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
     data = config.dict(exclude_none=True)
     data.pop("model", None)
     return data or None
+
+
+def check_chunks(data: object) -> None:
+    """
+    Raises unless `data` can be streamed.
+
+    Names the two mistakes worth catching early — a whole audio buffer, which
+    belongs in `transcribe()`, and a path, which the streaming path cannot
+    open on the caller's behalf without deciding when to read it.
+    """
+    if isinstance(data, (bytes, bytearray)):
+        raise TypeError(
+            "transcribe_stream() expects an iterable of audio chunks or a file "
+            "object, not audio bytes. Audio you already hold whole should go to "
+            "transcribe(), which is faster for it."
+        )
+
+    if isinstance(data, (str, os.PathLike)):
+        raise TypeError(
+            "transcribe_stream() expects an iterable of audio chunks or a file "
+            "object, not a path. Open the file and pass the file object, or use "
+            "transcribe() to let the SDK read it."
+        )
+
+    if not (
+        hasattr(data, "read") or hasattr(data, "__iter__") or hasattr(data, "__aiter__")
+    ):
+        raise TypeError(f"unsupported audio stream type: {type(data).__name__}")
+
+
+def stream_filename(
+    data: object, config: types.SyncTranscriptionConfig
+) -> Tuple[str, str]:
+    """Resolves the audio part's filename and Content-Type for a stream."""
+
+    name = getattr(data, "name", None)
+    filename = os.path.basename(name) if isinstance(name, str) and name else None
+    suffix = os.path.splitext(filename)[1].lower() if filename else ""
+
+    return resolve_format(config, suffix, filename)
 
 
 class _SyncTranscriberImpl:
@@ -122,4 +192,25 @@ class _SyncTranscriberImpl:
             model=config.model,
             config=_config_to_json(config),
             timeout=self._client.settings.sync_http_timeout,
+        )
+
+    def transcribe_stream(
+        self,
+        *,
+        data: AudioChunks,
+        config: Optional[types.SyncTranscriptionConfig],
+    ) -> types.SyncTranscriptResponse:
+        config = config or self.config
+        check_chunks(data)
+        filename, content_type = stream_filename(data, config)
+
+        return api.transcribe_stream(
+            self._client.http_client,
+            base_url=self._client.settings.sync_base_url,
+            chunks=data,
+            filename=filename,
+            audio_content_type=content_type,
+            model=config.model,
+            config=_config_to_json(config),
+            timeout=self._client.settings.sync_stream_http_timeout,
         )

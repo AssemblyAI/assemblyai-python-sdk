@@ -9,7 +9,7 @@ import httpx
 from ... import client as _client
 from ... import types
 from . import api
-from ._base import AudioInput, _SyncTranscriberImpl, check_config
+from ._base import AudioChunks, AudioInput, _SyncTranscriberImpl, check_config
 
 
 class SyncTranscriber:
@@ -129,6 +129,58 @@ class SyncTranscriber:
             data=data,
             config=config,
         )
+
+    def transcribe_stream(
+        self,
+        data: AudioChunks,
+        config: Optional[types.SyncTranscriptionConfig] = None,
+    ) -> types.SyncTranscriptResponse:
+        """
+        Transcribes audio uploaded as it is produced.
+
+        Where `transcribe()` needs the whole clip before it can send anything,
+        this starts the request immediately and uploads chunks as they arrive,
+        so authorization, the upload and every speech segment but the last
+        resolve while the caller is still recording. What is left to wait for
+        once they stop is the final segment.
+
+        That only pays off when the audio is genuinely still being produced —
+        a live microphone, an in-progress call. Streaming a file that is
+        already on disk is slower than `transcribe()`, which uploads it in one
+        piece; the saving comes from overlapping the recording, not from the
+        chunking itself. The saving also needs enough audio to have segments to
+        release early: below roughly a minute, only the elided upload counts.
+
+        The caller must keep producing: an upload that goes silent for long
+        enough is aborted server-side. Stop by ending the iterator, not by
+        pausing it.
+
+        Args:
+            data: An iterable of audio chunks, or a binary file object read as
+                it fills. Raw PCM also requires `sample_rate` and `channels` on
+                the config. Audio you already hold whole belongs in
+                `transcribe()`.
+            config: Options for this call. If `None`, the transcriber's default
+                configuration is used.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`, or if
+                `data` is a path or a bytes buffer rather than a stream.
+            SyncTranscriptError: if the request fails. Auth, rate-limit and
+                capacity failures can surface part-way through the upload.
+
+        Example:
+            ```python
+            def mic_chunks():
+                while recording:
+                    yield stream.read(4096)
+
+            result = aai.SyncTranscriber().transcribe_stream(mic_chunks())
+            ```
+        """
+        check_config(type(self).__name__, config)
+
+        return self._impl.transcribe_stream(data=data, config=config)
 
     def warm(self) -> bool:
         """

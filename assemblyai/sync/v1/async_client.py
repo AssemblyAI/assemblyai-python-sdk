@@ -12,7 +12,15 @@ from typing_extensions import Self
 from ... import async_client as _async_client
 from ... import types
 from . import api, async_api
-from ._base import AudioInput, _config_to_json, _resolve_audio, check_config
+from ._base import (
+    AudioInput,
+    _config_to_json,
+    _resolve_audio,
+    check_chunks,
+    check_config,
+    stream_filename,
+)
+from ._multipart import AsyncAudioChunks
 
 _T = TypeVar("_T")
 
@@ -140,6 +148,71 @@ class AsyncSyncTranscriber:
             model=config.model,
             config=_config_to_json(config),
             timeout=self._client.settings.sync_http_timeout,
+        )
+
+    async def transcribe_stream(
+        self,
+        data: AsyncAudioChunks,
+        config: Optional[types.SyncTranscriptionConfig] = None,
+    ) -> types.SyncTranscriptResponse:
+        """
+        Transcribes audio uploaded as it is produced.
+
+        The asyncio counterpart of `SyncTranscriber.transcribe_stream`. Where
+        `transcribe()` needs the whole clip before it can send anything, this
+        starts the request immediately and uploads chunks as they arrive, so
+        authorization, the upload and every speech segment but the last resolve
+        while the caller is still recording.
+
+        That only pays off when the audio is genuinely still being produced —
+        a live microphone, an in-progress call. Streaming a file already on
+        disk is slower than `transcribe()`. The saving also needs enough audio
+        to have segments to release early: below roughly a minute, only the
+        elided upload counts.
+
+        The caller must keep producing: an upload that goes silent for long
+        enough is aborted server-side. Stop by ending the iterator, not by
+        pausing it.
+
+        Args:
+            data: An async iterable of audio chunks — or a plain iterable or
+                file object, which are consumed inline and so must not block.
+                Raw PCM also requires `sample_rate` and `channels` on the
+                config.
+            config: Options for this call. If `None`, the transcriber's default
+                configuration is used.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`, or if
+                `data` is a path or a bytes buffer rather than a stream.
+            SyncTranscriptError: if the request fails. Auth, rate-limit and
+                capacity failures can surface part-way through the upload.
+
+        Example:
+            ```python
+            async def mic_chunks():
+                while recording:
+                    yield await stream.read(4096)
+
+            async with aai.AsyncSyncTranscriber() as transcriber:
+                result = await transcriber.transcribe_stream(mic_chunks())
+            ```
+        """
+        check_config(type(self).__name__, config)
+
+        config = config or self.config
+        check_chunks(data)
+        filename, content_type = stream_filename(data, config)
+
+        return await async_api.transcribe_stream(
+            self._client.http_client,
+            base_url=self._client.settings.sync_base_url,
+            chunks=data,
+            filename=filename,
+            audio_content_type=content_type,
+            model=config.model,
+            config=_config_to_json(config),
+            timeout=self._client.settings.sync_stream_http_timeout,
         )
 
     async def warm(self) -> bool:
