@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union, overload
 
 from typing_extensions import Self
 
 from ... import async_client as _async_client
 from . import async_api, models
-from .params import LLMGatewayMessageParamUnion
+from .params import LLMGatewayMessageParam
 from .stream import AsyncLLMGatewayStream
 
 
@@ -39,11 +39,41 @@ class AsyncCompletionsResource:
     def __init__(self, gateway: "AsyncLLMGateway") -> None:
         self._gateway = gateway
 
+    @overload
     async def create(
         self,
         *,
         model: str,
-        messages: List[LLMGatewayMessageParamUnion],
+        messages: List[LLMGatewayMessageParam],
+        stream: Literal[False] = False,
+        **kwargs: Any,
+    ) -> models.LLMGatewayChatCompletion: ...
+
+    @overload
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
+        stream: Literal[True],
+        **kwargs: Any,
+    ) -> AsyncLLMGatewayStream: ...
+
+    @overload
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
+        stream: bool,
+        **kwargs: Any,
+    ) -> Union[models.LLMGatewayChatCompletion, AsyncLLMGatewayStream]: ...
+
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
         stream: bool = False,
         **kwargs: Any,
     ) -> Union[models.LLMGatewayChatCompletion, AsyncLLMGatewayStream]:
@@ -98,12 +128,12 @@ class AsyncCompletionsResource:
         self,
         *,
         model: str,
-        messages: List[LLMGatewayMessageParamUnion],
+        messages: List[LLMGatewayMessageParam],
         tools: List[Dict[str, Any]],
         functions: Dict[str, Callable[..., Any]],
         max_rounds: int = 10,
         **kwargs: Any,
-    ) -> models.LLMGatewayChatCompletion | AsyncLLMGatewayStream:
+    ) -> models.LLMGatewayChatCompletion:
         """
         Runs the tool-calling loop to completion: calls the model, invokes any
         requested tools from `functions`, feeds their results back, and repeats
@@ -130,7 +160,7 @@ class AsyncCompletionsResource:
             raise ValueError("run_tools() does not support stream=True")
 
         for _ in range(max_rounds):
-            completion = await self.create(
+            completion: models.LLMGatewayChatCompletion = await self.create(
                 model=model, messages=messages, tools=tools, **kwargs
             )
             message = completion.choices[0].message

@@ -1,9 +1,9 @@
 import json
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, overload
 
 from ... import client as _client
 from . import api, models
-from .params import LLMGatewayMessageParamUnion
+from .params import LLMGatewayMessageParam
 from .stream import LLMGatewayStream
 
 
@@ -34,11 +34,41 @@ class CompletionsResource:
     def __init__(self, gateway: "LLMGateway") -> None:
         self._gateway = gateway
 
+    @overload
     def create(
         self,
         *,
         model: str,
-        messages: List[LLMGatewayMessageParamUnion],
+        messages: List[LLMGatewayMessageParam],
+        stream: Literal[False] = False,
+        **kwargs: Any,
+    ) -> models.LLMGatewayChatCompletion: ...
+
+    @overload
+    def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
+        stream: Literal[True],
+        **kwargs: Any,
+    ) -> LLMGatewayStream: ...
+
+    @overload
+    def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
+        stream: bool,
+        **kwargs: Any,
+    ) -> Union[models.LLMGatewayChatCompletion, LLMGatewayStream]: ...
+
+    def create(
+        self,
+        *,
+        model: str,
+        messages: List[LLMGatewayMessageParam],
         stream: bool = False,
         **kwargs: Any,
     ) -> Union[models.LLMGatewayChatCompletion, LLMGatewayStream]:
@@ -92,12 +122,12 @@ class CompletionsResource:
         self,
         *,
         model: str,
-        messages: List[LLMGatewayMessageParamUnion],
+        messages: List[LLMGatewayMessageParam],
         tools: List[Dict[str, Any]],
         functions: Dict[str, Callable[..., Any]],
         max_rounds: int = 10,
         **kwargs: Any,
-    ) -> Union[models.LLMGatewayChatCompletion, LLMGatewayStream]:
+    ) -> models.LLMGatewayChatCompletion:
         """
         Runs the tool-calling loop to completion: calls the model, invokes any
         requested tools from `functions`, feeds their results back, and repeats
@@ -124,7 +154,7 @@ class CompletionsResource:
             raise ValueError("run_tools() does not support stream=True")
 
         for _ in range(max_rounds):
-            completion = self.create(
+            completion: models.LLMGatewayChatCompletion = self.create(
                 model=model, messages=messages, tools=tools, **kwargs
             )
             message = completion.choices[0].message
