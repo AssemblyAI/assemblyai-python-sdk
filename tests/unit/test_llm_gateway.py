@@ -3,6 +3,7 @@ import pytest
 from pytest_httpx import HTTPXMock, IteratorStream
 
 import assemblyai as aai
+from assemblyai.llm_gateway.v1 import models
 
 aai.settings.api_key = "test"
 
@@ -961,7 +962,7 @@ def test_stream_chunk_exposes_tool_call_delta(httpx_mock: HTTPXMock):
     assert delta.role == "assistant"
     assert delta.content is None
     tool_call = delta.tool_calls[0]
-    assert isinstance(tool_call, aai.LLMGatewayChunkToolCall)
+    assert isinstance(tool_call, models.LLMGatewayChunkToolCall)
     assert tool_call.index == 0
     assert tool_call.id == "call_1"
     assert tool_call.function.name == "get_weather"

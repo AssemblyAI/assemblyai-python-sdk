@@ -1,60 +1,48 @@
+"""LLM Gateway client surface.
+
+Exports the clients, the request param type, and the response types a caller
+receives or annotates. The nested leaf models — token-detail breakdowns,
+pricing, provider metadata, streamed tool-call fragments — are reached by
+attribute access off these types and stay in `models` rather than the public
+surface.
+"""
+
 from ...types import LLMGatewayError
 from .async_client import AsyncLLMGateway
 from .client import LLMGateway
 from .models import (
-    LLMGatewayCacheCreation,
     LLMGatewayChatCompletion,
     LLMGatewayChoice,
     LLMGatewayChunkChoice,
     LLMGatewayChunkDelta,
-    LLMGatewayChunkFunction,
-    LLMGatewayChunkToolCall,
     LLMGatewayCompletionChunk,
-    LLMGatewayCompletionTokensDetails,
-    LLMGatewayDefaultParameters,
-    LLMGatewayFunction,
     LLMGatewayModel,
     LLMGatewayModelList,
-    LLMGatewayPricing,
-    LLMGatewayPricingData,
-    LLMGatewayPromptTokensDetails,
     LLMGatewayResponseMessage,
     LLMGatewayToolCall,
-    LLMGatewayTopProvider,
     LLMGatewayUnderstandingResponse,
     LLMGatewayUsage,
 )
-from .params import LLMGatewayMessageParam, LLMGatewayMessageParamUnion
+from .params import LLMGatewayMessageParam
 from .stream import AsyncLLMGatewayStream, LLMGatewayStream, LLMGatewayStreamAccumulator
 
 __all__ = [
     "AsyncLLMGateway",
     "AsyncLLMGatewayStream",
     "LLMGateway",
-    "LLMGatewayCacheCreation",
     "LLMGatewayChatCompletion",
     "LLMGatewayChoice",
     "LLMGatewayChunkChoice",
     "LLMGatewayChunkDelta",
-    "LLMGatewayChunkFunction",
-    "LLMGatewayChunkToolCall",
     "LLMGatewayCompletionChunk",
-    "LLMGatewayCompletionTokensDetails",
-    "LLMGatewayDefaultParameters",
     "LLMGatewayError",
-    "LLMGatewayFunction",
     "LLMGatewayMessageParam",
-    "LLMGatewayMessageParamUnion",
     "LLMGatewayModel",
     "LLMGatewayModelList",
-    "LLMGatewayPricing",
-    "LLMGatewayPricingData",
-    "LLMGatewayPromptTokensDetails",
     "LLMGatewayResponseMessage",
     "LLMGatewayStream",
     "LLMGatewayStreamAccumulator",
     "LLMGatewayToolCall",
-    "LLMGatewayTopProvider",
     "LLMGatewayUnderstandingResponse",
     "LLMGatewayUsage",
 ]

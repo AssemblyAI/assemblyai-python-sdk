@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import json
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union, overload
 
 from typing_extensions import Self
 
 from ... import async_client as _async_client
-from . import async_api, models
+from . import _base, async_api, models
 from .params import LLMGatewayMessageParam
 from .stream import AsyncLLMGatewayStream
 
 
-class AsyncModelsResource:
+class AsyncModelsResource(_base._BaseResource):
     """The `models` resource of `AsyncLLMGateway`."""
-
-    def __init__(self, gateway: "AsyncLLMGateway") -> None:
-        self._gateway = gateway
 
     async def list(self) -> models.LLMGatewayModelList:
         """
@@ -24,20 +20,14 @@ class AsyncModelsResource:
 
         Raises: `LLMGatewayError` if the request fails.
         """
-        settings = self._gateway.client.settings
-
         return await async_api.list_models(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
+            **self._http_options,
         )
 
 
-class AsyncCompletionsResource:
+class AsyncCompletionsResource(_base._BaseResource):
     """The `chat.completions` resource of `AsyncLLMGateway`."""
-
-    def __init__(self, gateway: "AsyncLLMGateway") -> None:
-        self._gateway = gateway
 
     @overload
     async def create(
@@ -99,29 +89,23 @@ class AsyncCompletionsResource:
             it fails before any bytes are received — a failure mid-stream
             just truncates the iterator).
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-            **kwargs,
-        }
+        body = _base.completion_body(
+            model=model, messages=messages, stream=stream, extra=kwargs
+        )
 
         if stream:
             return AsyncLLMGatewayStream(
                 async_api.stream_completion(
                     self._gateway.client.http_client,
-                    base_url=settings.llm_gateway_base_url,
-                    timeout=settings.llm_gateway_http_timeout,
                     body=body,
+                    **self._http_options,
                 )
             )
 
         return await async_api.create_completion(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
             body=body,
+            **self._http_options,
         )
 
     async def run_tools(
@@ -156,61 +140,14 @@ class AsyncCompletionsResource:
             RuntimeError: if the loop doesn't finish within `max_rounds`.
             LLMGatewayError: if any underlying `create()` call fails.
         """
-        if kwargs.get("stream"):
-            raise ValueError("run_tools() does not support stream=True")
+        _base.reject_stream(kwargs)
 
         for _ in range(max_rounds):
             completion: models.LLMGatewayChatCompletion = await self.create(
                 model=model, messages=messages, tools=tools, **kwargs
             )
-            message = completion.choices[0].message
-
-            if not message.tool_calls:
-                messages.append({"role": "assistant", "content": message.content})
+            if _base.apply_tool_round(completion, messages, functions):
                 return completion
-
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": tool_call.type,
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments
-                                if isinstance(tool_call.function.arguments, str)
-                                else json.dumps(tool_call.function.arguments),
-                            },
-                        }
-                        for tool_call in message.tool_calls
-                    ],
-                }
-            )
-
-            for tool_call in message.tool_calls:
-                function = functions.get(tool_call.function.name)
-                if function is None:
-                    raise ValueError(
-                        f"No function registered for tool call {tool_call.function.name!r}"
-                    )
-
-                arguments = tool_call.function.arguments
-                if isinstance(arguments, str):
-                    arguments = json.loads(arguments)
-
-                result = function(**arguments)
-                output = result if isinstance(result, str) else json.dumps(result)
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": output,
-                        "name": tool_call.function.name,
-                    }
-                )
 
         raise RuntimeError(f"Tool loop did not finish within max_rounds={max_rounds}")
 
@@ -222,11 +159,8 @@ class AsyncChatResource:
         self.completions = AsyncCompletionsResource(gateway)
 
 
-class AsyncUnderstandingResource:
+class AsyncUnderstandingResource(_base._BaseResource):
     """The `understanding` resource of `AsyncLLMGateway`."""
-
-    def __init__(self, gateway: "AsyncLLMGateway") -> None:
-        self._gateway = gateway
 
     async def create(
         self,
@@ -244,18 +178,12 @@ class AsyncUnderstandingResource:
 
         Raises: `LLMGatewayError` if the request fails.
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {
-            "transcript_id": transcript_id,
-            "speech_understanding": {"request": request},
-            **kwargs,
-        }
-
         return await async_api.create_understanding(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
-            body=body,
+            body=_base.understanding_body(
+                transcript_id=transcript_id, request=request, extra=kwargs
+            ),
+            **self._http_options,
         )
 
     async def validate(
@@ -275,16 +203,12 @@ class AsyncUnderstandingResource:
         Raises: `LLMGatewayError` (with `.errors` populated with the
             validation messages) if the request is invalid.
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {"speech_understanding": {"request": request}, **kwargs}
-        if transcript_id is not None:
-            body["transcript_id"] = transcript_id
-
         await async_api.validate_understanding(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
-            body=body,
+            body=_base.validate_body(
+                request=request, transcript_id=transcript_id, extra=kwargs
+            ),
+            **self._http_options,
         )
 
 

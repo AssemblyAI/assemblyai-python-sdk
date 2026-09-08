@@ -27,8 +27,6 @@ def _error_from_response(response: httpx.Response) -> types.LLMGatewayError:
     message: Optional[str] = None
     errors: Optional[List[str]] = None
 
-    print(response.text)
-
     try:
         body = response.json()
         if isinstance(body, dict):
@@ -36,7 +34,9 @@ def _error_from_response(response: httpx.Response) -> types.LLMGatewayError:
             if "message" in body:
                 message = body.get("message")
                 metadata = body.get("metadata")
-                if isinstance(metadata, dict) and isinstance(metadata.get("errors"), list):
+                if isinstance(metadata, dict) and isinstance(
+                    metadata.get("errors"), list
+                ):
                     errors = metadata["errors"]
             elif "error" in body:
                 message = body.get("error")
@@ -159,9 +159,6 @@ def create_understanding(
         json=body,
         timeout=timeout,
     )
-
-    from pprint import pprint
-    pprint (response.json())
 
     if response.status_code != httpx.codes.OK:
         raise _error_from_response(response)

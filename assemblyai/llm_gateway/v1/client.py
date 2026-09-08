@@ -1,17 +1,13 @@
-import json
 from typing import Any, Callable, Dict, List, Literal, Optional, Union, overload
 
 from ... import client as _client
-from . import api, models
+from . import _base, api, models
 from .params import LLMGatewayMessageParam
 from .stream import LLMGatewayStream
 
 
-class ModelsResource:
+class ModelsResource(_base._BaseResource):
     """The `models` resource of `LLMGateway`."""
-
-    def __init__(self, gateway: "LLMGateway") -> None:
-        self._gateway = gateway
 
     def list(self) -> models.LLMGatewayModelList:
         """
@@ -19,20 +15,14 @@ class ModelsResource:
 
         Raises: `LLMGatewayError` if the request fails.
         """
-        settings = self._gateway.client.settings
-
         return api.list_models(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
+            **self._http_options,
         )
 
 
-class CompletionsResource:
+class CompletionsResource(_base._BaseResource):
     """The `chat.completions` resource of `LLMGateway`."""
-
-    def __init__(self, gateway: "LLMGateway") -> None:
-        self._gateway = gateway
 
     @overload
     def create(
@@ -93,29 +83,23 @@ class CompletionsResource:
             it fails before any bytes are received — a failure mid-stream
             just truncates the iterator).
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-            **kwargs,
-        }
+        body = _base.completion_body(
+            model=model, messages=messages, stream=stream, extra=kwargs
+        )
 
         if stream:
             return LLMGatewayStream(
                 api.stream_completion(
                     self._gateway.client.http_client,
-                    base_url=settings.llm_gateway_base_url,
-                    timeout=settings.llm_gateway_http_timeout,
                     body=body,
+                    **self._http_options,
                 )
             )
 
         return api.create_completion(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
             body=body,
+            **self._http_options,
         )
 
     def run_tools(
@@ -150,61 +134,14 @@ class CompletionsResource:
             RuntimeError: if the loop doesn't finish within `max_rounds`.
             LLMGatewayError: if any underlying `create()` call fails.
         """
-        if kwargs.get("stream"):
-            raise ValueError("run_tools() does not support stream=True")
+        _base.reject_stream(kwargs)
 
         for _ in range(max_rounds):
             completion: models.LLMGatewayChatCompletion = self.create(
                 model=model, messages=messages, tools=tools, **kwargs
             )
-            message = completion.choices[0].message
-
-            if not message.tool_calls:
-                messages.append({"role": "assistant", "content": message.content})
+            if _base.apply_tool_round(completion, messages, functions):
                 return completion
-
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": tool_call.type,
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments
-                                if isinstance(tool_call.function.arguments, str)
-                                else json.dumps(tool_call.function.arguments),
-                            },
-                        }
-                        for tool_call in message.tool_calls
-                    ],
-                }
-            )
-
-            for tool_call in message.tool_calls:
-                function = functions.get(tool_call.function.name)
-                if function is None:
-                    raise ValueError(
-                        f"No function registered for tool call {tool_call.function.name!r}"
-                    )
-
-                arguments = tool_call.function.arguments
-                if isinstance(arguments, str):
-                    arguments = json.loads(arguments)
-
-                result = function(**arguments)
-                output = result if isinstance(result, str) else json.dumps(result)
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": output,
-                        "name": tool_call.function.name,
-                    }
-                )
 
         raise RuntimeError(f"Tool loop did not finish within max_rounds={max_rounds}")
 
@@ -216,11 +153,8 @@ class ChatResource:
         self.completions = CompletionsResource(gateway)
 
 
-class UnderstandingResource:
+class UnderstandingResource(_base._BaseResource):
     """The `understanding` resource of `LLMGateway`."""
-
-    def __init__(self, gateway: "LLMGateway") -> None:
-        self._gateway = gateway
 
     def create(
         self,
@@ -238,18 +172,12 @@ class UnderstandingResource:
 
         Raises: `LLMGatewayError` if the request fails.
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {
-            "transcript_id": transcript_id,
-            "speech_understanding": {"request": request},
-            **kwargs,
-        }
-
         return api.create_understanding(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
-            body=body,
+            body=_base.understanding_body(
+                transcript_id=transcript_id, request=request, extra=kwargs
+            ),
+            **self._http_options,
         )
 
     def validate(
@@ -269,16 +197,12 @@ class UnderstandingResource:
         Raises: `LLMGatewayError` (with `.errors` populated with the
             validation messages) if the request is invalid.
         """
-        settings = self._gateway.client.settings
-        body: Dict[str, Any] = {"speech_understanding": {"request": request}, **kwargs}
-        if transcript_id is not None:
-            body["transcript_id"] = transcript_id
-
         api.validate_understanding(
             self._gateway.client.http_client,
-            base_url=settings.llm_gateway_base_url,
-            timeout=settings.llm_gateway_http_timeout,
-            body=body,
+            body=_base.validate_body(
+                request=request, transcript_id=transcript_id, extra=kwargs
+            ),
+            **self._http_options,
         )
 
 

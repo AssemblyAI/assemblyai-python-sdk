@@ -15,6 +15,3 @@ class LLMGatewayMessageParam(TypedDict, total=False):
     name: str
     thinking: str
     cache_control: Dict[str, Any]
-
-
-LLMGatewayMessageParamUnion = LLMGatewayMessageParam
