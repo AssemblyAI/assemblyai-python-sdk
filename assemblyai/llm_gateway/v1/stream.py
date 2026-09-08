@@ -38,9 +38,11 @@ class LLMGatewayStream:
     `for chunk in stream: ...`. Once exhausted, call `get_final_message()` for
     the assembled text/usage/finish_reason.
 
-    Verified for OpenAI-routed models only, like raw chunk parsing. Tool calls
-    are not reconstructed here — streamed chunks don't carry `tool_calls`
-    today.
+    Verified for OpenAI-routed models only, like raw chunk parsing. Chunks can
+    carry tool calls (`chunk.choices[0].delta.tool_calls`), but they arrive as
+    fragments and are not reassembled here — `get_final_message()` covers text,
+    usage and `finish_reason` only. For assembled tool calls, use `run_tools()`
+    or a non-streaming `create()`.
     """
 
     def __init__(self, chunks: Iterator[models.LLMGatewayCompletionChunk]) -> None:

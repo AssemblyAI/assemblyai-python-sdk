@@ -757,3 +757,213 @@ def test_chat_completions_stream_get_final_message(httpx_mock: HTTPXMock):
     assert final.usage.total_tokens == 15
     assert final.id == "chatcmpl-1"
     assert final.model == "claude-sonnet-5"
+
+
+# The gateway is written in Go, where a nil slice/map marshals as `null` rather
+# than `[]`/`{}`. An explicit null bypasses a pydantic field default, so each
+# collection on the response path has to tolerate it.
+
+
+def test_list_models_tolerates_null_data(httpx_mock: HTTPXMock):
+    # Given a models response whose `data` slice came back null
+    httpx_mock.add_response(
+        url=MODELS_URL,
+        method="GET",
+        status_code=httpx.codes.OK,
+        json={"data": None},
+    )
+
+    # When listing models
+    result = aai.LLMGateway().models.list()
+
+    # Then it parses to an empty list rather than raising
+    assert result.data == []
+
+
+def test_list_models_tolerates_null_model_collections(httpx_mock: HTTPXMock):
+    # Given a model entry whose list fields all came back null
+    httpx_mock.add_response(
+        url=MODELS_URL,
+        method="GET",
+        status_code=httpx.codes.OK,
+        json={
+            "data": [
+                {
+                    "id": "claude-sonnet-5",
+                    "name": "Claude Sonnet 5",
+                    "description": "",
+                    "default_parameters": {},
+                    "supported_parameters": None,
+                    "top_provider": {
+                        "is_moderated": False,
+                        "context_length": 200000,
+                        "max_completion_tokens": 8192,
+                    },
+                    "context_length": 200000,
+                    "pricing": {"global": {"completions": 15.0, "prompt": 3.0}},
+                    "creator": "anthropic",
+                    "retirement_date": 0,
+                    "available_regions": None,
+                    "providers": None,
+                    "default_provider": "bedrock",
+                }
+            ]
+        },
+    )
+
+    # When listing models
+    model = aai.LLMGateway().models.list().data[0]
+
+    # Then every null collection defaults to empty
+    assert model.supported_parameters == []
+    assert model.available_regions == []
+    assert model.providers == []
+
+
+def test_chat_completions_tolerates_null_choices(httpx_mock: HTTPXMock):
+    # Given a completion whose `choices` slice came back null
+    response = dict(_COMPLETION_RESPONSE, choices=None)
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When creating a completion
+    result = aai.LLMGateway().chat.completions.create(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "Hi"}],
+    )
+
+    # Then it parses to an empty list rather than raising
+    assert result.choices == []
+
+
+def test_chat_completions_tolerates_usage_without_token_details(
+    httpx_mock: HTTPXMock,
+):
+    # Given a completion whose usage omits the OpenAI-shaped detail objects
+    response = dict(
+        _COMPLETION_RESPONSE,
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    )
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When creating a completion
+    result = aai.LLMGateway().chat.completions.create(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "Hi"}],
+    )
+
+    # Then the totals still parse and the detail objects are None
+    assert result.usage.total_tokens == 15
+    assert result.usage.prompt_tokens_details is None
+    assert result.usage.completion_tokens_details is None
+
+
+def test_understanding_tolerates_null_speech_understanding(httpx_mock: HTTPXMock):
+    # Given an understanding response whose `speech_understanding` map came back null
+    httpx_mock.add_response(
+        url=UNDERSTANDING_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json={"speech_understanding": None, "request_id": "req-1"},
+    )
+
+    # When running understanding
+    result = aai.LLMGateway().understanding.create(
+        transcript_id="transcript-1",
+        request={"translation": {"target_languages": ["es"]}},
+    )
+
+    # Then it parses to an empty dict rather than raising
+    assert result.speech_understanding == {}
+
+
+def test_chat_completions_preserves_unknown_server_fields(httpx_mock: HTTPXMock):
+    # Given a completion carrying a field this SDK version doesn't model
+    response = dict(_COMPLETION_RESPONSE, brand_new_field={"nested": 1})
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When creating a completion
+    result = aai.LLMGateway().chat.completions.create(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "Hi"}],
+    )
+
+    # Then the unknown field is still reachable, not dropped
+    assert result.brand_new_field == {"nested": 1}
+
+
+def test_stream_chunk_exposes_tool_call_delta(httpx_mock: HTTPXMock):
+    # Given a Claude-shaped streaming chunk carrying a fragmented tool call
+    # (see the gateway's pkg/models/claude/stream.go Delta/OpenAIToolCalls)
+    chunk = {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "claude-haiku-4-5-20251001",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": '{"ci',
+                            },
+                        }
+                    ],
+                },
+                "finish_reason": None,
+            }
+        ],
+    }
+    import json as _json
+
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        stream=IteratorStream(
+            [f"data: {_json.dumps(chunk)}\n\n".encode(), b"data: [DONE]\n\n"]
+        ),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    # When consuming the stream
+    chunks = list(
+        aai.LLMGateway().chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": "Weather in Paris?"}],
+            stream=True,
+        )
+    )
+
+    # Then the delta's role and tool-call fragment are typed and reachable
+    delta = chunks[0].choices[0].delta
+    assert delta.role == "assistant"
+    assert delta.content is None
+    tool_call = delta.tool_calls[0]
+    assert isinstance(tool_call, aai.LLMGatewayChunkToolCall)
+    assert tool_call.index == 0
+    assert tool_call.id == "call_1"
+    assert tool_call.function.name == "get_weather"
+    # arguments stream in fragments; the SDK doesn't reassemble them
+    assert tool_call.function.arguments == '{"ci'

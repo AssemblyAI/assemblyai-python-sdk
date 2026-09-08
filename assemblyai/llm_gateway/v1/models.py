@@ -2,8 +2,29 @@ from typing import Any, Dict, List, Optional
 
 from ...types import BaseModel, ConfigDict, Field, pydantic_v2
 
+if pydantic_v2:
+    from ...types import field_validator
+else:
+    from ...types import validator
 
-class LLMGatewayPricingData(BaseModel):
+
+class _LLMGatewayResponseModel(BaseModel):
+    """
+    Base for the LLM Gateway response models.
+
+    Keeps unknown server fields reachable instead of dropping them, so a gateway
+    that adds a field doesn't need an SDK release before callers can read it.
+    """
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="allow")
+    else:
+
+        class Config:
+            extra = "allow"
+
+
+class LLMGatewayPricingData(_LLMGatewayResponseModel):
     completions: float
     prompt: float
     input_cache_read: Optional[float] = None
@@ -11,7 +32,7 @@ class LLMGatewayPricingData(BaseModel):
     input_cache_write_1h: Optional[float] = None
 
 
-class LLMGatewayPricing(BaseModel):
+class LLMGatewayPricing(_LLMGatewayResponseModel):
     us: Optional[LLMGatewayPricingData] = None
     eu: Optional[LLMGatewayPricingData] = None
     global_: LLMGatewayPricingData = Field(alias="global")
@@ -25,19 +46,19 @@ class LLMGatewayPricing(BaseModel):
             allow_population_by_field_name = True
 
 
-class LLMGatewayDefaultParameters(BaseModel):
+class LLMGatewayDefaultParameters(_LLMGatewayResponseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     frequency_penalty: Optional[int] = None
 
 
-class LLMGatewayTopProvider(BaseModel):
+class LLMGatewayTopProvider(_LLMGatewayResponseModel):
     is_moderated: bool
     context_length: int
     max_completion_tokens: int
 
 
-class LLMGatewayModel(BaseModel):
+class LLMGatewayModel(_LLMGatewayResponseModel):
     """A model available through the LLM Gateway, as returned by `GET /v1/models`."""
 
     id: str
@@ -56,33 +77,61 @@ class LLMGatewayModel(BaseModel):
     providers: List[str] = Field(default_factory=list)
     default_provider: str
 
+    # The gateway is Go: a nil slice marshals as `null`, not `[]`, and an
+    # explicit null bypasses the field default.
+    if pydantic_v2:
 
-class LLMGatewayModelList(BaseModel):
+        @field_validator(
+            "supported_parameters", "available_regions", "providers", mode="before"
+        )
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+    else:
+
+        @validator("supported_parameters", "available_regions", "providers", pre=True)
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+
+class LLMGatewayModelList(_LLMGatewayResponseModel):
     """The response of `GET /v1/models`."""
 
     data: List[LLMGatewayModel] = Field(default_factory=list)
 
+    if pydantic_v2:
 
-class LLMGatewayCacheCreation(BaseModel):
+        @field_validator("data", mode="before")
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+    else:
+
+        @validator("data", pre=True)
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+
+class LLMGatewayCacheCreation(_LLMGatewayResponseModel):
     ephemeral_5m_input_tokens: int
     ephemeral_1h_input_tokens: int
 
 
-class LLMGatewayPromptTokensDetails(BaseModel):
+class LLMGatewayPromptTokensDetails(_LLMGatewayResponseModel):
     cached_tokens: int
     audio_tokens: int
     cache_creation: Optional[LLMGatewayCacheCreation] = None
     cache_write_tokens: Optional[int] = None
 
 
-class LLMGatewayCompletionTokensDetails(BaseModel):
+class LLMGatewayCompletionTokensDetails(_LLMGatewayResponseModel):
     reasoning_tokens: int
     audio_tokens: int
     accepted_prediction_tokens: int
     rejected_prediction_tokens: int
 
 
-class LLMGatewayUsage(BaseModel):
+class LLMGatewayUsage(_LLMGatewayResponseModel):
     """
     `input_tokens`/`output_tokens` are only populated for non-streaming
     responses — the gateway forwards the upstream provider's own streaming
@@ -95,22 +144,22 @@ class LLMGatewayUsage(BaseModel):
     output_tokens: Optional[int] = None
     completion_tokens: int
     total_tokens: int
-    prompt_tokens_details: LLMGatewayPromptTokensDetails
-    completion_tokens_details: LLMGatewayCompletionTokensDetails
+    prompt_tokens_details: Optional[LLMGatewayPromptTokensDetails] = None
+    completion_tokens_details: Optional[LLMGatewayCompletionTokensDetails] = None
 
 
-class LLMGatewayFunction(BaseModel):
+class LLMGatewayFunction(_LLMGatewayResponseModel):
     name: str
     arguments: Any = None
 
 
-class LLMGatewayToolCall(BaseModel):
+class LLMGatewayToolCall(_LLMGatewayResponseModel):
     id: str
     type: str
     function: LLMGatewayFunction
 
 
-class LLMGatewayResponseMessage(BaseModel):
+class LLMGatewayResponseMessage(_LLMGatewayResponseModel):
     role: str
     content: Optional[str] = None
     thinking: Optional[str] = None
@@ -119,13 +168,13 @@ class LLMGatewayResponseMessage(BaseModel):
     name: Optional[str] = None
 
 
-class LLMGatewayChoice(BaseModel):
+class LLMGatewayChoice(_LLMGatewayResponseModel):
     index: int
     finish_reason: Optional[str] = None
     message: LLMGatewayResponseMessage
 
 
-class LLMGatewayChatCompletion(BaseModel):
+class LLMGatewayChatCompletion(_LLMGatewayResponseModel):
     """The response of `POST /v1/chat/completions` (non-streaming)."""
 
     request_id: str
@@ -140,18 +189,54 @@ class LLMGatewayChatCompletion(BaseModel):
 
     llm_status_code: Optional[int] = None
 
+    if pydantic_v2:
 
-class LLMGatewayChunkDelta(BaseModel):
+        @field_validator("choices", mode="before")
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+    else:
+
+        @validator("choices", pre=True)
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+
+class LLMGatewayChunkFunction(_LLMGatewayResponseModel):
+    name: Optional[str] = None
+    arguments: Optional[str] = None
+    """A fragment of the JSON arguments, not the whole value — concatenate the
+    fragments carrying the same `index` across chunks."""
+
+
+class LLMGatewayChunkToolCall(_LLMGatewayResponseModel):
+    """
+    A tool call as it arrives mid-stream.
+
+    Everything but `index` is optional: providers send the `id`/`type`/`name`
+    once and then stream `function.arguments` in fragments, so a single chunk
+    carries only part of the call.
+    """
+
+    index: int
+    id: Optional[str] = None
+    type: Optional[str] = None
+    function: Optional[LLMGatewayChunkFunction] = None
+
+
+class LLMGatewayChunkDelta(_LLMGatewayResponseModel):
     content: Optional[str] = None
+    role: Optional[str] = None
+    tool_calls: Optional[List[LLMGatewayChunkToolCall]] = None
 
 
-class LLMGatewayChunkChoice(BaseModel):
+class LLMGatewayChunkChoice(_LLMGatewayResponseModel):
     index: int
     delta: LLMGatewayChunkDelta
     finish_reason: Optional[str] = None
 
 
-class LLMGatewayCompletionChunk(BaseModel):
+class LLMGatewayCompletionChunk(_LLMGatewayResponseModel):
     """
     A streamed chat completion chunk.
 
@@ -169,11 +254,35 @@ class LLMGatewayCompletionChunk(BaseModel):
     usage: Optional[LLMGatewayUsage] = None
     obfuscation: Optional[str] = None
 
+    if pydantic_v2:
 
-class LLMGatewayUnderstandingResponse(BaseModel):
+        @field_validator("choices", mode="before")
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+    else:
+
+        @validator("choices", pre=True)
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+
+class LLMGatewayUnderstandingResponse(_LLMGatewayResponseModel):
     """The response of `POST /v1/understanding`."""
 
     speech_understanding: Dict[str, Any] = Field(default_factory=dict)
     request_id: str
     utterances: Optional[List[Dict[str, Any]]] = None
     translated_texts: Optional[Dict[str, str]] = None
+
+    if pydantic_v2:
+
+        @field_validator("speech_understanding", mode="before")
+        def set_collection_default(cls, v):
+            return {} if v is None else v
+
+    else:
+
+        @validator("speech_understanding", pre=True)
+        def set_collection_default(cls, v):
+            return {} if v is None else v
