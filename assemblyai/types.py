@@ -73,6 +73,30 @@ class RedactedAudioUnavailableError(AssemblyAIError):
     """
 
 
+class LLMGatewayError(AssemblyAIError):
+    """
+    Error raised when an LLM Gateway request fails.
+
+    The server uses two different error envelopes: business errors
+    (`{"message", "code", "request_id", "metadata": {"errors": [...]}}`) and
+    401s raised by auth middleware before a request reaches a route handler
+    (`{"error", "status", "request_id"}`). Both resolve to this one class;
+    `request_id` and `errors` (validation messages, when present) are
+    populated from whichever shape the server sent.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        request_id: Optional[str] = None,
+        errors: Optional[List[str]] = None,
+    ):
+        super().__init__(message, status_code)
+        self.request_id = request_id
+        self.errors = errors
+
+
 class SyncTranscriptError(AssemblyAIError):
     """
     Error raised when a synchronous transcription request fails.
@@ -118,6 +142,12 @@ class Settings(BaseSettings):
 
     sync_http_timeout: float = 60.0
     "The HTTP timeout for synchronous transcription requests. Kept above the server's 30s deadline so the client doesn't race it."
+
+    llm_gateway_base_url: str = "https://llm-gateway.assemblyai.com"
+    "The base URL for the LLM Gateway API (used by `LLMGateway`/`AsyncLLMGateway`)"
+
+    llm_gateway_http_timeout: float = 30.0
+    "The HTTP timeout for LLM Gateway requests"
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"

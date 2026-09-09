@@ -53,6 +53,7 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
     - [**Core Examples**](#core-examples)
     - [**Asyncio Examples**](#asyncio-examples)
     - [**Speech Understanding Examples**](#speech-understanding-examples)
+    - [**LLM Gateway Examples**](#llm-gateway-examples)
     - [**Streaming Examples**](#streaming-examples)
     - [**Change the default settings**](#change-the-default-settings)
   - [Playground](#playground)
@@ -1019,6 +1020,229 @@ for result in transcript.auto_highlights.results:
 ```
 
 [Read more about auto highlights here.](https://www.assemblyai.com/docs/speech-understanding/key-phrases)
+
+</details>
+
+---
+
+### **LLM Gateway Examples**
+
+`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway — model listing, OpenAI-shaped chat completions routed to OpenAI/Claude/Gemini/Bedrock models, and speech understanding over an existing transcript. `aai.AsyncLLMGateway` is the asyncio counterpart, with the same resources and every API call a coroutine.
+
+[Read more about the LLM Gateway.](https://www.assemblyai.com/docs/llm-gateway/quickstart)
+
+<details>
+  <summary>List the available models</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+for model in gateway.models.list().data:
+    print(model.id, model.context_length, model.pricing.global_.prompt)
+```
+
+`models.list()` returns the full response envelope (`LLMGatewayModelList`) with the models on `.data`.
+
+</details>
+
+<details>
+  <summary>Create a chat completion</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+completion = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "Summarize this call."}],
+    max_tokens=512,
+)
+
+print(completion.choices[0].message.content)
+print(completion.usage.total_tokens, completion.request_id)
+```
+
+Messages are plain dicts (`aai.LLMGatewayMessageParam`) — `role` is `"user"`, `"assistant"`, `"system"`, or `"tool"` (a tool result, paired with `tool_call_id`), and `content` is a string or a list of content-part dicts.
+
+Everything past `model`/`messages`/`stream` is a keyword argument forwarded verbatim into the request body: `max_tokens`, `temperature`, `tools`, `tool_choice`, `response_format`, plus the AssemblyAI extensions (`fallbacks`, `fallback_config`, `zero_data_retention`, `transcript_id`, `reasoning`, `model_region`, `fail_fast`, `max_timeout`, …). There is no client-side check on the name, so spell them carefully.
+
+```python
+completion = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "..."}],
+    fallbacks=[{"model": "gpt-5-mini", "messages": [{"role": "user", "content": "..."}]}],
+    zero_data_retention=True,
+    transcript_id="transcript_abc123",
+)
+```
+
+[Read more about model fallbacks](https://www.assemblyai.com/docs/llm-gateway/fallback) and the [available models](https://www.assemblyai.com/docs/llm-gateway/available-models).
+
+</details>
+
+<details>
+  <summary>Stream a chat completion</summary>
+
+`stream=True` returns an iterator of `LLMGatewayCompletionChunk`.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+stream = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "..."}],
+    stream=True,
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+Chunk parsing is verified for OpenAI-routed models only. Chunks can carry tool-call fragments on `chunk.choices[0].delta.tool_calls`, but this SDK does not reassemble them or accumulate the streamed text for you — collect chunks yourself, or use a non-streaming `create()`.
+
+There is no built-in tool-calling loop: `tools`/`tool_choice` are forwarded like any other request param, and a tool result is a plain `{"role": "tool", "tool_call_id": ..., "content": ...}` message — drive the loop yourself around `create()`. [Read more about tool calling here.](https://www.assemblyai.com/docs/llm-gateway/tool-calling)
+
+</details>
+
+<details>
+  <summary>Run speech understanding on a transcript</summary>
+
+Speaker identification, translation, and custom formatting run against an existing transcript, so `transcript_id` is required.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+result = gateway.understanding.create(
+    transcript_id="transcript_abc123",
+    request={
+        "speaker_identification": {
+            "speaker_type": "name",
+            "known_values": ["Michel Martin", "Peter DeCarlo"],
+        },
+    },
+)
+
+print(result.speech_understanding["response"])
+print(result.utterances)
+```
+
+`request` is a plain dict — the server has no fixed schema for it. `validate()` checks a request without running it, returning `None` when it is valid:
+
+```python
+try:
+    gateway.understanding.validate(request={"translation": {"target_languages": ["es"]}})
+except aai.LLMGatewayError as error:
+    print(error.errors)  # list of validation messages
+```
+
+`validate()` needs the same authorization and balance as a real call — it is not a free dry run.
+
+</details>
+
+<details>
+  <summary>Use it from asyncio (`AsyncLLMGateway`)</summary>
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+async def main():
+    async with aai.AsyncLLMGateway() as gateway:
+        completion = await gateway.chat.completions.create(
+            model="claude-sonnet-5",
+            messages=[{"role": "user", "content": "Summarize this call."}],
+        )
+        print(completion.choices[0].message.content)
+
+        stream = await gateway.chat.completions.create(
+            model="claude-sonnet-5",
+            messages=[{"role": "user", "content": "..."}],
+            stream=True,
+        )
+        async for chunk in stream:
+            print(chunk.choices[0].delta.content or "", end="")
+
+asyncio.run(main())
+```
+
+The gateway owns an HTTP connection pool: use `async with`, or call `await gateway.aclose()`. Pass `client=aai.AsyncClient(settings=aai.settings)` to share one pool between gateways — a client you pass in stays yours to close. Sync `LLMGateway` needs none of this; it borrows the shared default `Client`.
+
+Both gateways also accept `api_key=...` in place of a client and build their own client for it. Given alongside `client`, the key takes precedence and the client you passed is left untouched.
+
+</details>
+
+<details>
+  <summary>Handle errors</summary>
+
+Every failure raises `aai.LLMGatewayError`, a subclass of `aai.AssemblyAIError`.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+try:
+    gateway.chat.completions.create(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+except aai.LLMGatewayError as error:
+    print(error.status_code, error.request_id, error.errors, str(error))
+```
+
+- `.status_code` — the HTTP status
+- `.request_id` — for support correlation
+- `.errors` — validation messages when the server sent any (e.g. a failed `understanding.validate()`), `None` otherwise
+
+For a stream, only a failure before the first byte raises; a mid-stream failure truncates the iterator.
+
+</details>
+
+<details>
+  <summary>Change the gateway base URL and timeout</summary>
+
+```python
+import assemblyai as aai
+
+# default: https://llm-gateway.assemblyai.com
+aai.settings.llm_gateway_base_url = "https://llm-gateway.assemblyai.com"
+
+# The HTTP timeout in seconds for LLM Gateway requests, default is 30.0
+aai.settings.llm_gateway_http_timeout = 60.0
+```
+
+Both are also settable via the `ASSEMBLYAI_LLM_GATEWAY_BASE_URL` and `ASSEMBLYAI_LLM_GATEWAY_HTTP_TIMEOUT` environment variables.
+
+</details>
+
+<details>
+  <summary>Read fields the SDK doesn't model</summary>
+
+Response models keep unrecognized fields instead of dropping them, so a field the gateway adds is readable without an SDK upgrade:
+
+```python
+completion = gateway.chat.completions.create(model="claude-sonnet-5", messages=[...])
+completion.some_new_field  # reachable as an attribute
+```
+
+Collections the server sends as `null` are read as empty, so `completion.choices` is always a list.
 
 </details>
 

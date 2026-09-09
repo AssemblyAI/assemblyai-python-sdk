@@ -1,6 +1,22 @@
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
+from .llm_gateway.v1 import (
+    AsyncLLMGateway,
+    LLMGateway,
+    LLMGatewayChatCompletion,
+    LLMGatewayChoice,
+    LLMGatewayChunkChoice,
+    LLMGatewayChunkDelta,
+    LLMGatewayCompletionChunk,
+    LLMGatewayMessageParam,
+    LLMGatewayModel,
+    LLMGatewayModelList,
+    LLMGatewayResponseMessage,
+    LLMGatewayToolCall,
+    LLMGatewayUnderstandingResponse,
+    LLMGatewayUsage,
+)
 from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
 from .sync.v1 import AsyncSyncTranscriber, SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
@@ -25,6 +41,7 @@ from .types import (
     LanguageDetectionOptions,
     ListTranscriptParameters,
     ListTranscriptResponse,
+    LLMGatewayError,
     PageDetails,
     Paragraph,
     PIIRedactedAudioMethod,
@@ -96,6 +113,7 @@ __all__ = [
     # types
     "AssemblyAIError",
     "AsyncClient",
+    "AsyncLLMGateway",
     "AsyncSyncTranscriber",
     "AsyncTranscriber",
     "AsyncTranscript",
@@ -119,6 +137,20 @@ __all__ = [
     "LanguageDetectionOptions",
     "ListTranscriptParameters",
     "ListTranscriptResponse",
+    "LLMGateway",
+    "LLMGatewayChatCompletion",
+    "LLMGatewayChoice",
+    "LLMGatewayChunkChoice",
+    "LLMGatewayChunkDelta",
+    "LLMGatewayCompletionChunk",
+    "LLMGatewayError",
+    "LLMGatewayMessageParam",
+    "LLMGatewayModel",
+    "LLMGatewayModelList",
+    "LLMGatewayResponseMessage",
+    "LLMGatewayToolCall",
+    "LLMGatewayUnderstandingResponse",
+    "LLMGatewayUsage",
     "PageDetails",
     "Sentence",
     "Sentiment",
