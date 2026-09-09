@@ -41,8 +41,8 @@ _OK_RESPONSE = {
             "creator": "anthropic",
             "retirement_date": 0,
             "available_regions": ["us", "eu"],
-            "providers": ["anthropic"],
-            "default_provider": "anthropic",
+            "providers": [{"id": "anthropic", "name": "Anthropic"}],
+            "default_provider": {"id": "anthropic", "name": "Anthropic"},
         },
         {
             "id": "gpt-4o",
@@ -66,8 +66,8 @@ _OK_RESPONSE = {
             "creator": "openai",
             "retirement_date": 0,
             "available_regions": ["global"],
-            "providers": ["openai"],
-            "default_provider": "openai",
+            "providers": [{"id": "openai", "name": "Open AI"}],
+            "default_provider": {"id": "openai", "name": "Open AI"},
         },
     ]
 }
@@ -595,7 +595,7 @@ def test_list_models_tolerates_null_model_collections(httpx_mock: HTTPXMock):
                     "retirement_date": 0,
                     "available_regions": None,
                     "providers": None,
-                    "default_provider": "bedrock",
+                    "default_provider": {"id": "bedrock", "name": "AWS Bedrock"},
                 }
             ]
         },

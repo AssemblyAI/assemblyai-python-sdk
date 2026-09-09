@@ -23,6 +23,9 @@ class ModelsResource(_base._BaseResource):
 class CompletionsResource(_base._BaseResource):
     """The `chat.completions` resource of `LLMGateway`."""
 
+    # Named keyword annotations below are for IDE/mypy discoverability only. They add no
+    # runtime validation: unnamed fields still flow through **kwargs untouched, and the
+    # gateway remains the sole source of truth for what a request accepts.
     @overload
     def create(
         self,
@@ -30,6 +33,19 @@ class CompletionsResource(_base._BaseResource):
         model: str,
         messages: List[LLMGatewayMessageParam],
         stream: Literal[False] = False,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+        fallbacks: Optional[List[Dict[str, Any]]] = None,
+        fallback_config: Optional[Dict[str, Any]] = None,
+        zero_data_retention: Optional[bool] = None,
+        transcript_id: Optional[str] = None,
+        reasoning: Optional[Dict[str, Any]] = None,
+        model_region: Optional[str] = None,
+        fail_fast: Optional[bool] = None,
+        max_timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> models.LLMGatewayChatCompletion: ...
 
@@ -40,6 +56,19 @@ class CompletionsResource(_base._BaseResource):
         model: str,
         messages: List[LLMGatewayMessageParam],
         stream: Literal[True],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+        fallbacks: Optional[List[Dict[str, Any]]] = None,
+        fallback_config: Optional[Dict[str, Any]] = None,
+        zero_data_retention: Optional[bool] = None,
+        transcript_id: Optional[str] = None,
+        reasoning: Optional[Dict[str, Any]] = None,
+        model_region: Optional[str] = None,
+        fail_fast: Optional[bool] = None,
+        max_timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> Iterator[models.LLMGatewayCompletionChunk]: ...
 
@@ -50,6 +79,19 @@ class CompletionsResource(_base._BaseResource):
         model: str,
         messages: List[LLMGatewayMessageParam],
         stream: bool,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+        fallbacks: Optional[List[Dict[str, Any]]] = None,
+        fallback_config: Optional[Dict[str, Any]] = None,
+        zero_data_retention: Optional[bool] = None,
+        transcript_id: Optional[str] = None,
+        reasoning: Optional[Dict[str, Any]] = None,
+        model_region: Optional[str] = None,
+        fail_fast: Optional[bool] = None,
+        max_timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> Union[
         models.LLMGatewayChatCompletion, Iterator[models.LLMGatewayCompletionChunk]

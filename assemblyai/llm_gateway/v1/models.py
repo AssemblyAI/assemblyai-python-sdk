@@ -58,6 +58,11 @@ class LLMGatewayTopProvider(_LLMGatewayResponseModel):
     max_completion_tokens: int
 
 
+class LLMGatewayProvider(_LLMGatewayResponseModel):
+    id: str
+    name: str
+
+
 class LLMGatewayModel(_LLMGatewayResponseModel):
     """A model available through the LLM Gateway, as returned by `GET /v1/models`."""
 
@@ -74,8 +79,8 @@ class LLMGatewayModel(_LLMGatewayResponseModel):
     "Unix timestamp of the model's retirement date, or 0 if not retiring"
 
     available_regions: List[str] = Field(default_factory=list)
-    providers: List[str] = Field(default_factory=list)
-    default_provider: str
+    providers: List[LLMGatewayProvider] = Field(default_factory=list)
+    default_provider: LLMGatewayProvider
 
     # The gateway is Go: a nil slice marshals as `null`, not `[]`, and an
     # explicit null bypasses the field default.

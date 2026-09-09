@@ -41,8 +41,8 @@ _OK_RESPONSE = {
             "creator": "anthropic",
             "retirement_date": 0,
             "available_regions": ["us", "eu"],
-            "providers": ["anthropic"],
-            "default_provider": "anthropic",
+            "providers": [{"id": "anthropic", "name": "Anthropic"}],
+            "default_provider": {"id": "anthropic", "name": "Anthropic"},
         },
     ]
 }
