@@ -3,7 +3,6 @@ from .async_client import AsyncClient
 from .client import Client
 from .llm_gateway.v1 import (
     AsyncLLMGateway,
-    AsyncLLMGatewayStream,
     LLMGateway,
     LLMGatewayChatCompletion,
     LLMGatewayChoice,
@@ -14,8 +13,6 @@ from .llm_gateway.v1 import (
     LLMGatewayModel,
     LLMGatewayModelList,
     LLMGatewayResponseMessage,
-    LLMGatewayStream,
-    LLMGatewayStreamAccumulator,
     LLMGatewayToolCall,
     LLMGatewayUnderstandingResponse,
     LLMGatewayUsage,
@@ -117,7 +114,6 @@ __all__ = [
     "AssemblyAIError",
     "AsyncClient",
     "AsyncLLMGateway",
-    "AsyncLLMGatewayStream",
     "AsyncSyncTranscriber",
     "AsyncTranscriber",
     "AsyncTranscript",
@@ -152,8 +148,6 @@ __all__ = [
     "LLMGatewayModel",
     "LLMGatewayModelList",
     "LLMGatewayResponseMessage",
-    "LLMGatewayStream",
-    "LLMGatewayStreamAccumulator",
     "LLMGatewayToolCall",
     "LLMGatewayUnderstandingResponse",
     "LLMGatewayUsage",

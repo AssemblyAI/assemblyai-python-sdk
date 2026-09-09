@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union, overload
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+    overload,
+)
 
 from typing_extensions import Self
 
 from ... import async_client as _async_client
 from . import _base, async_api, models
 from .params import LLMGatewayMessageParam
-from .stream import AsyncLLMGatewayStream
 
 
 class AsyncModelsResource(_base._BaseResource):
@@ -47,7 +56,7 @@ class AsyncCompletionsResource(_base._BaseResource):
         messages: List[LLMGatewayMessageParam],
         stream: Literal[True],
         **kwargs: Any,
-    ) -> AsyncLLMGatewayStream: ...
+    ) -> AsyncIterator[models.LLMGatewayCompletionChunk]: ...
 
     @overload
     async def create(
@@ -57,7 +66,9 @@ class AsyncCompletionsResource(_base._BaseResource):
         messages: List[LLMGatewayMessageParam],
         stream: bool,
         **kwargs: Any,
-    ) -> Union[models.LLMGatewayChatCompletion, AsyncLLMGatewayStream]: ...
+    ) -> Union[
+        models.LLMGatewayChatCompletion, AsyncIterator[models.LLMGatewayCompletionChunk]
+    ]: ...
 
     async def create(
         self,
@@ -66,7 +77,9 @@ class AsyncCompletionsResource(_base._BaseResource):
         messages: List[LLMGatewayMessageParam],
         stream: bool = False,
         **kwargs: Any,
-    ) -> Union[models.LLMGatewayChatCompletion, AsyncLLMGatewayStream]:
+    ) -> Union[
+        models.LLMGatewayChatCompletion, AsyncIterator[models.LLMGatewayCompletionChunk]
+    ]:
         """
         Creates a chat completion.
 
@@ -78,12 +91,10 @@ class AsyncCompletionsResource(_base._BaseResource):
         `fallbacks` is a list of dicts, each with the API's expected shape,
         e.g. `[{"model": "gpt-4o", "messages": [...]}]`.
 
-        With `stream=True`, resolves to an `AsyncLLMGatewayStream` — iterate it
-        for `LLMGatewayCompletionChunk`s exactly like the raw stream it
-        replaces (`async for chunk in await gateway.chat.completions.create(..., stream=True)`),
-        then call `.get_final_message()` for the assembled text/usage —
-        instead of a single `LLMGatewayChatCompletion`. Chunk parsing is
-        verified for OpenAI-routed models only.
+        With `stream=True`, resolves to an async iterator of
+        `LLMGatewayCompletionChunk` instead of a single
+        `LLMGatewayChatCompletion`. Chunk parsing is verified for
+        OpenAI-routed models only.
 
         Raises: `LLMGatewayError` if the request fails (for a stream, only if
             it fails before any bytes are received — a failure mid-stream
@@ -94,12 +105,10 @@ class AsyncCompletionsResource(_base._BaseResource):
         )
 
         if stream:
-            return AsyncLLMGatewayStream(
-                async_api.stream_completion(
-                    self._gateway.client.http_client,
-                    body=body,
-                    **self._http_options,
-                )
+            return async_api.stream_completion(
+                self._gateway.client.http_client,
+                body=body,
+                **self._http_options,
             )
 
         return await async_api.create_completion(
@@ -107,49 +116,6 @@ class AsyncCompletionsResource(_base._BaseResource):
             body=body,
             **self._http_options,
         )
-
-    async def run_tools(
-        self,
-        *,
-        model: str,
-        messages: List[LLMGatewayMessageParam],
-        tools: List[Dict[str, Any]],
-        functions: Dict[str, Callable[..., Any]],
-        max_rounds: int = 10,
-        **kwargs: Any,
-    ) -> models.LLMGatewayChatCompletion:
-        """
-        Runs the tool-calling loop to completion: calls the model, invokes any
-        requested tools from `functions`, feeds their results back, and repeats
-        until the model responds without requesting a tool call.
-
-        `messages` is mutated in place with every tool round-trip and the final
-        assistant reply, so it's a complete transcript once this returns. Tool
-        round-trips are replayed as `{"role": "assistant", "tool_calls": [...]}`
-        followed by one `{"role": "tool", "tool_call_id": ..., "content": ...}`
-        per call, per https://www.assemblyai.com/docs/llm-gateway/tool-calling.
-
-        `functions` maps tool names (as declared in `tools`) to the Python
-        callables that implement them; each is called with the model's parsed
-        arguments as keyword arguments, and its return value is sent back to
-        the model (JSON-encoded, unless it's already a string).
-
-        Raises:
-            ValueError: if `stream=True` is passed (unsupported), or the model
-                requests a tool with no matching entry in `functions`.
-            RuntimeError: if the loop doesn't finish within `max_rounds`.
-            LLMGatewayError: if any underlying `create()` call fails.
-        """
-        _base.reject_stream(kwargs)
-
-        for _ in range(max_rounds):
-            completion: models.LLMGatewayChatCompletion = await self.create(
-                model=model, messages=messages, tools=tools, **kwargs
-            )
-            if _base.apply_tool_round(completion, messages, functions):
-                return completion
-
-        raise RuntimeError(f"Tool loop did not finish within max_rounds={max_rounds}")
 
 
 class AsyncChatResource:

@@ -1,14 +1,12 @@
 """Logic shared by `client.py` and `async_client.py`.
 
-Holds the request body shapes and the tool-calling loop's core, so a
-wire-contract or tool-loop change lands in one place. Everything here is
-I/O-free — the sync and async clients supply the HTTP calls themselves.
+Holds the request body shapes, so a wire-contract change lands in one place.
+Everything here is I/O-free — the sync and async clients supply the HTTP
+calls themselves.
 """
 
-import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from . import models
 from .params import LLMGatewayMessageParam
 
 
@@ -75,79 +73,3 @@ def validate_body(
         body["transcript_id"] = transcript_id
 
     return body
-
-
-def reject_stream(kwargs: Dict[str, Any]) -> None:
-    """Raises `ValueError` if `run_tools()` was passed `stream=True`."""
-    if kwargs.get("stream"):
-        raise ValueError("run_tools() does not support stream=True")
-
-
-def apply_tool_round(
-    completion: models.LLMGatewayChatCompletion,
-    messages: List[LLMGatewayMessageParam],
-    functions: Dict[str, Callable[..., Any]],
-) -> bool:
-    """
-    Plays one round of the tool-calling loop into `messages`, in place.
-
-    Appends the model's reply, and — when it requested tool calls — invokes each
-    one from `functions` and appends its result.
-
-    Returns: True once the model has replied without requesting a tool call,
-        i.e. the loop is finished.
-
-    Raises:
-        ValueError: if the model requests a tool with no matching entry in
-            `functions`.
-    """
-    message = completion.choices[0].message
-
-    if not message.tool_calls:
-        messages.append({"role": "assistant", "content": message.content})
-        return True
-
-    messages.append(
-        {
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [
-                {
-                    "id": tool_call.id,
-                    "type": tool_call.type,
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments
-                        if isinstance(tool_call.function.arguments, str)
-                        else json.dumps(tool_call.function.arguments),
-                    },
-                }
-                for tool_call in message.tool_calls
-            ],
-        }
-    )
-
-    for tool_call in message.tool_calls:
-        function = functions.get(tool_call.function.name)
-        if function is None:
-            raise ValueError(
-                f"No function registered for tool call {tool_call.function.name!r}"
-            )
-
-        arguments = tool_call.function.arguments
-        if isinstance(arguments, str):
-            arguments = json.loads(arguments)
-
-        result = function(**arguments)
-        output = result if isinstance(result, str) else json.dumps(result)
-
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": output,
-                "name": tool_call.function.name,
-            }
-        )
-
-    return False

@@ -1090,7 +1090,7 @@ completion = gateway.chat.completions.create(
 <details>
   <summary>Stream a chat completion</summary>
 
-`stream=True` returns an `aai.LLMGatewayStream`: iterate it for chunks, then call `get_final_message()` for the accumulated text, usage, and finish reason.
+`stream=True` returns an iterator of `LLMGatewayCompletionChunk`.
 
 ```python
 import assemblyai as aai
@@ -1108,62 +1108,11 @@ stream = gateway.chat.completions.create(
 for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
-
-final = stream.get_final_message()
-print(final.content, final.finish_reason, final.usage, final.model)
 ```
 
-The accumulator also carries `.id` and `.model`.
+Chunk parsing is verified for OpenAI-routed models only. Chunks can carry tool-call fragments on `chunk.choices[0].delta.tool_calls`, but this SDK does not reassemble them or accumulate the streamed text for you — collect chunks yourself, or use a non-streaming `create()`.
 
-Chunk parsing is verified for OpenAI-routed models only. Chunks can carry tool-call fragments on `chunk.choices[0].delta.tool_calls`, but the SDK does not reassemble them — `get_final_message()` covers text, usage, and `finish_reason`. For assembled tool calls use `run_tools()` or a non-streaming `create()`.
-
-</details>
-
-<details>
-  <summary>Run a tool-calling loop</summary>
-
-`run_tools()` drives the whole loop: it calls the model, invokes the requested tools, feeds their results back, and repeats until the model replies without a tool call.
-
-```python
-import assemblyai as aai
-
-aai.settings.api_key = "<YOUR_API_KEY>"
-
-gateway = aai.LLMGateway()
-
-def get_weather(city: str) -> dict:
-    return {"city": city, "temp_c": 21}
-
-messages = [{"role": "user", "content": "What's the weather in Denver?"}]
-
-completion = gateway.chat.completions.run_tools(
-    model="claude-sonnet-5",
-    messages=messages,
-    tools=[
-        {
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"city": {"type": "string"}},
-                    "required": ["city"],
-                },
-            },
-        }
-    ],
-    functions={"get_weather": get_weather},
-    max_rounds=10,
-)
-
-print(completion.choices[0].message.content)
-```
-
-`functions` maps tool names to the Python callables that implement them; each is called with the model's parsed arguments as keyword arguments, and a non-string return value is JSON-encoded on the way back. The `messages` list is **mutated in place** with every round-trip, so it holds the full transcript once this returns.
-
-`stream=True` raises `ValueError`, as does a tool call with no matching entry in `functions`; exceeding `max_rounds` raises `RuntimeError`.
-
-[Read more about tool calling here.](https://www.assemblyai.com/docs/llm-gateway/tool-calling)
+There is no built-in tool-calling loop: `tools`/`tool_choice` are forwarded like any other request param, and a tool result is a plain `{"role": "tool", "tool_call_id": ..., "content": ...}` message — drive the loop yourself around `create()`. [Read more about tool calling here.](https://www.assemblyai.com/docs/llm-gateway/tool-calling)
 
 </details>
 

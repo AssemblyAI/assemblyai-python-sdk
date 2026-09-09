@@ -50,11 +50,10 @@ aai.settings.api_key = "your-key"
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
-- `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `chat.completions.run_tools()`, `understanding.create()`/`.validate()`
+- `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `understanding.create()`/`.validate()`
 - `aai.AsyncLLMGateway` — Asyncio counterpart of `LLMGateway`. Same resources, every API call a coroutine; owns an HTTP pool (`async with` or `await aclose()`)
 - `assemblyai.llm_gateway.v1` — Canonical module for both gateways, matching the gateway's `/v1` API. The top-level `aai.*` names re-export it
 - `aai.LLMGatewayMessageParam` — `TypedDict` for a chat message; pass plain dicts (`{"role": "user", "content": "..."}`)
-- `aai.LLMGatewayStream` / `aai.AsyncLLMGatewayStream` — What `create(stream=True)` returns: a chunk iterator plus `get_final_message()`
 
 ## Common patterns
 
@@ -461,9 +460,7 @@ completion = gateway.chat.completions.create(
 )
 ```
 
-**Streaming**: `stream=True` returns an `LLMGatewayStream` — iterate it for
-`LLMGatewayCompletionChunk`s, then call `get_final_message()` for the accumulated
-text/usage/`finish_reason`:
+**Streaming**: `stream=True` returns an iterator of `LLMGatewayCompletionChunk`:
 ```python
 stream = gateway.chat.completions.create(
     model="claude-sonnet-5",
@@ -473,49 +470,16 @@ stream = gateway.chat.completions.create(
 for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
-
-final = stream.get_final_message()
-print(final.content, final.finish_reason, final.usage, final.model)
 ```
-The accumulator also carries `.id` and `.model`.
-
 Chunk parsing is verified for OpenAI-routed models only. Chunks can carry tool-call fragments
-(`chunk.choices[0].delta.tool_calls`), but they are not reassembled — `get_final_message()`
-covers text, usage, and `finish_reason`. For assembled tool calls use `run_tools()` or a
-non-streaming `create()`.
+(`chunk.choices[0].delta.tool_calls`), but this SDK does not reassemble them or accumulate the
+streamed text for you — collect chunks yourself, or use a non-streaming `create()`.
 
-**Tool calling**: `run_tools()` drives the whole loop — call the model, invoke the requested
-tools, feed the results back, repeat until the model answers without a tool call:
-```python
-def get_weather(city: str) -> dict:
-    return {"city": city, "temp_c": 21}
-
-messages = [{"role": "user", "content": "What's the weather in Denver?"}]
-
-completion = gateway.chat.completions.run_tools(
-    model="claude-sonnet-5",
-    messages=messages,
-    tools=[{
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "parameters": {
-                "type": "object",
-                "properties": {"city": {"type": "string"}},
-                "required": ["city"],
-            },
-        },
-    }],
-    functions={"get_weather": get_weather},
-    max_rounds=10,
-)
-print(completion.choices[0].message.content)
-```
-`functions` maps tool names to Python callables, each invoked with the model's parsed arguments
-as keyword arguments; a non-string return value is JSON-encoded on the way back.
-`messages` is **mutated in place** with every round-trip, so it is a full transcript afterwards.
-`stream=True` raises `ValueError`, an unregistered tool name raises `ValueError`, and blowing
-past `max_rounds` raises `RuntimeError`.
+There is no built-in tool-calling loop: `tools`/`tool_choice` are forwarded like any other
+request param (see "Request params" above), and replaying a tool result is a plain
+`{"role": "tool", "tool_call_id": ..., "content": ...}` message per
+https://www.assemblyai.com/docs/llm-gateway/tool-calling — drive the loop yourself around
+`create()`.
 
 **Understanding**: speaker identification, translation, and custom formatting over an existing
 transcript — `transcript_id` is required, there is no raw-text path.
@@ -550,7 +514,7 @@ read as empty (`completion.choices` is always a list).
 
 `aai.AsyncLLMGateway` mirrors `aai.LLMGateway` with coroutines — same resources, same request
 params, same response models. Every API call is awaited; `stream=True` resolves to an
-`AsyncLLMGatewayStream` you `async for` over.
+async iterator of `LLMGatewayCompletionChunk` you `async for` over.
 
 ```python
 import asyncio
@@ -594,7 +558,6 @@ client for it. Given alongside `client`, the key wins and the passed client is l
 - **The SDK does not capture microphone audio**: bring your own capture (e.g. `pyaudio`, `sounddevice`) and stream the PCM chunks
 - **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above) — or `aai.AsyncSyncTranscriber` for the sync API
 - **LLM Gateway request params are `**kwargs`**: everything past `model`/`messages`/`stream` is forwarded verbatim, so there is no client-side check on the name — spell params carefully
-- **`run_tools()` mutates the `messages` list you pass in**, appending every round-trip
 - **Timestamps are in milliseconds** throughout the SDK
 - **Minimum Python**: 3.8+
 
