@@ -232,8 +232,9 @@ have segments to release early: below roughly a minute only the elided upload co
 short clips gain little. Keep producing until done — an upload that goes silent for long
 enough is aborted server-side; end the iterator to finish, don't pause it. Auth,
 rate-limit and capacity failures can surface part-way through the upload rather than at
-the end. The request budget is `settings.sync_stream_http_timeout` (180s), which must
-cover the recording as well as the transcription.
+the end. `settings.sync_stream_http_timeout` (180s) bounds each socket operation, as every
+httpx timeout does, not the request end to end: time spent waiting on the producer is not
+counted, so it does not need to cover the recording.
 
 ## Asyncio sync transcription (`AsyncSyncTranscriber`)
 

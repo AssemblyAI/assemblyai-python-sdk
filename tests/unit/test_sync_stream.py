@@ -9,6 +9,7 @@ spent generator or a closed file.
 import asyncio
 import email
 import io
+import threading
 from typing import List, Optional
 
 import httpx
@@ -17,6 +18,7 @@ from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from assemblyai.sync.v1 import api, async_api
+from assemblyai.sync.v1._multipart import _STREAM_READ_SIZE
 
 aai.settings.api_key = "test"
 
@@ -158,32 +160,83 @@ def test_body_is_uploaded_chunked():
     assert "content-length" not in request.headers
 
 
-def test_body_reads_a_file_object_lazily():
-    # Given a file object rather than an iterable
-    request = None
+class _SpyFile(io.BytesIO):
+    """A file object that records the size of every read asked of it."""
 
-    def handler(req: httpx.Request) -> httpx.Response:
-        nonlocal request
-        request = req
-        return httpx.Response(httpx.codes.OK, json=_OK_RESPONSE)
+    def __init__(self, payload: bytes) -> None:
+        super().__init__(payload)
+        self.reads: List[int] = []
+        self.threads: List[threading.Thread] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.reads.append(size)
+        self.threads.append(threading.current_thread())
+        return super().read(size)
+
+
+def test_body_reads_a_file_object_in_bounded_pieces():
+    # Given a file object holding more than two read sizes of audio
+    payload = b"RIFF" + bytes(2 * _STREAM_READ_SIZE + 100)
+    source = _SpyFile(payload)
 
     # When it is streamed
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        api.transcribe_stream(
-            client,
-            base_url=aai.settings.sync_base_url,
-            chunks=io.BytesIO(b"RIFFfake-wav-bytes"),
-            filename="call.wav",
-            audio_content_type="audio/wav",
-            model="u3-sync-pro",
-            config=None,
-            timeout=30.0,
-        )
+    request = _send(source, filename="call.wav")[0]
 
-    # Then it is read to exhaustion into the audio part
+    # Then it is read in fixed pieces until exhausted, never slurped whole
+    assert source.reads == [_STREAM_READ_SIZE] * 4
     part = dict(_parts(request))["audio"]
-    assert part.get_payload(decode=True) == b"RIFFfake-wav-bytes"
+    assert part.get_payload(decode=True) == payload
     assert part.get_filename() == "call.wav"
+
+
+def test_async_body_reads_a_file_object_off_the_event_loop():
+    # Given a file object handed to the async transport
+    source = _SpyFile(b"RIFF" + bytes(_STREAM_READ_SIZE + 1))
+
+    # When it is streamed
+    request = asyncio.run(_asend(source))[0]
+
+    # Then every read ran in a worker thread, so a blocking read cannot stall
+    # the loop, and the body is intact
+    assert source.reads == [_STREAM_READ_SIZE] * 3
+    assert all(t is not threading.main_thread() for t in source.threads)
+    assert dict(_parts(request))["audio"].get_payload(decode=True) == source.getvalue()
+
+
+def test_body_escapes_the_filename():
+    # Given a file whose name would otherwise break the part header
+    # When the body is built
+    request = _send(_chunks(b"RIFF"), filename='we"ird\r\nname.wav')[0]
+
+    # Then the name is escaped the way httpx escapes its own multipart parts
+    # and the audio part still parses
+    parts = dict(_parts(request))
+    assert parts["audio"].get_filename() == "we%22ird%0D%0Aname.wav"
+    assert parts["audio"].get_payload(decode=True) == b"RIFF"
+
+
+def test_body_accepts_bytearray_and_memoryview_chunks():
+    # Given a producer handing out buffer objects rather than bytes
+    # When the body is built
+    request = _send(iter([bytearray(b"RIFF"), memoryview(b"fake")]))[0]
+
+    # Then they are sent as bytes
+    assert dict(_parts(request))["audio"].get_payload(decode=True) == b"RIFFfake"
+
+
+def test_body_rejects_text_chunks():
+    # Given a producer yielding str
+    # When the body is built, then the mistake is named rather than failing
+    # inside the transport
+    with pytest.raises(TypeError, match="binary mode"):
+        _send(iter(["RIFF", "fake"]))
+
+
+def test_body_rejects_a_text_mode_file():
+    # Given a file object opened without "b"
+    # When the body is built, then the mistake is named
+    with pytest.raises(TypeError, match="binary mode"):
+        _send(io.StringIO("RIFFfake"))
 
 
 def test_body_hits_the_stream_endpoint():
@@ -329,6 +382,17 @@ def test_transcribe_stream_rejects_a_path():
     # When streaming it, then it is rejected rather than silently opened
     with pytest.raises(TypeError, match="not a path"):
         aai.SyncTranscriber().transcribe_stream("./call.wav")
+
+
+def test_transcribe_stream_rejects_an_async_iterable():
+    # Given an async producer handed to the synchronous transcriber
+    async def chunks():
+        yield b"RIFF"
+
+    # When streaming it, then it is turned away before any request is made
+    # and pointed at the transcriber that can drive it
+    with pytest.raises(TypeError, match="AsyncSyncTranscriber"):
+        aai.SyncTranscriber().transcribe_stream(chunks())
 
 
 def test_transcribe_stream_rejects_job_api_config():

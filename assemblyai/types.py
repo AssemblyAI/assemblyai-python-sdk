@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     "The HTTP timeout for synchronous transcription requests. Kept above the server's 30s deadline so the client doesn't race it."
 
     sync_stream_http_timeout: float = 180.0
-    "The HTTP timeout for streamed synchronous transcription requests (`transcribe_stream`). Covers the upload as well as the transcription, so it must exceed how long the caller goes on producing audio; the sync API caps audio at 120 seconds. The server independently aborts an upload that goes silent."
+    "The HTTP timeout for streamed synchronous transcription requests (`transcribe_stream`). Like every httpx timeout it bounds each socket operation, not the request as a whole: connecting, each write of a chunk, and each read while waiting for the response after the last byte. Time spent waiting on the caller's producer is not counted, so it need not cover the recording. The sync API caps audio at 120 seconds and independently aborts an upload that goes silent."
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"

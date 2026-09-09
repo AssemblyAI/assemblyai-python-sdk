@@ -140,15 +140,20 @@ def transcribe_stream(
         audio_content_type: `audio/wav` or `audio/pcm`; selects the decoder.
         model: sent as the `X-AAI-Model` routing header.
         config: the JSON `config` part, or None to omit it.
-        timeout: per-request timeout in seconds. Must cover the upload as well
-            as the transcription, so it is bounded by how long the caller will
-            go on producing audio, not by the server's own deadline.
+        timeout: per-operation timeout in seconds, as for every httpx request:
+            it bounds connecting, each socket write and each read while waiting
+            for the response, not the request end to end. Time blocked in the
+            caller's producer is not counted, so it need not cover the
+            recording.
 
     Returns: the parsed transcript response.
 
     Raises: `SyncTranscriptError` on any non-200 response — including one the
         server sends while the upload is still in flight, which it may do for
-        auth, rate-limit and capacity failures.
+        auth, rate-limit and capacity failures. `TypeError` if the producer
+        yields something other than bytes. Any other exception the producer
+        raises propagates unchanged; the connection is dropped and no
+        transcript is returned.
     """
     encoder = StreamingMultipartEncoder()
 

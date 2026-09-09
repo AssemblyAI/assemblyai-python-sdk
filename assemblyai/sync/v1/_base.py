@@ -90,11 +90,8 @@ def resolve_format(
     PCM is selected when `suffix` is a PCM extension or when
     `sample_rate`/`channels` are set on the config — the fields the sync API
     requires only for raw PCM — and both must then be present. Everything else
-    is treated as a WAV container.
-
-    Split out of `_resolve_audio` so the streamed path can reach the same
-    decision without holding the audio: a stream has no bytes to inspect, only
-    the config and an optional filename.
+    is treated as a WAV container. Needs no audio bytes, so it serves the
+    streamed path as well as the buffered one.
 
     Args:
         config: the transcription options.
@@ -125,13 +122,19 @@ def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
     return data or None
 
 
-def check_chunks(data: object) -> None:
+def check_chunks(data: object, *, allow_async: bool = False) -> None:
     """
     Raises unless `data` can be streamed.
 
-    Names the two mistakes worth catching early — a whole audio buffer, which
-    belongs in `transcribe()`, and a path, which the streaming path cannot
-    open on the caller's behalf without deciding when to read it.
+    Names the mistakes worth catching early — a whole audio buffer, which
+    belongs in `transcribe()`; a path, which the streaming path cannot open on
+    the caller's behalf without deciding when to read it; and an async
+    iterable handed to the synchronous transcriber, which cannot drive it.
+
+    Args:
+        data: the candidate audio source.
+        allow_async: whether an object exposing only `__aiter__` is acceptable,
+            i.e. whether the caller is `AsyncSyncTranscriber`.
     """
     if isinstance(data, (bytes, bytearray)):
         raise TypeError(
@@ -147,10 +150,19 @@ def check_chunks(data: object) -> None:
             "transcribe() to let the SDK read it."
         )
 
-    if not (
-        hasattr(data, "read") or hasattr(data, "__iter__") or hasattr(data, "__aiter__")
-    ):
-        raise TypeError(f"unsupported audio stream type: {type(data).__name__}")
+    if hasattr(data, "read") or hasattr(data, "__iter__"):
+        return
+
+    if hasattr(data, "__aiter__"):
+        if allow_async:
+            return
+        raise TypeError(
+            "SyncTranscriber.transcribe_stream() cannot consume an async "
+            "iterable. Use AsyncSyncTranscriber.transcribe_stream(), or hand it "
+            "a plain iterable or file object."
+        )
+
+    raise TypeError(f"unsupported audio stream type: {type(data).__name__}")
 
 
 def stream_filename(

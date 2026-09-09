@@ -99,8 +99,7 @@ async def transcribe_stream(
         audio_content_type: `audio/wav` or `audio/pcm`; selects the decoder.
         model: sent as the `X-AAI-Model` routing header.
         config: the JSON `config` part, or None to omit it.
-        timeout: per-request timeout in seconds, covering the upload as well as
-            the transcription.
+        timeout: per-operation timeout in seconds; see `api.transcribe_stream`.
 
     Returns: the parsed transcript response.
 

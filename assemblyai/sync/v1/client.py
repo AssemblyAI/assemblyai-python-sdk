@@ -164,10 +164,15 @@ class SyncTranscriber:
                 configuration is used.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`, or if
-                `data` is a path or a bytes buffer rather than a stream.
+            TypeError: if `config` is not a `SyncTranscriptionConfig`; if
+                `data` is a path, a bytes buffer or an async iterable rather
+                than a stream; or if a chunk is not bytes (a file opened in
+                text mode, say).
             SyncTranscriptError: if the request fails. Auth, rate-limit and
                 capacity failures can surface part-way through the upload.
+            Exception: anything the producer raises mid-upload propagates
+                unchanged. The connection is dropped and no transcript is
+                returned.
 
         Example:
             ```python

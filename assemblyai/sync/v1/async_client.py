@@ -175,18 +175,23 @@ class AsyncSyncTranscriber:
         pausing it.
 
         Args:
-            data: An async iterable of audio chunks — or a plain iterable or
-                file object, which are consumed inline and so must not block.
-                Raw PCM also requires `sample_rate` and `channels` on the
-                config.
+            data: An async iterable of audio chunks, a file object, or a plain
+                iterable. A file object is read in a worker thread, so a
+                blocking `read()` is fine; a plain iterable is consumed inline
+                and so must not block. Raw PCM also requires `sample_rate` and
+                `channels` on the config.
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`, or if
-                `data` is a path or a bytes buffer rather than a stream.
+            TypeError: if `config` is not a `SyncTranscriptionConfig`; if
+                `data` is a path or a bytes buffer rather than a stream; or if
+                a chunk is not bytes (a file opened in text mode, say).
             SyncTranscriptError: if the request fails. Auth, rate-limit and
                 capacity failures can surface part-way through the upload.
+            Exception: anything the producer raises mid-upload propagates
+                unchanged. The connection is dropped and no transcript is
+                returned.
 
         Example:
             ```python
@@ -201,7 +206,7 @@ class AsyncSyncTranscriber:
         check_config(type(self).__name__, config)
 
         config = config or self.config
-        check_chunks(data)
+        check_chunks(data, allow_async=True)
         filename, content_type = stream_filename(data, config)
 
         return await async_api.transcribe_stream(
