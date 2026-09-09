@@ -122,6 +122,15 @@ def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
     return data or None
 
 
+class _Aborted(Exception):
+    """
+    Raised inside a live session's producer when the session is aborted.
+
+    Propagates out of the transport, which drops the connection, and is
+    swallowed by `abort()`; it never reaches the caller.
+    """
+
+
 def check_chunks(data: object, *, allow_async: bool = False) -> None:
     """
     Raises unless `data` can be streamed.
