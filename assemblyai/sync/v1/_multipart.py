@@ -77,10 +77,13 @@ class StreamingMultipartEncoder:
         return f"multipart/form-data; boundary={self.boundary}"
 
     def config_part(self, config: Optional[dict]) -> bytes:
-        """Encodes the JSON `config` part. Empty when there is no config."""
+        """
+        Encodes the JSON `config` part.
 
-        if not config:
-            return b""
+        Always emitted: the streaming endpoint rejects a body whose audio is
+        not preceded by a `config` part, so when the caller set no options an
+        empty object is sent. The buffered route omits the part instead.
+        """
 
         return (
             (
@@ -88,7 +91,7 @@ class StreamingMultipartEncoder:
                 'Content-Disposition: form-data; name="config"\r\n'
                 "Content-Type: application/json\r\n\r\n"
             ).encode("utf-8")
-            + json.dumps(config).encode("utf-8")
+            + json.dumps(config or {}).encode("utf-8")
             + b"\r\n"
         )
 

@@ -139,7 +139,8 @@ def transcribe_stream(
         filename: name for the audio multipart part.
         audio_content_type: `audio/wav` or `audio/pcm`; selects the decoder.
         model: sent as the `X-AAI-Model` routing header.
-        config: the JSON `config` part, or None to omit it.
+        config: the JSON `config` part. None sends an empty object: the
+            streaming endpoint requires the part ahead of the audio.
         timeout: per-operation timeout in seconds, as for every httpx request:
             it bounds connecting, each socket write and each read while waiting
             for the response, not the request end to end. Time blocked in the

@@ -132,13 +132,16 @@ def test_body_carries_config_json_and_joined_audio():
     assert parts["config"].get_payload(decode=True) == b'{"prompt": "a prompt"}'
 
 
-def test_body_omits_the_config_part_when_there_is_no_config():
+def test_body_sends_an_empty_config_part_when_there_is_no_config():
     # Given no config
     # When the body is built
     request = _send(_chunks(b"RIFF"))[0]
 
-    # Then only the audio part is sent
-    assert [name for name, _ in _parts(request)] == ["audio"]
+    # Then a config part still precedes the audio, as an empty object: the
+    # streaming endpoint rejects audio that no config part came before
+    parts = _parts(request)
+    assert [name for name, _ in parts] == ["config", "audio"]
+    assert dict(parts)["config"].get_payload(decode=True) == b"{}"
 
 
 def test_body_skips_empty_chunks():
