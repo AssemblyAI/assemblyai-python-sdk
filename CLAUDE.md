@@ -1,6 +1,6 @@
 # AssemblyAI Python SDK
 
-Speech-to-text and audio intelligence SDK. Supports pre-recorded transcription, real-time streaming, and audio analysis features.
+Speech-to-text and audio intelligence SDK. Supports pre-recorded transcription, real-time streaming, audio analysis features, and LLM access through AssemblyAI's LLM Gateway.
 
 ## Quick start
 
@@ -50,6 +50,11 @@ aai.settings.api_key = "your-key"
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
+- `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `chat.completions.run_tools()`, `understanding.create()`/`.validate()`
+- `aai.AsyncLLMGateway` — Asyncio counterpart of `LLMGateway`. Same resources, every API call a coroutine; owns an HTTP pool (`async with` or `await aclose()`)
+- `assemblyai.llm_gateway.v1` — Canonical module for both gateways, matching the gateway's `/v1` API. The top-level `aai.*` names re-export it
+- `aai.LLMGatewayMessageParam` — `TypedDict` for a chat message; pass plain dicts (`{"role": "user", "content": "..."}`)
+- `aai.LLMGatewayStream` / `aai.AsyncLLMGatewayStream` — What `create(stream=True)` returns: a chunk iterator plus `get_final_message()`
 
 ## Common patterns
 
@@ -410,6 +415,176 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 - `format_turns=True` enables punctuation/casing on confirmed end-of-turns. Toggle mid-session via `client.set_params(RealTimeSessionParameters(format_turns=True))`.
 - `AsyncRealTimeTranscriber` used as `async with` calls `disconnect(terminate=True)` on normal block exit and `disconnect(terminate=False)` on exception — no explicit `disconnect()` needed inside the block.
 
+## LLM Gateway
+
+`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway: model listing, OpenAI-shaped chat
+completions routed to OpenAI/Claude/Gemini/Bedrock models, and speech understanding over an
+existing transcript. It targets `llm-gateway.assemblyai.com` and rides on the same
+`Client`/`AsyncClient` as the rest of the SDK.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
+
+gateway = aai.LLMGateway()
+
+for model in gateway.models.list().data:
+    print(model.id, model.context_length, model.pricing.global_.prompt)
+
+completion = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "Summarize this call."}],
+)
+print(completion.choices[0].message.content)
+```
+
+**Messages are plain dicts** (`aai.LLMGatewayMessageParam`) — no message object to build.
+`role` is `"user"`, `"assistant"`, `"system"`, or `"tool"` (a tool result, paired with
+`tool_call_id`); `content` is a string or a list of content-part dicts.
+
+**Request params**: everything past `model`/`messages`/`stream` is a keyword argument forwarded
+verbatim into the request body — `max_tokens`, `temperature`, `tools`, `tool_choice`,
+`response_format`, plus the AssemblyAI extensions (`fallbacks`, `fallback_config`,
+`zero_data_retention`, `transcript_id`, `reasoning`, `model_region`, `fail_fast`, `max_timeout`,
+…). `fallbacks` is a list of dicts in the API's own shape:
+`[{"model": "gpt-5-mini", "messages": [...]}]`.
+
+```python
+completion = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "..."}],
+    max_tokens=512,
+    fallbacks=[{"model": "gpt-5-mini", "messages": [{"role": "user", "content": "..."}]}],
+    zero_data_retention=True,
+    transcript_id="transcript_abc123",
+)
+```
+
+**Streaming**: `stream=True` returns an `LLMGatewayStream` — iterate it for
+`LLMGatewayCompletionChunk`s, then call `get_final_message()` for the accumulated
+text/usage/`finish_reason`:
+```python
+stream = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": "..."}],
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+
+final = stream.get_final_message()
+print(final.content, final.finish_reason, final.usage, final.model)
+```
+The accumulator also carries `.id` and `.model`.
+
+Chunk parsing is verified for OpenAI-routed models only. Chunks can carry tool-call fragments
+(`chunk.choices[0].delta.tool_calls`), but they are not reassembled — `get_final_message()`
+covers text, usage, and `finish_reason`. For assembled tool calls use `run_tools()` or a
+non-streaming `create()`.
+
+**Tool calling**: `run_tools()` drives the whole loop — call the model, invoke the requested
+tools, feed the results back, repeat until the model answers without a tool call:
+```python
+def get_weather(city: str) -> dict:
+    return {"city": city, "temp_c": 21}
+
+messages = [{"role": "user", "content": "What's the weather in Denver?"}]
+
+completion = gateway.chat.completions.run_tools(
+    model="claude-sonnet-5",
+    messages=messages,
+    tools=[{
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        },
+    }],
+    functions={"get_weather": get_weather},
+    max_rounds=10,
+)
+print(completion.choices[0].message.content)
+```
+`functions` maps tool names to Python callables, each invoked with the model's parsed arguments
+as keyword arguments; a non-string return value is JSON-encoded on the way back.
+`messages` is **mutated in place** with every round-trip, so it is a full transcript afterwards.
+`stream=True` raises `ValueError`, an unregistered tool name raises `ValueError`, and blowing
+past `max_rounds` raises `RuntimeError`.
+
+**Understanding**: speaker identification, translation, and custom formatting over an existing
+transcript — `transcript_id` is required, there is no raw-text path.
+```python
+result = gateway.understanding.create(
+    transcript_id="transcript_abc123",
+    request={"speaker_identification": {"speaker_type": "name", "known_values": ["Ana", "Peter"]}},
+)
+print(result.speech_understanding["response"], result.utterances)
+
+gateway.understanding.validate(request={"translation": {"target_languages": ["es"]}})
+```
+`request` is a plain dict — the server has no fixed schema for it. `validate()` returns `None`
+when the request is valid and raises `aai.LLMGatewayError` with `.errors` populated otherwise;
+it costs the same auth/balance as a real call, so it is not a free dry run.
+
+**Errors**: every failure raises `aai.LLMGatewayError` (an `aai.AssemblyAIError`) with
+`.status_code`, `.request_id`, and `.errors` (validation messages, when the server sent any).
+For a stream, only a failure before the first byte raises — a mid-stream failure truncates the
+iterator.
+
+**Unknown server fields survive**: response models allow extras, so a field the gateway adds is
+readable as an attribute without an SDK upgrade, and collections the server sends as `null` are
+read as empty (`completion.choices` is always a list).
+
+**Settings**: `aai.settings.llm_gateway_base_url` (default
+`https://llm-gateway.assemblyai.com`) and `aai.settings.llm_gateway_http_timeout` (default
+`30.0`), both overridable via `ASSEMBLYAI_LLM_GATEWAY_BASE_URL` /
+`ASSEMBLYAI_LLM_GATEWAY_HTTP_TIMEOUT`.
+
+## Asyncio LLM Gateway (`AsyncLLMGateway`)
+
+`aai.AsyncLLMGateway` mirrors `aai.LLMGateway` with coroutines — same resources, same request
+params, same response models. Every API call is awaited; `stream=True` resolves to an
+`AsyncLLMGatewayStream` you `async for` over.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
+
+async def main():
+    async with aai.AsyncLLMGateway() as gateway:
+        completion = await gateway.chat.completions.create(
+            model="claude-sonnet-5",
+            messages=[{"role": "user", "content": "Summarize this call."}],
+        )
+        print(completion.choices[0].message.content)
+
+        stream = await gateway.chat.completions.create(
+            model="claude-sonnet-5",
+            messages=[{"role": "user", "content": "..."}],
+            stream=True,
+        )
+        async for chunk in stream:
+            print(chunk.choices[0].delta.content or "", end="")
+
+asyncio.run(main())
+```
+
+**Lifecycle**: the gateway owns an HTTP connection pool — use `async with`, or call
+`await gateway.aclose()`. Pass `client=aai.AsyncClient(settings=aai.settings)` to share one
+pool; a client you pass in stays yours to close. Sync `LLMGateway` needs no such handling: it
+borrows the shared default `Client` and has no `close()`.
+
+**Per-gateway key**: both gateways take `api_key=...` instead of a client, and build their own
+client for it. Given alongside `client`, the key wins and the passed client is left untouched.
+
 ## Important gotchas
 
 - **Always check status**: `if transcript.status == aai.TranscriptStatus.error` — accessing `.text` on a failed transcript returns None, not an exception
@@ -418,6 +593,8 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 - **Streaming v3 lives in its own module**: `assemblyai.streaming.v3` (there is no other streaming API in this SDK). See the "Streaming (real-time)" section above.
 - **The SDK does not capture microphone audio**: bring your own capture (e.g. `pyaudio`, `sounddevice`) and stream the PCM chunks
 - **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above) — or `aai.AsyncSyncTranscriber` for the sync API
+- **LLM Gateway request params are `**kwargs`**: everything past `model`/`messages`/`stream` is forwarded verbatim, so there is no client-side check on the name — spell params carefully
+- **`run_tools()` mutates the `messages` list you pass in**, appending every round-trip
 - **Timestamps are in milliseconds** throughout the SDK
 - **Minimum Python**: 3.8+
 
@@ -429,4 +606,5 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 
 - [Full documentation](https://www.assemblyai.com/docs)
 - [API reference](https://www.assemblyai.com/docs/api-reference)
+- [LLM Gateway docs](https://www.assemblyai.com/docs/llm-gateway/quickstart)
 - [llms-full.txt](https://www.assemblyai.com/docs/llms-full.txt?lang=python) (Python-filtered docs for LLMs)

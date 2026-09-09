@@ -6,7 +6,7 @@ Two things in one guide: what genuinely breaks moving from 0.x to 1.0.0, and the
 
 | 0.x pattern | 1.0 best practice |
 | --- | --- |
-| `aai.Lemur(...)` | Removed. Feed `transcript.text` to the LLM of your choice |
+| `aai.Lemur(...)` | Removed. Feed `transcript.text` to `aai.LLMGateway`, or to the LLM of your choice |
 | `from assemblyai.extras import MicrophoneStream` | Removed. Capture PCM yourself (`pyaudio`, `sounddevice`) and pass it to `stream(...)` |
 | `pip install "assemblyai[extras]"` | `pip install -U assemblyai` |
 | `StreamingClient`, `StreamingClientOptions` | `RealTimeTranscriber`, `RealTimeTranscriberOptions` |
@@ -23,24 +23,38 @@ Two things in one guide: what genuinely breaks moving from 0.x to 1.0.0, and the
 
 ### LeMUR support removed
 
-The LeMUR API and every `aai.Lemur*` name are gone from the SDK. There is no drop-in replacement in this package.
+The LeMUR API and every `aai.Lemur*` name are gone from the SDK. There is no drop-in replacement.
 
-A transcript is still just text, so the migration is to send it to whichever LLM you already use:
+A transcript is still just text, so the migration is to send it to an LLM yourself:
 
 ```python
-from assemblyai import TranscriptStatus
-from assemblyai.prerecorded.v2 import Transcriber
+import assemblyai as aai
 
-transcript = Transcriber(api_key="YOUR_API_KEY").transcribe(
+transcript = aai.Transcriber(api_key="YOUR_API_KEY").transcribe(
     "https://example.org/audio.wav"
 )
 
-if transcript.status == TranscriptStatus.error:
+if transcript.status == aai.TranscriptStatus.error:
     raise RuntimeError(transcript.error)
 
 prompt = f"Summarize this call transcript:\n\n{transcript.text}"
-# ...hand `prompt` to your LLM client of choice.
 ```
+
+`aai.LLMGateway` covers that in-package, across OpenAI/Claude/Gemini/Bedrock models — see [LLM Gateway Examples](README.md#llm-gateway-examples):
+
+```python
+gateway = aai.LLMGateway(api_key="YOUR_API_KEY")
+
+completion = gateway.chat.completions.create(
+    model="claude-sonnet-5",
+    messages=[{"role": "user", "content": prompt}],
+)
+print(completion.choices[0].message.content)
+```
+
+Speaker identification, translation, and custom formatting run off the transcript id instead, via `gateway.understanding.create(transcript_id=transcript.id, request={...})`.
+
+Or hand `prompt` to whichever LLM client you already use.
 
 ### Audio-capture extras removed
 
