@@ -150,7 +150,7 @@ class AsyncSyncTranscriber:
             timeout=self._client.settings.sync_http_timeout,
         )
 
-    async def transcribe_stream(
+    async def transcribe_live(
         self,
         data: AsyncAudioChunks,
         config: Optional[types.SyncTranscriptionConfig] = None,
@@ -158,7 +158,7 @@ class AsyncSyncTranscriber:
         """
         Transcribes audio uploaded as it is produced.
 
-        The asyncio counterpart of `SyncTranscriber.transcribe_stream`. Where
+        The asyncio counterpart of `SyncTranscriber.transcribe_live`. Where
         `transcribe()` needs the whole clip before it can send anything, this
         starts the request immediately and uploads chunks as they arrive, so
         authorization, the upload and every speech segment but the last resolve
@@ -200,7 +200,7 @@ class AsyncSyncTranscriber:
                     yield await stream.read(4096)
 
             async with aai.AsyncSyncTranscriber() as transcriber:
-                result = await transcriber.transcribe_stream(mic_chunks())
+                result = await transcriber.transcribe_live(mic_chunks())
             ```
         """
         check_config(type(self).__name__, config)
@@ -209,7 +209,7 @@ class AsyncSyncTranscriber:
         check_chunks(data, allow_async=True)
         filename, content_type = stream_filename(data, config)
 
-        return await async_api.transcribe_stream(
+        return await async_api.transcribe_live(
             self._client.http_client,
             base_url=self._client.settings.sync_base_url,
             chunks=data,
@@ -217,7 +217,7 @@ class AsyncSyncTranscriber:
             audio_content_type=content_type,
             model=config.model,
             config=_config_to_json(config),
-            timeout=self._client.settings.sync_stream_http_timeout,
+            timeout=self._client.settings.sync_live_http_timeout,
         )
 
     async def warm(self) -> bool:

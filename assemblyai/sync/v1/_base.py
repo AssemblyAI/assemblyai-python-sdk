@@ -138,14 +138,14 @@ def check_chunks(data: object, *, allow_async: bool = False) -> None:
     """
     if isinstance(data, (bytes, bytearray)):
         raise TypeError(
-            "transcribe_stream() expects an iterable of audio chunks or a file "
+            "transcribe_live() expects an iterable of audio chunks or a file "
             "object, not audio bytes. Audio you already hold whole should go to "
             "transcribe(), which is faster for it."
         )
 
     if isinstance(data, (str, os.PathLike)):
         raise TypeError(
-            "transcribe_stream() expects an iterable of audio chunks or a file "
+            "transcribe_live() expects an iterable of audio chunks or a file "
             "object, not a path. Open the file and pass the file object, or use "
             "transcribe() to let the SDK read it."
         )
@@ -157,8 +157,8 @@ def check_chunks(data: object, *, allow_async: bool = False) -> None:
         if allow_async:
             return
         raise TypeError(
-            "SyncTranscriber.transcribe_stream() cannot consume an async "
-            "iterable. Use AsyncSyncTranscriber.transcribe_stream(), or hand it "
+            "SyncTranscriber.transcribe_live() cannot consume an async "
+            "iterable. Use AsyncSyncTranscriber.transcribe_live(), or hand it "
             "a plain iterable or file object."
         )
 
@@ -206,7 +206,7 @@ class _SyncTranscriberImpl:
             timeout=self._client.settings.sync_http_timeout,
         )
 
-    def transcribe_stream(
+    def transcribe_live(
         self,
         *,
         data: AudioChunks,
@@ -216,7 +216,7 @@ class _SyncTranscriberImpl:
         check_chunks(data)
         filename, content_type = stream_filename(data, config)
 
-        return api.transcribe_stream(
+        return api.transcribe_live(
             self._client.http_client,
             base_url=self._client.settings.sync_base_url,
             chunks=data,
@@ -224,5 +224,5 @@ class _SyncTranscriberImpl:
             audio_content_type=content_type,
             model=config.model,
             config=_config_to_json(config),
-            timeout=self._client.settings.sync_stream_http_timeout,
+            timeout=self._client.settings.sync_live_http_timeout,
         )

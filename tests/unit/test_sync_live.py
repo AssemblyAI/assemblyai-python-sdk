@@ -1,4 +1,4 @@
-"""Tests for the streamed-upload sync path (`transcribe_stream`).
+"""Tests for the streamed-upload sync path (`transcribe_live`).
 
 Body-shape assertions go through `httpx.MockTransport`, which consumes the
 request stream the way a real transport does. `pytest_httpx` records the
@@ -61,7 +61,7 @@ def _parts(request: httpx.Request):
 
 
 def _send(chunks, config: Optional[dict] = None, **kwargs) -> List[httpx.Request]:
-    """Runs `api.transcribe_stream` against a transport that records the body."""
+    """Runs `api.transcribe_live` against a transport that records the body."""
 
     seen: List[httpx.Request] = []
 
@@ -70,7 +70,7 @@ def _send(chunks, config: Optional[dict] = None, **kwargs) -> List[httpx.Request
         return httpx.Response(httpx.codes.OK, json=_OK_RESPONSE)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        api.transcribe_stream(
+        api.transcribe_live(
             client,
             base_url=aai.settings.sync_base_url,
             chunks=chunks,
@@ -94,7 +94,7 @@ async def _asend(chunks, config: Optional[dict] = None) -> List[httpx.Request]:
         return httpx.Response(httpx.codes.OK, json=_OK_RESPONSE)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        await async_api.transcribe_stream(
+        await async_api.transcribe_live(
             client,
             base_url=aai.settings.sync_base_url,
             chunks=chunks,
@@ -280,12 +280,12 @@ def test_async_body_accepts_a_sync_iterable():
 # --- transcriber behaviour --------------------------------------------------
 
 
-def test_transcribe_stream_parses_response(httpx_mock: HTTPXMock):
+def test_transcribe_live_parses_response(httpx_mock: HTTPXMock):
     # Given a mocked streaming endpoint
     _mock_ok(httpx_mock)
 
     # When streaming audio chunks
-    result = aai.SyncTranscriber().transcribe_stream(_chunks(b"RIFF", b"fake"))
+    result = aai.SyncTranscriber().transcribe_live(_chunks(b"RIFF", b"fake"))
 
     # Then the response is parsed like the buffered path's
     assert isinstance(result, aai.SyncTranscriptResponse)
@@ -293,12 +293,12 @@ def test_transcribe_stream_parses_response(httpx_mock: HTTPXMock):
     assert result.session_id == _OK_RESPONSE["session_id"]
 
 
-def test_transcribe_stream_sends_model_header(httpx_mock: HTTPXMock):
+def test_transcribe_live_sends_model_header(httpx_mock: HTTPXMock):
     # Given a mocked streaming endpoint
     _mock_ok(httpx_mock)
 
     # When streaming with a model set
-    aai.SyncTranscriber().transcribe_stream(
+    aai.SyncTranscriber().transcribe_live(
         _chunks(b"RIFF"),
         config=aai.SyncTranscriptionConfig(model="u3-sync-pro"),
     )
@@ -309,20 +309,20 @@ def test_transcribe_stream_sends_model_header(httpx_mock: HTTPXMock):
     assert request.headers["X-AAI-Model"] == "u3-sync-pro"
 
 
-def test_transcribe_stream_uses_the_stream_timeout(httpx_mock: HTTPXMock):
+def test_transcribe_live_uses_the_stream_timeout(httpx_mock: HTTPXMock):
     # Given a mocked streaming endpoint
     _mock_ok(httpx_mock)
 
     # When streaming audio
-    aai.SyncTranscriber().transcribe_stream(_chunks(b"RIFF"))
+    aai.SyncTranscriber().transcribe_live(_chunks(b"RIFF"))
 
     # Then the request gets the longer budget, which must cover the recording
     # as well as the transcription
     timeout = httpx_mock.get_requests()[0].extensions["timeout"]
-    assert timeout["read"] == aai.settings.sync_stream_http_timeout
+    assert timeout["read"] == aai.settings.sync_live_http_timeout
 
 
-def test_transcribe_stream_names_a_file_object(monkeypatch):
+def test_transcribe_live_names_a_file_object(monkeypatch):
     # Given a file object carrying a name
     captured = {}
 
@@ -330,20 +330,20 @@ def test_transcribe_stream_names_a_file_object(monkeypatch):
         captured.update(kwargs)
         return aai.SyncTranscriptResponse.parse_obj(_OK_RESPONSE)
 
-    monkeypatch.setattr(api, "transcribe_stream", fake)
+    monkeypatch.setattr(api, "transcribe_live", fake)
 
     stream = io.BytesIO(b"RIFF")
     stream.name = "/tmp/call.wav"
 
     # When it is streamed
-    aai.SyncTranscriber().transcribe_stream(stream)
+    aai.SyncTranscriber().transcribe_live(stream)
 
     # Then the audio part takes its name and type from the file
     assert captured["filename"] == "call.wav"
     assert captured["audio_content_type"] == "audio/wav"
 
 
-def test_transcribe_stream_marks_pcm_from_config(monkeypatch):
+def test_transcribe_live_marks_pcm_from_config(monkeypatch):
     # Given a config carrying the fields only raw PCM needs
     captured = {}
 
@@ -351,10 +351,10 @@ def test_transcribe_stream_marks_pcm_from_config(monkeypatch):
         captured.update(kwargs)
         return aai.SyncTranscriptResponse.parse_obj(_OK_RESPONSE)
 
-    monkeypatch.setattr(api, "transcribe_stream", fake)
+    monkeypatch.setattr(api, "transcribe_live", fake)
 
     # When streaming
-    aai.SyncTranscriber().transcribe_stream(
+    aai.SyncTranscriber().transcribe_live(
         _chunks(b"\x00\x01"),
         config=aai.SyncTranscriptionConfig(sample_rate=16000, channels=1),
     )
@@ -364,30 +364,30 @@ def test_transcribe_stream_marks_pcm_from_config(monkeypatch):
     assert captured["filename"] == "audio.pcm"
 
 
-def test_transcribe_stream_requires_both_pcm_fields():
+def test_transcribe_live_requires_both_pcm_fields():
     # Given a config with only half of what raw PCM needs
     config = aai.SyncTranscriptionConfig(sample_rate=16000)
 
     # When streaming, then it is rejected before any request is made
     with pytest.raises(ValueError, match="sample_rate and channels"):
-        aai.SyncTranscriber().transcribe_stream(_chunks(b"\x00"), config=config)
+        aai.SyncTranscriber().transcribe_live(_chunks(b"\x00"), config=config)
 
 
-def test_transcribe_stream_rejects_bytes():
+def test_transcribe_live_rejects_bytes():
     # Given audio the caller already holds whole
     # When streaming it, then it is named as a mistake and sent to transcribe()
     with pytest.raises(TypeError, match="transcribe\\(\\)"):
-        aai.SyncTranscriber().transcribe_stream(b"RIFFfake-wav-bytes")
+        aai.SyncTranscriber().transcribe_live(b"RIFFfake-wav-bytes")
 
 
-def test_transcribe_stream_rejects_a_path():
+def test_transcribe_live_rejects_a_path():
     # Given a path rather than an open file
     # When streaming it, then it is rejected rather than silently opened
     with pytest.raises(TypeError, match="not a path"):
-        aai.SyncTranscriber().transcribe_stream("./call.wav")
+        aai.SyncTranscriber().transcribe_live("./call.wav")
 
 
-def test_transcribe_stream_rejects_an_async_iterable():
+def test_transcribe_live_rejects_an_async_iterable():
     # Given an async producer handed to the synchronous transcriber
     async def chunks():
         yield b"RIFF"
@@ -395,20 +395,20 @@ def test_transcribe_stream_rejects_an_async_iterable():
     # When streaming it, then it is turned away before any request is made
     # and pointed at the transcriber that can drive it
     with pytest.raises(TypeError, match="AsyncSyncTranscriber"):
-        aai.SyncTranscriber().transcribe_stream(chunks())
+        aai.SyncTranscriber().transcribe_live(chunks())
 
 
-def test_transcribe_stream_rejects_job_api_config():
+def test_transcribe_live_rejects_job_api_config():
     # Given the job API's config type
     # When streaming with it, then the mismatch is named
     with pytest.raises(TypeError, match="SyncTranscriptionConfig"):
-        aai.SyncTranscriber().transcribe_stream(
+        aai.SyncTranscriber().transcribe_live(
             _chunks(b"RIFF"),
             config=aai.TranscriptionConfig(),
         )
 
 
-def test_transcribe_stream_raises_on_error_response(httpx_mock: HTTPXMock):
+def test_transcribe_live_raises_on_error_response(httpx_mock: HTTPXMock):
     # Given a rejection the server can send while the upload is still in flight
     httpx_mock.add_response(
         url=STREAM_URL,
@@ -420,7 +420,7 @@ def test_transcribe_stream_raises_on_error_response(httpx_mock: HTTPXMock):
 
     # When streaming audio
     with pytest.raises(aai.SyncTranscriptError) as exc:
-        aai.SyncTranscriber().transcribe_stream(_chunks(b"RIFF"))
+        aai.SyncTranscriber().transcribe_live(_chunks(b"RIFF"))
 
     # Then it is surfaced with the same envelope parsing as the buffered path
     assert exc.value.status_code == 429
@@ -429,7 +429,7 @@ def test_transcribe_stream_raises_on_error_response(httpx_mock: HTTPXMock):
 
 
 @pytest.mark.asyncio
-async def test_async_transcribe_stream_parses_response(httpx_mock: HTTPXMock):
+async def test_async_transcribe_live_parses_response(httpx_mock: HTTPXMock):
     # Given a mocked streaming endpoint
     _mock_ok(httpx_mock)
 
@@ -438,7 +438,7 @@ async def test_async_transcribe_stream_parses_response(httpx_mock: HTTPXMock):
 
     # When streaming from an async producer
     async with aai.AsyncSyncTranscriber() as transcriber:
-        result = await transcriber.transcribe_stream(chunks())
+        result = await transcriber.transcribe_live(chunks())
 
     # Then the response is parsed like its sync twin's
     assert result.text == "hello world"
@@ -446,16 +446,16 @@ async def test_async_transcribe_stream_parses_response(httpx_mock: HTTPXMock):
 
 
 @pytest.mark.asyncio
-async def test_async_transcribe_stream_rejects_bytes():
+async def test_async_transcribe_live_rejects_bytes():
     # Given audio the caller already holds whole
     # When streaming it, then the async path names the same mistake
     async with aai.AsyncSyncTranscriber() as transcriber:
         with pytest.raises(TypeError, match="transcribe\\(\\)"):
-            await transcriber.transcribe_stream(b"RIFF")
+            await transcriber.transcribe_live(b"RIFF")
 
 
 @pytest.mark.asyncio
-async def test_async_transcribe_stream_raises_on_error_response(httpx_mock: HTTPXMock):
+async def test_async_transcribe_live_raises_on_error_response(httpx_mock: HTTPXMock):
     # Given a rejection
     httpx_mock.add_response(
         url=STREAM_URL,
@@ -470,6 +470,6 @@ async def test_async_transcribe_stream_raises_on_error_response(httpx_mock: HTTP
     # When streaming audio, then the error surfaces
     async with aai.AsyncSyncTranscriber() as transcriber:
         with pytest.raises(aai.SyncTranscriptError) as exc:
-            await transcriber.transcribe_stream(chunks())
+            await transcriber.transcribe_live(chunks())
 
     assert exc.value.error_code == "capacity_exceeded"

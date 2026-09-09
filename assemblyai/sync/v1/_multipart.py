@@ -131,11 +131,11 @@ def _as_bytes(chunk: object) -> bytes:
         return bytes(chunk)
     if isinstance(chunk, str):
         raise TypeError(
-            "transcribe_stream() audio chunks must be bytes, not str. Open the "
+            "transcribe_live() audio chunks must be bytes, not str. Open the "
             "file in binary mode ('rb') or encode the producer's output."
         )
     raise TypeError(
-        f"transcribe_stream() audio chunks must be bytes, not {type(chunk).__name__}"
+        f"transcribe_live() audio chunks must be bytes, not {type(chunk).__name__}"
     )
 
 

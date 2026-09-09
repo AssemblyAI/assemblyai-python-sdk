@@ -44,8 +44,8 @@ aai.settings.api_key = "your-key"
 - `assemblyai.prerecorded.v2` — Canonical module for both transcribers, matching the `/v2/transcript` API. The top-level `aai.*` names re-export it
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
-- `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_stream()`, `transcribe_async()`, `warm()`
-- `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()`, `transcribe_stream()` and `warm()` are coroutines. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
+- `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_live()`, `transcribe_async()`, `warm()`
+- `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()`, `transcribe_live()` and `warm()` are coroutines. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
 - `aai.SyncTranscriptionConfig` — Sync options: `model` (default `universal-3-5-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
@@ -213,7 +213,7 @@ result = aai.SyncTranscriber().transcribe(raw_pcm_bytes, config=config)
 not asyncio) for fanning out a handful of files. In asyncio code use
 `aai.AsyncSyncTranscriber` instead (see "Asyncio sync transcription" below).
 
-**Streamed upload** (`transcribe_stream()`): uploads audio as it is produced instead of
+**Live upload** (`transcribe_live()`): uploads audio as it is produced instead of
 waiting for the whole clip. The request starts immediately, so authorization, the upload
 and every speech segment but the last resolve while the caller is still recording; what
 is left to wait for once they stop is the final segment. Takes an iterable of chunks or a
@@ -223,7 +223,7 @@ def mic_chunks():
     while recording:
         yield stream.read(4096)
 
-result = aai.SyncTranscriber().transcribe_stream(mic_chunks())
+result = aai.SyncTranscriber().transcribe_live(mic_chunks())
 ```
 It pays off only when the audio is genuinely still being produced. Streaming a file
 already on disk is *slower* than `transcribe()`, which sends it in one piece — the saving
@@ -232,7 +232,7 @@ have segments to release early: below roughly a minute only the elided upload co
 short clips gain little. Keep producing until done — an upload that goes silent for long
 enough is aborted server-side; end the iterator to finish, don't pause it. Auth,
 rate-limit and capacity failures can surface part-way through the upload rather than at
-the end. `settings.sync_stream_http_timeout` (180s) bounds each socket operation, as every
+the end. `settings.sync_live_http_timeout` (180s) bounds each socket operation, as every
 httpx timeout does, not the request end to end: time spent waiting on the producer is not
 counted, so it does not need to cover the recording.
 

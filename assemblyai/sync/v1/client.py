@@ -130,7 +130,7 @@ class SyncTranscriber:
             config=config,
         )
 
-    def transcribe_stream(
+    def transcribe_live(
         self,
         data: AudioChunks,
         config: Optional[types.SyncTranscriptionConfig] = None,
@@ -180,12 +180,12 @@ class SyncTranscriber:
                 while recording:
                     yield stream.read(4096)
 
-            result = aai.SyncTranscriber().transcribe_stream(mic_chunks())
+            result = aai.SyncTranscriber().transcribe_live(mic_chunks())
             ```
         """
         check_config(type(self).__name__, config)
 
-        return self._impl.transcribe_stream(data=data, config=config)
+        return self._impl.transcribe_live(data=data, config=config)
 
     def warm(self) -> bool:
         """

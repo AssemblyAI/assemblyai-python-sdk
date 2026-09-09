@@ -113,7 +113,7 @@ def transcribe(
     return types.SyncTranscriptResponse.parse_obj(response.json())
 
 
-def transcribe_stream(
+def transcribe_live(
     client: httpx.Client,
     *,
     base_url: str,

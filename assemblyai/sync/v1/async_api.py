@@ -18,7 +18,7 @@ from .api import (
     _error_from_response,
 )
 
-__all__ = ["transcribe", "transcribe_stream"]
+__all__ = ["transcribe", "transcribe_live"]
 
 
 async def transcribe(
@@ -74,7 +74,7 @@ async def transcribe(
     return types.SyncTranscriptResponse.parse_obj(response.json())
 
 
-async def transcribe_stream(
+async def transcribe_live(
     client: httpx.AsyncClient,
     *,
     base_url: str,
@@ -88,7 +88,7 @@ async def transcribe_stream(
     """
     Posts a transcription request whose audio is uploaded as it arrives.
 
-    The asyncio counterpart of `api.transcribe_stream`; same endpoint, same
+    The asyncio counterpart of `api.transcribe_live`; same endpoint, same
     chunked framing, same errors.
 
     Args:
@@ -100,7 +100,7 @@ async def transcribe_stream(
         model: sent as the `X-AAI-Model` routing header.
         config: the JSON `config` part. None sends an empty object: the
             streaming endpoint requires the part ahead of the audio.
-        timeout: per-operation timeout in seconds; see `api.transcribe_stream`.
+        timeout: per-operation timeout in seconds; see `api.transcribe_live`.
 
     Returns: the parsed transcript response.
 
