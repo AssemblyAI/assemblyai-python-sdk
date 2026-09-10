@@ -790,6 +790,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.DictationConfig(
     language_codes=["en", "es"],                 # one code, or several for multilingual audio
+    stt_prompt="A doctor dictating a visit note.", # what the audio is about; ≤4096 chars
     keyterms_prompt=["AssemblyAI", "Universal"], # bias the decoder; ≤2048 chars total
     llm_instruction="Fix punctuation only.",     # optional LLM pass
 )
@@ -797,7 +798,7 @@ config = aai.DictationConfig(
 result = aai.DictationTranscriber().transcribe_live("./note.wav", config=config)
 ```
 
-`sample_rate` and `channels` are required only for raw PCM; WAV carries them in its own header. A config passed to `transcribe_live()` or `open_live()` overrides the transcriber's default config for that call. `DictationConfig` rejects unknown fields, so a typo or a sync-only option surfaces as a validation error instead of a setting that quietly does nothing.
+`stt_prompt` describes the situation the audio was recorded in and steers the decoder as it writes the transcript; `llm_instruction` reshapes that transcript afterwards. `sample_rate` and `channels` are required only for raw PCM; WAV carries them in its own header. A config passed to `transcribe_live()` or `open_live()` overrides the transcriber's default config for that call. `DictationConfig` rejects unknown fields, so a typo or a sync-only option surfaces as a validation error instead of a setting that quietly does nothing.
 
 </details>
 

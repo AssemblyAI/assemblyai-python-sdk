@@ -52,14 +52,15 @@ class DictationError(AssemblyAIError):
 
 _DICTATION_MAX_KEYTERMS_PROMPT_LEN = 2048
 _DICTATION_MAX_LLM_INSTRUCTION_LEN = 2048
+_DICTATION_MAX_STT_PROMPT_LEN = 4096
 
 
 class DictationConfig(BaseModel):
     """
     Options for a Dictation API request.
 
-    `language_codes` and `keyterms_prompt` shape the transcript;
-    `llm_instruction` asks the server to run a follow-up LLM pass over it
+    `language_codes`, `stt_prompt` and `keyterms_prompt` shape the
+    transcript; `llm_instruction` asks the server to run a follow-up LLM pass over it
     (the rewrite lands in `DictationResponse.llm_response`). `sample_rate`
     and `channels` are required only for raw PCM audio — container formats
     carry them in their own headers.
@@ -86,6 +87,15 @@ class DictationConfig(BaseModel):
     list (e.g. `["es"]`) for monolingual audio, or several codes (e.g.
     `["en", "es"]`) for multilingual audio. Defaults to None, which leaves
     the language to the server's default."""
+
+    stt_prompt: Optional[str] = Field(
+        default=None, max_length=_DICTATION_MAX_STT_PROMPT_LEN
+    )
+    """Context for the transcription: a description of what the audio is
+    about, e.g. "A doctor dictating a patient visit note." It describes the
+    situation rather than instructing the model, and steers the decoder as it
+    writes the transcript — where `llm_instruction` reshapes the transcript
+    afterwards. Max 4096 characters."""
 
     keyterms_prompt: Optional[List[str]] = None
     "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
