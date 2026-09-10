@@ -1012,11 +1012,12 @@ class RawTranscriptionConfig(BaseModel):
     "The domain to use for the transcription (e.g. 'medical-v1')."
 
     if pydantic_v2:
-        model_config = ConfigDict(extra="allow")
+        model_config = ConfigDict(extra="allow", validate_assignment=True)
     else:
 
         class Config:
             extra = "allow"
+            validate_assignment = True
 
 
 class TranscriptionConfig:
@@ -1046,13 +1047,15 @@ class TranscriptionConfig:
         redact_pii: Optional[bool] = None,
         redact_pii_audio: Optional[bool] = None,
         redact_pii_audio_quality: Optional[PIIRedactedAudioQuality] = None,
-        redact_pii_audio_options: Optional[RedactPiiAudioOptions] = None,
+        redact_pii_audio_options: Optional[
+            Union[RedactPiiAudioOptions, Dict[str, Any]]
+        ] = None,
         redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         redact_pii_return_unredacted: Optional[bool] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
-        speaker_options: Optional[SpeakerOptions] = None,
+        speaker_options: Optional[Union[SpeakerOptions, Dict[str, Any]]] = None,
         content_safety: Optional[bool] = None,
         content_safety_confidence: Optional[int] = None,
         iab_categories: Optional[bool] = None,
@@ -1067,7 +1070,9 @@ class TranscriptionConfig:
         auto_highlights: Optional[bool] = None,
         language_detection: Optional[bool] = None,
         language_confidence_threshold: Optional[float] = None,
-        language_detection_options: Optional[LanguageDetectionOptions] = None,
+        language_detection_options: Optional[
+            Union[LanguageDetectionOptions, Dict[str, Any]]
+        ] = None,
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
@@ -1076,8 +1081,12 @@ class TranscriptionConfig:
         temperature: Optional[float] = None,
         remove_audio_tags: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
-        keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
-        speech_understanding: Optional[SpeechUnderstandingRequest] = None,
+        keyterms_prompt_options: Optional[
+            Union[KeytermsPromptOptions, Dict[str, Any]]
+        ] = None,
+        speech_understanding: Optional[
+            Union[SpeechUnderstandingRequest, Dict[str, Any]]
+        ] = None,
         domain: Optional[str] = None,
     ) -> None:
         """
@@ -1275,11 +1284,12 @@ class TranscriptionConfig:
 
     @keyterms_prompt_options.setter
     def keyterms_prompt_options(
-        self, keyterms_prompt_options: Optional[KeytermsPromptOptions]
+        self,
+        keyterms_prompt_options: Optional[Union[KeytermsPromptOptions, Dict[str, Any]]],
     ) -> None:
         "Sets the keyterms_prompt_options to use for the transcription."
 
-        self._raw_transcription_config.keyterms_prompt_options = keyterms_prompt_options
+        self._raw_transcription_config.keyterms_prompt_options = keyterms_prompt_options  # type: ignore[assignment]
 
     @property
     def speech_understanding(self) -> Optional[SpeechUnderstandingRequest]:
@@ -1288,10 +1298,15 @@ class TranscriptionConfig:
 
     @speech_understanding.setter
     def speech_understanding(
-        self, speech_understanding: Optional[SpeechUnderstandingRequest]
+        self,
+        speech_understanding: Optional[
+            Union[SpeechUnderstandingRequest, Dict[str, Any]]
+        ],
     ) -> None:
         "Sets the speech understanding configuration for LLM Gateway features."
-        self._raw_transcription_config.speech_understanding = speech_understanding
+        # `RawTranscriptionConfig`'s `validate_assignment` coerces a dict to `SpeechUnderstandingRequest`
+        # at runtime; mypy doesn't model that, so the narrower assignment is type: ignore'd here.
+        self._raw_transcription_config.speech_understanding = speech_understanding  # type: ignore[assignment]
 
     @property
     def domain(self) -> Optional[str]:
@@ -1666,11 +1681,11 @@ class TranscriptionConfig:
 
     @language_detection_options.setter
     def language_detection_options(
-        self, options: Optional[LanguageDetectionOptions]
+        self, options: Optional[Union[LanguageDetectionOptions, Dict[str, Any]]]
     ) -> None:
         "Set the options for controlling the behavior or Automatic Language Detection."
 
-        self._raw_transcription_config.language_detection_options = options
+        self._raw_transcription_config.language_detection_options = options  # type: ignore[assignment]
 
     @property
     def speech_threshold(self) -> Optional[float]:
@@ -1726,7 +1741,7 @@ class TranscriptionConfig:
         self,
         enable: Optional[bool] = True,
         speakers_expected: Optional[int] = None,
-        speaker_options: Optional[SpeakerOptions] = None,
+        speaker_options: Optional[Union[SpeakerOptions, Dict[str, Any]]] = None,
     ) -> Self:
         """
         Whether to enable Speaker Diarization on the transcript.
@@ -1751,7 +1766,7 @@ class TranscriptionConfig:
             if speakers_expected is not None:
                 self._raw_transcription_config.speakers_expected = speakers_expected
             if speaker_options is not None:
-                self._raw_transcription_config.speaker_options = speaker_options
+                self._raw_transcription_config.speaker_options = speaker_options  # type: ignore[assignment]
 
         return self
 
@@ -1844,7 +1859,9 @@ class TranscriptionConfig:
         enable: Optional[bool] = True,
         redact_audio: Optional[bool] = None,
         redact_audio_quality: Optional[PIIRedactedAudioQuality] = None,
-        redact_audio_options: Optional[RedactPiiAudioOptions] = None,
+        redact_audio_options: Optional[
+            Union[RedactPiiAudioOptions, Dict[str, Any]]
+        ] = None,
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
         return_unredacted: Optional[bool] = None,
@@ -1879,7 +1896,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.redact_pii = True
         self._raw_transcription_config.redact_pii_audio = redact_audio
         self._raw_transcription_config.redact_pii_audio_quality = redact_audio_quality
-        self._raw_transcription_config.redact_pii_audio_options = redact_audio_options
+        self._raw_transcription_config.redact_pii_audio_options = redact_audio_options  # type: ignore[assignment]
         self._raw_transcription_config.redact_pii_policies = policies
         self._raw_transcription_config.redact_pii_sub = substitution
         self._raw_transcription_config.redact_pii_return_unredacted = return_unredacted
@@ -1914,16 +1931,13 @@ class TranscriptionConfig:
         if self._raw_transcription_config.custom_spelling is None or override:
             self._raw_transcription_config.custom_spelling = []
 
-        for to, from_ in replacement.items():
-            if isinstance(from_, str):
-                from_ = [from_]
-
-            self._raw_transcription_config.custom_spelling.append(
-                {
-                    "from": list(from_),
-                    "to": to,
-                }
-            )
+        new_entries: List[Dict[str, Union[str, List[str]]]] = [
+            {"from": [from_] if isinstance(from_, str) else list(from_), "to": to}
+            for to, from_ in replacement.items()
+        ]
+        self._raw_transcription_config.custom_spelling = (
+            self._raw_transcription_config.custom_spelling + new_entries
+        )
 
         return self
 
