@@ -576,7 +576,7 @@ proc = subprocess.Popen(["rec", "-q", "-t", "raw", "-r", "16000", "-c", "1", "-b
 result = aai.SyncTranscriber().transcribe_live(proc.stdout, config=config)
 ```
 
-Errors that would normally arrive at the end (bad key, rate limit, capacity) can surface part-way through the upload as a `SyncTranscriptError`. A bad key is reported at the first segment boundary, roughly 30 s in, so `warm()` before you start recording if you want to fail fast.
+Errors that would normally arrive at the end (bad key, rate limit, capacity) can surface part-way through the upload as a `SyncTranscriptError`. A bad key is reported at the first segment boundary, roughly 30 s in. `warm()` opens the connection early but does not validate the key.
 
 </details>
 
