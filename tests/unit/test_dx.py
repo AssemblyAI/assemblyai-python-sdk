@@ -29,7 +29,7 @@ aai.settings.api_key = "test"
 
 TRANSCRIPT_URL = f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}"
 UPLOAD_URL = f"{aai.settings.base_url}{ENDPOINT_UPLOAD}"
-SYNC_TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe"
+SYNC_TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe/live"
 
 _SYNC_OK_RESPONSE = {
     "text": "hello world",

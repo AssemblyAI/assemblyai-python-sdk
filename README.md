@@ -102,7 +102,7 @@ aai.settings.api_key = f"{ASSEMBLYAI_API_KEY}"
 | --- | --- |
 | `assemblyai.prerecorded.v2.Transcriber` | Long-form audio, URLs, and the audio-intelligence features (speaker labels, chapters, sentiment, …), over the polled job API |
 | `assemblyai.prerecorded.v2.AsyncTranscriber` | The same, from asyncio code |
-| `assemblyai.sync.v1.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency |
+| `assemblyai.sync.v1.SyncTranscriber` | Short clips (≤120s, ≤40MB) where you want the transcript back in one request, at the lowest latency — from a file you already have (`transcribe()`) or uploaded while it is still being recorded (`open_live()`, `transcribe_live()`) |
 | `assemblyai.sync.v1.AsyncSyncTranscriber` | The same, from asyncio code |
 | `assemblyai.streaming.v3.RealTimeTranscriber` | Live audio (microphone, telephony, voice agents), transcribed as it arrives over a websocket session |
 | `assemblyai.streaming.v3.AsyncRealTimeTranscriber` | The same, from asyncio code |
@@ -430,6 +430,12 @@ for word in result.words:
 
 The input can be a local file path, raw `bytes`, or a binary file object — but not a URL. Pass a path/bytes, or use `aai.Transcriber` for URL ingestion.
 
+Every entry point here opens the same connection: the audio is uploaded as a
+stream, and the service transcribes each speech segment as it lands. A clip
+you already have is simply a stream whose bytes are all ready at once, so
+`transcribe()` is the ergonomic shape rather than a different request. Audio
+must be WAV or raw PCM.
+
 </details>
 
 <details>
@@ -519,9 +525,116 @@ with aai.SyncTranscriber() as transcriber:
 </details>
 
 <details>
+  <summary>Transcribe live audio as it is recorded (`open_live()`)</summary>
+
+`transcribe()` needs the whole clip before it can send anything. A live session starts the request immediately and uploads audio as you produce it, so the upload and all but the last speech segment are done by the time the speaker stops. What remains is one final segment: on a paced 7 s clip that cut the wait after the last byte roughly in half.
+
+Most audio sources hand you chunks in a callback. `open_live()` is built for that: `write()` from the callback, `close()` when the speaker stops, and `result()` for the transcript, which is the same `SyncTranscriptResponse` that `transcribe()` returns. The request runs on one of the transcriber's worker threads, so `write()` never blocks and is safe from any thread.
+
+```python
+import assemblyai as aai
+import sounddevice as sd  # pip install sounddevice
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+RATE = 16000
+config = aai.SyncTranscriptionConfig(sample_rate=RATE, channels=1)  # raw PCM needs both
+
+with aai.SyncTranscriber() as transcriber:
+    with transcriber.open_live(config) as session:
+        microphone = sd.RawInputStream(
+            samplerate=RATE, channels=1, dtype="int16",
+            callback=lambda data, *_: session.write(bytes(data)),
+        )
+        with microphone:
+            input("Recording, press Enter to stop... ")
+    # leaving the block ends the audio; the final segment is all that is left
+    print(session.result().text)
+```
+
+Leaving the `with` block calls `close()`. If the block raises, the session is aborted instead and `result()` raises. Call `abort()` yourself to drop a recording you no longer want transcribed.
+
+This is **not** the streaming API. A live session returns one finished transcript when the audio ends; use `aai.RealTimeTranscriber` when you need words back while the speaker is still talking.
+
+Use it only when the audio is genuinely still being produced. Streaming a file that is already on disk is slower than `transcribe()`, which sends it in one piece. Short clips gain less: below about a minute the saving is the elided upload only. The same 120 s cap applies, and the server aborts an upload that goes silent for long, so keep writing until you are done rather than pausing.
+
+Errors that would normally arrive at the end (bad key, rate limit, capacity) can surface part-way through the upload; `result()` raises them as `SyncTranscriptError`. A bad key is reported at the first segment boundary, roughly 30 s in. `warm()` opens the connection early but does not validate the key.
+
+</details>
+
+<details>
+  <summary>Transcribe live audio from an iterator or file object (`transcribe_live()`)</summary>
+
+When the audio already comes as something you can iterate, or as a file object that fills over time, hand it to `transcribe_live()` directly. It takes an iterable of `bytes` chunks or a binary file object, blocks until the audio ends, and returns the transcript. `open_live()` is this method with a queue in front of it.
+
+```python
+import subprocess
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+
+# A file object that fills over time, e.g. the stdout of a recorder (sox):
+recorder = subprocess.Popen(
+    ["rec", "-q", "-t", "raw", "-r", "16000", "-c", "1", "-b", "16", "-e", "signed", "-"],
+    stdout=subprocess.PIPE,
+)
+result = aai.SyncTranscriber().transcribe_live(recorder.stdout, config=config)
+
+# Or any generator of chunks:
+def from_call(call):
+    while call.active:
+        yield call.read_frame()
+
+result = aai.SyncTranscriber().transcribe_live(from_call(call), config=config)
+
+# Audio you already hold whole belongs in transcribe(), which is faster for it:
+result = aai.SyncTranscriber().transcribe("./call.wav")
+```
+
+End the iterator to finish. Anything the producer raises propagates unchanged and drops the upload.
+
+</details>
+
+<details>
+  <summary>Transcribe live audio from asyncio</summary>
+
+`AsyncSyncTranscriber.open_live()` returns an `AsyncLiveSession`: `write()` and `close()` are plain functions so a callback can call them, and `result()` and `abort()` are coroutines. The request runs as a task on the event loop. `write()` must be called on the loop's thread; from an audio library's capture thread, schedule it with `loop.call_soon_threadsafe(session.write, chunk)`.
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+
+
+async def handle(websocket):
+    """Transcribes the PCM frames a browser sends over one websocket."""
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        async with transcriber.open_live(config) as session:
+            async for frame in websocket:
+                session.write(frame)
+        result = await session.result()
+        await websocket.send(result.text)
+```
+
+`AsyncSyncTranscriber.transcribe_live()` is the pull-style twin: it takes an async iterable of chunks as well as a file object or plain iterable. A file object is read in a worker thread, so a blocking `read()` is fine; a plain iterable is consumed inline and must not block the loop.
+
+```python
+async def frames(websocket):
+    async for frame in websocket:
+        yield frame
+
+result = await transcriber.transcribe_live(frames(websocket), config=config)
+```
+
+</details>
+
+<details>
   <summary>Use it from asyncio (`AsyncSyncTranscriber`)</summary>
 
-`aai.AsyncSyncTranscriber` is the asyncio counterpart of `aai.SyncTranscriber` — same input types, config, result, and errors, with `transcribe()` and `warm()` as coroutines. Use it in asyncio code (FastAPI, aiohttp, voice agents), where the threaded `transcribe()` would block the event loop and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+`aai.AsyncSyncTranscriber` is the asyncio counterpart of `aai.SyncTranscriber` — same input types, config, result, and errors, with `transcribe()`, `transcribe_live()` and `warm()` as coroutines and `open_live()` returning an `AsyncLiveSession`. Use it in asyncio code (FastAPI, aiohttp, voice agents), where the threaded `transcribe()` would block the event loop and `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
 
 ```python
 import asyncio
@@ -1273,6 +1386,13 @@ aai.settings.http_timeout = 60.0
 
 # The polling interval in seconds for long-running requests, default is 3.0
 aai.settings.polling_interval = 10.0
+
+# Per-operation timeouts for the sync API: transcribe() (default 60.0) and
+# transcribe_live() (default 180.0). Like every httpx timeout these bound each
+# socket operation, not the request end to end, so the live value does not
+# need to cover the length of the recording.
+aai.settings.sync_http_timeout = 60.0
+aai.settings.sync_live_http_timeout = 180.0
 ```
 
 </details>

@@ -6,7 +6,7 @@ import assemblyai as aai
 
 aai.settings.api_key = "test"
 
-TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe"
+TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe/live"
 WARM_URL = f"{aai.settings.sync_base_url}/v1/warm"
 
 _OK_RESPONSE = {
@@ -78,8 +78,10 @@ def test_transcribe_sends_model_header_and_wav_part(httpx_mock: HTTPXMock):
     body = request.read()
     assert b'name="audio"' in body
     assert b"Content-Type: audio/wav" in body
-    # And no config part is sent when the config is empty
-    assert b'name="config"' not in body
+    # And an empty config part still goes out, ahead of the audio: the endpoint
+    # decodes the audio as it arrives and will not start without one.
+    assert body.index(b'name="config"') < body.index(b'name="audio"')
+    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
 
 
 def test_transcribe_sends_prompt_and_keyterms_prompt(httpx_mock: HTTPXMock):
@@ -210,11 +212,12 @@ def test_default_config_omits_language_code(httpx_mock: HTTPXMock):
     # Given a default config (no language specified)
     _mock_ok(httpx_mock)
 
-    # When transcribing, Then no config part is sent and the server defaults
-    # the language to English
+    # When transcribing, Then the config part carries no language and the
+    # server defaults it to English
     aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes")
     body = httpx_mock.get_requests()[0].read()
-    assert b'name="config"' not in body
+    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
+    assert b"language_code" not in body
 
 
 def test_transcribe_sends_timestamps_flag(httpx_mock: HTTPXMock):
