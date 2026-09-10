@@ -212,7 +212,10 @@ class _SyncTranscriberImpl:
             audio_content_type=content_type,
             model=config.model,
             config=_config_to_json(config),
-            timeout=self._client.settings.sync_http_timeout,
+            # The live timeout: this rides the same streamed connection, whose
+            # per-operation shape bounds each socket write and read rather than
+            # the request end to end.
+            timeout=self._client.settings.sync_live_http_timeout,
         )
 
     def transcribe_live(

@@ -22,7 +22,7 @@ from assemblyai.sync.v1._multipart import _STREAM_READ_SIZE
 
 aai.settings.api_key = "test"
 
-STREAM_URL = f"{aai.settings.sync_base_url}/v1/transcribe/stream"
+STREAM_URL = f"{aai.settings.sync_base_url}/v1/transcribe/live"
 
 _OK_RESPONSE = {
     "text": "hello world",
@@ -830,3 +830,61 @@ def test_async_open_live_needs_a_running_loop():
     # When a session is opened, then the mistake is named rather than deferred
     with pytest.raises(RuntimeError, match="no running event loop"):
         transcriber.open_live()
+
+
+def test_complete_audio_goes_over_the_live_connection(httpx_mock: HTTPXMock):
+    """`transcribe()` opens the same connection `transcribe_live()` does.
+
+    There is one request shape in this client: a complete clip is a stream
+    whose bytes happen to all be ready, so it takes the streamed endpoint and
+    the chunked framing rather than a second, buffered path.
+    """
+    httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE)
+
+    aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes")
+
+    request = httpx_mock.get_requests()[0]
+    assert str(request.url) == STREAM_URL
+    # Chunked, not a declared length: the encoder frames an unsized iterator.
+    assert "content-length" not in request.headers
+    body = request.read()
+    assert body.index(b'name="config"') < body.index(b'name="audio"')
+    assert b"RIFFfake-wav-bytes" in body
+
+
+@pytest.mark.asyncio
+async def test_async_complete_audio_goes_over_the_live_connection(
+    httpx_mock: HTTPXMock,
+):
+    httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        await transcriber.transcribe(b"RIFFfake-wav-bytes")
+
+    request = httpx_mock.get_requests()[0]
+    assert str(request.url) == STREAM_URL
+    assert "content-length" not in request.headers
+
+
+def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
+    """No entry point on this client posts to `/v1/transcribe`.
+
+    The path is still exported for the legacy `assemblyai.sync_api` surface,
+    and the service still serves it — but nothing here sends to it, so a
+    mocked buffered endpoint goes unused whichever way audio is submitted.
+    """
+    # One registration per call rather than a reusable one: the `is_reusable`
+    # kwarg postdates the oldest pytest-httpx the matrix tests against.
+    for _ in range(4):
+        httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE)
+
+    transcriber = aai.SyncTranscriber()
+    transcriber.transcribe(b"RIFFfake-wav-bytes")
+    transcriber.transcribe_async(b"RIFFfake-wav-bytes").result()
+    transcriber.transcribe_live([b"RIFFfake", b"-wav-bytes"])
+    with transcriber.open_live(aai.SyncTranscriptionConfig()) as session:
+        session.write(b"RIFFfake-wav-bytes")
+    session.result()
+
+    requested = {str(request.url) for request in httpx_mock.get_requests()}
+    assert requested == {STREAM_URL}

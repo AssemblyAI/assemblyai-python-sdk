@@ -296,7 +296,8 @@ class AsyncSyncTranscriber:
             audio_content_type=content_type,
             model=config.model,
             config=_config_to_json(config),
-            timeout=self._client.settings.sync_http_timeout,
+            # The live timeout: this rides the same streamed connection.
+            timeout=self._client.settings.sync_live_http_timeout,
         )
 
     async def transcribe_live(
