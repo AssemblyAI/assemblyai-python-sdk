@@ -555,7 +555,35 @@ def test_config_rejects_unknown_fields():
     # Given an option the Dictation API does not accept
     # When building the config, then it is rejected rather than dropped
     with pytest.raises(ValueError):
-        aai.DictationConfig(prompt="Transcribe verbatim.")
+        aai.DictationConfig(word_boost=["AssemblyAI"])
+
+
+def test_config_rejects_the_prompt_spelling():
+    # Given the server-side alias for stt_prompt
+    # When building the config, then the one spelling the SDK exposes wins —
+    # sending both is a 400, so there is nothing to gain from accepting two
+    with pytest.raises(ValueError):
+        aai.DictationConfig(prompt="A doctor dictating a visit note.")
+
+
+def test_transcribe_live_sends_stt_prompt(httpx_mock: HTTPXMock):
+    # Given a mocked live endpoint
+    _mock_ok(httpx_mock)
+
+    # When streaming with transcription context
+    config = aai.DictationConfig(stt_prompt="A doctor dictating a visit note.")
+    aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"), config=config)
+
+    # Then the config part carries it under the name the API documents
+    body = httpx_mock.get_requests()[0].read()
+    assert b'"stt_prompt"' in body
+    assert b"A doctor dictating a visit note." in body
+
+
+def test_stt_prompt_too_long_raises():
+    # Given an stt_prompt exceeding the 4096-char cap
+    with pytest.raises(ValueError):
+        aai.DictationConfig(stt_prompt="x" * 5000)
 
 
 def test_keyterms_prompt_too_long_raises():
