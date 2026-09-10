@@ -486,9 +486,15 @@ async def test_open_live_starts_the_request_before_any_audio(monkeypatch):
 
     async with aai.AsyncDictationTranscriber() as transcriber:
         session = transcriber.open_live()
-        await asyncio.sleep(0)  # let the task start
 
-        # Then the request is already in flight
+        # Then the request reaches the transport with the audio still open,
+        # which is the point: the connection and config go out while the
+        # speaker is still talking. The source is resolved in a worker thread
+        # first, so give the task a moment rather than a single loop tick.
+        for _ in range(200):
+            if seen["called"]:
+                break
+            await asyncio.sleep(0.01)
         assert seen["called"]
         assert not seen["completed"]
 
