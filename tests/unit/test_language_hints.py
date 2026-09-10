@@ -91,3 +91,11 @@ def test_raw_configuration_preserves_hints():
         raw_transcription_config=raw, language_hints={"default_language": "de"}
     )
     assert override.language_hints.default_language == "de"
+
+
+def test_constructor_copies_typed_hint():
+    hint = aai.LanguageHints(default_language="en", languages=["fr"])
+    config = aai.TranscriptionConfig(language_hints=hint)
+    hint.languages.append("de")
+    assert config.language_hints.default_language == "en"
+    assert config.language_hints.languages == ["fr"]

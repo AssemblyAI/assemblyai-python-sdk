@@ -1249,7 +1249,11 @@ class TranscriptionConfig:
         self.speech_understanding = speech_understanding
         self.domain = domain
         if language_hints is not None or raw_transcription_config is None:
-            self.language_hints = language_hints
+            self.language_hints = (
+                LanguageHints(**language_hints)
+                if isinstance(language_hints, dict)
+                else language_hints
+            )
 
     @property
     def raw(self) -> RawTranscriptionConfig:
