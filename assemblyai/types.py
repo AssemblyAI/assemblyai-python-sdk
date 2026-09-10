@@ -851,7 +851,66 @@ class SpeakerOptions(BaseModel):
             return v
 
 
+class LanguageHints(BaseModel):
+    """Optional system-prompt conditioning, independent of language routing.
+
+    The default is a canonical language code. When supplied, languages is an
+    ordered, unique list containing that default. The server validates supported
+    codes; omitting this object leaves the system prompt unconditioned.
+    """
+
+    default_language: str
+    languages: Optional[List[str]] = None
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="forbid")
+
+        @field_validator("default_language")
+        @classmethod
+        def validate_default(cls, value):
+            return cls._code(value)
+
+        @field_validator("languages")
+        @classmethod
+        def validate_languages(cls, value, info):
+            return cls._languages(value, info.data.get("default_language"))
+
+    else:
+
+        class Config:
+            extra = "forbid"
+
+        @validator("default_language")
+        def validate_default(cls, value):
+            return cls._code(value)
+
+        @validator("languages")
+        def validate_languages(cls, value, values):
+            return cls._languages(value, values.get("default_language"))
+
+    @staticmethod
+    def _code(value):
+        code = value.strip().lower()
+        if not code.isascii() or not code.isalpha() or len(code) not in (2, 3):
+            raise ValueError("language hints require canonical language codes")
+        return code
+
+    @classmethod
+    def _languages(cls, value, default):
+        if value is None:
+            return None
+        codes = [cls._code(code) for code in value]
+        if not codes or len(set(codes)) != len(codes):
+            raise ValueError("languages must be a nonempty list of unique codes")
+        if default is not None and default not in codes:
+            raise ValueError("languages must include default_language")
+        return codes
+
+
 class RawTranscriptionConfig(BaseModel):
+    language_hints: Optional[LanguageHints] = None
+    "Optional system-prompt language default and ordered language list."
+
     language_code: Optional[Union[str, LanguageCode]] = None
     """
     The language of your audio file. Possible values are found in Supported Languages.
@@ -1079,11 +1138,13 @@ class TranscriptionConfig:
         keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
         speech_understanding: Optional[SpeechUnderstandingRequest] = None,
         domain: Optional[str] = None,
+        language_hints: Optional[Union[LanguageHints, Dict[str, Any]]] = None,
     ) -> None:
         """
         Args:
             language_code: The language of your audio file. Possible values are found in Supported Languages.
             language_codes: A list of language codes for multilingual/code-switching audio.
+            language_hints: Optional system-prompt conditioning, independent of routing.
             punctuate: Enable Automatic Punctuation
             format_text: Enable Text Formatting
             dual_channel: Enable Dual Channel transcription
@@ -1189,6 +1250,8 @@ class TranscriptionConfig:
         self.keyterms_prompt_options = keyterms_prompt_options
         self.speech_understanding = speech_understanding
         self.domain = domain
+        if language_hints is not None or raw_transcription_config is None:
+            self.language_hints = language_hints
 
     @property
     def raw(self) -> RawTranscriptionConfig:
@@ -1236,6 +1299,22 @@ class TranscriptionConfig:
     def prompt(self, prompt: Optional[str]) -> None:
         "Sets the prompt to use for the transcription."
         self._raw_transcription_config.prompt = prompt
+
+    @property
+    def language_hints(self) -> Optional[LanguageHints]:
+        """The system-prompt language default and optional ordered language list."""
+        return self._raw_transcription_config.language_hints
+
+    @language_hints.setter
+    def language_hints(
+        self, value: Optional[Union[LanguageHints, Dict[str, Any]]]
+    ) -> None:
+        if value is None:
+            self._raw_transcription_config.language_hints = None
+        elif isinstance(value, LanguageHints):
+            self._raw_transcription_config.language_hints = value.copy(deep=True)
+        else:
+            self._raw_transcription_config.language_hints = LanguageHints(**value)
 
     @property
     def temperature(self) -> Optional[float]:
@@ -2294,6 +2373,9 @@ class BaseTranscript(BaseModel):
     """
     Available transcription features
     """
+
+    language_hints: Optional[LanguageHints] = None
+    "Optional system-prompt language default and ordered language list."
 
     language_code: Optional[Union[str, LanguageCode]] = None
     """
