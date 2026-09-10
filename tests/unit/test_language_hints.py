@@ -17,6 +17,8 @@ aai.settings.api_key = "test"
         None,
         {"default_language": "en"},
         {"default_language": "en", "languages": ["de", "fr", "en"]},
+        {"default_language": "en", "languages": ["fr"]},
+        {"default_language": "de", "languages": ["hi", "en"]},
     ],
 )
 def test_hint_survives_actual_submit_request(httpx_mock, hint):
@@ -69,7 +71,6 @@ def test_per_file_config_copies_and_clear():
         {"default_language": ""},
         {"default_language": "English"},
         {"default_language": "en", "languages": []},
-        {"default_language": "en", "languages": ["fr"]},
         {"default_language": "en", "languages": ["en", "EN"]},
         {"default_language": "en", "unknown": "value"},
     ],
