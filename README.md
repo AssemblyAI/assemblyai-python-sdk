@@ -430,6 +430,12 @@ for word in result.words:
 
 The input can be a local file path, raw `bytes`, or a binary file object — but not a URL. Pass a path/bytes, or use `aai.Transcriber` for URL ingestion.
 
+Every entry point here opens the same connection: the audio is uploaded as a
+stream, and the service transcribes each speech segment as it lands. A clip
+you already have is simply a stream whose bytes are all ready at once, so
+`transcribe()` is the ergonomic shape rather than a different request. Audio
+must be WAV or raw PCM.
+
 </details>
 
 <details>

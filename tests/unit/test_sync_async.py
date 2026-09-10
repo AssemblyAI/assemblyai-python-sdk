@@ -10,7 +10,7 @@ pytestmark = pytest.mark.asyncio
 
 aai.settings.api_key = "test"
 
-TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe"
+TRANSCRIBE_URL = f"{aai.settings.sync_base_url}/v1/transcribe/live"
 WARM_URL = f"{aai.settings.sync_base_url}/v1/warm"
 
 _OK_RESPONSE = {
@@ -67,8 +67,10 @@ async def test_transcribe_sends_model_header_and_wav_part(httpx_mock: HTTPXMock)
     body = request.read()
     assert b'name="audio"' in body
     assert b"Content-Type: audio/wav" in body
-    # And no config part is sent when the config is empty
-    assert b'name="config"' not in body
+    # And an empty config part still goes out, ahead of the audio: the endpoint
+    # decodes the audio as it arrives and will not start without one.
+    assert body.index(b'name="config"') < body.index(b'name="audio"')
+    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
 
 
 async def test_transcribe_sends_config_part(httpx_mock: HTTPXMock):
