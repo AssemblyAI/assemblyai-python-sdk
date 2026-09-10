@@ -855,7 +855,7 @@ class LanguageHints(BaseModel):
     """Optional system-prompt conditioning, independent of language routing.
 
     The default is a canonical language code. When supplied, languages is an
-    ordered, unique list containing that default. The server validates supported
+    ordered, unique list; the default may be outside it. The server validates supported
     codes; omitting this object leaves the system prompt unconditioned.
     """
 
@@ -872,8 +872,8 @@ class LanguageHints(BaseModel):
 
         @field_validator("languages")
         @classmethod
-        def validate_languages(cls, value, info):
-            return cls._languages(value, info.data.get("default_language"))
+        def validate_languages(cls, value):
+            return cls._languages(value)
 
     else:
 
@@ -885,8 +885,8 @@ class LanguageHints(BaseModel):
             return cls._code(value)
 
         @validator("languages")
-        def validate_languages(cls, value, values):
-            return cls._languages(value, values.get("default_language"))
+        def validate_languages(cls, value):
+            return cls._languages(value)
 
     @staticmethod
     def _code(value):
@@ -896,14 +896,12 @@ class LanguageHints(BaseModel):
         return code
 
     @classmethod
-    def _languages(cls, value, default):
+    def _languages(cls, value):
         if value is None:
             return None
         codes = [cls._code(code) for code in value]
         if not codes or len(set(codes)) != len(codes):
             raise ValueError("languages must be a nonempty list of unique codes")
-        if default is not None and default not in codes:
-            raise ValueError("languages must include default_language")
         return codes
 
 
