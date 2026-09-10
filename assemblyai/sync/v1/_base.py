@@ -6,8 +6,8 @@ from typing import Mapping, Optional, Tuple
 from ... import _audio, types
 from ... import client as _client
 from ..._audio import _PCM_SUFFIXES, AudioInput
+from ..._multipart import AudioChunks, _Aborted
 from . import api
-from ._multipart import AudioChunks
 
 __all__ = [
     "_PCM_SUFFIXES",
@@ -105,15 +105,6 @@ def _config_to_json(config: types.SyncTranscriptionConfig) -> Optional[dict]:
     """Serializes the config to the JSON `config` part, dropping the routing model."""
 
     return _audio._config_to_json(config, exclude=("model",))
-
-
-class _Aborted(Exception):
-    """
-    Raised inside a live session's producer when the session is aborted.
-
-    Propagates out of the transport, which drops the connection, and is
-    swallowed by `abort()`; it never reaches the caller.
-    """
 
 
 def check_chunks(data: object, *, allow_async: bool = False) -> None:

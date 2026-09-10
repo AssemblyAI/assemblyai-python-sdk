@@ -11,6 +11,7 @@ from typing_extensions import Self
 
 from ... import async_client as _async_client
 from ... import types
+from ..._multipart import AsyncAudioChunks, _as_bytes
 from . import api, async_api
 from ._base import (
     AudioInput,
@@ -21,7 +22,6 @@ from ._base import (
     check_config,
     stream_filename,
 )
-from ._multipart import AsyncAudioChunks, _as_bytes
 
 _T = TypeVar("_T")
 

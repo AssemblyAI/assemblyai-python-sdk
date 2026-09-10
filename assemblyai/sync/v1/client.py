@@ -9,6 +9,7 @@ import httpx
 
 from ... import client as _client
 from ... import types
+from ..._multipart import _as_bytes
 from . import api
 from ._base import (
     AudioChunks,
@@ -17,7 +18,6 @@ from ._base import (
     _SyncTranscriberImpl,
     check_config,
 )
-from ._multipart import _as_bytes
 
 
 class LiveSession:

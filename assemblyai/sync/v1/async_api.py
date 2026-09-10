@@ -9,7 +9,7 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from ... import types
-from ._multipart import AsyncAudioChunks, StreamingMultipartEncoder, aiter_chunks
+from ..._multipart import AsyncAudioChunks, StreamingMultipartEncoder, aiter_chunks
 from .api import (
     ENDPOINT_TRANSCRIBE_LIVE,
     MODEL_HEADER,

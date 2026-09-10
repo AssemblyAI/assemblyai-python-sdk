@@ -3,7 +3,7 @@ from typing import Callable, Iterator, Optional
 import httpx
 
 from ... import types
-from ._multipart import AudioChunks, StreamingMultipartEncoder, iter_chunks
+from ..._multipart import AudioChunks, StreamingMultipartEncoder, iter_chunks
 
 # Canonical paths since the sync API gained a /v1 prefix (#18103); the
 # unprefixed routes remain served for SDK versions that predate it.
