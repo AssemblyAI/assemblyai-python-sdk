@@ -873,7 +873,11 @@ def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
     and the service still serves it — but nothing here sends to it, so a
     mocked buffered endpoint goes unused whichever way audio is submitted.
     """
-    httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE, is_reusable=True)
+    # One response per submission below. `is_reusable` is only on newer
+    # pytest_httpx, and the floor envs pin the release that shipped with their
+    # httpx, so queue a response for each call instead.
+    for _ in range(4):
+        httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE)
 
     transcriber = aai.SyncTranscriber()
     transcriber.transcribe(b"RIFFfake-wav-bytes")

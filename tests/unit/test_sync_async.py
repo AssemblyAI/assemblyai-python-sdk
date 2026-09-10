@@ -26,13 +26,18 @@ _OK_RESPONSE = {
 }
 
 
+async def _read_and_respond(request: httpx.Request) -> httpx.Response:
+    # Consume the streamed request body while the request is live. That caches
+    # it on the recorded request, so the `.read()` assertions below work on
+    # every supported httpx: the buffered path now streams its body, and older
+    # httpx/pytest_httpx do not consume a chunked request body on their own —
+    # a bare `.read()` then asserts on the unconsumed async stream.
+    await request.aread()
+    return httpx.Response(status_code=httpx.codes.OK, json=_OK_RESPONSE)
+
+
 def _mock_ok(httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url=TRANSCRIBE_URL,
-        method="POST",
-        status_code=httpx.codes.OK,
-        json=_OK_RESPONSE,
-    )
+    httpx_mock.add_callback(_read_and_respond, url=TRANSCRIBE_URL, method="POST")
 
 
 async def test_transcribe_bytes_parses_response(httpx_mock: HTTPXMock):
