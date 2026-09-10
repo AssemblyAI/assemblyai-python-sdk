@@ -26,18 +26,44 @@ _OK_RESPONSE = {
 }
 
 
-async def _read_and_respond(request: httpx.Request) -> httpx.Response:
-    # Consume the streamed request body while the request is live. That caches
-    # it on the recorded request, so the `.read()` assertions below work on
-    # every supported httpx: the buffered path now streams its body, and older
-    # httpx/pytest_httpx do not consume a chunked request body on their own —
-    # a bare `.read()` then asserts on the unconsumed async stream.
-    await request.aread()
-    return httpx.Response(status_code=httpx.codes.OK, json=_OK_RESPONSE)
-
-
 def _mock_ok(httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_callback(_read_and_respond, url=TRANSCRIBE_URL, method="POST")
+    httpx_mock.add_response(
+        url=TRANSCRIBE_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_OK_RESPONSE,
+    )
+
+
+class _Captured(list):
+    """Bodies recorded as the requests were sent, in order."""
+
+    @property
+    def first(self) -> bytes:
+        return self[0]
+
+
+def _capture(transcriber, *, status: int = httpx.codes.OK) -> _Captured:
+    """Records each request body while the request is still open.
+
+    The buffered entry points stream their body like every other call, and a
+    streamed body can only be read once — `pytest_httpx` records the request
+    without reading it on older httpx, so a read after the call sees a spent
+    iterator. Reading inside the transport is the same approach
+    `test_sync_live.py` takes for its body-shape assertions.
+    """
+    captured = _Captured()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(await request.aread())
+        captured.headers = request.headers
+        return httpx.Response(status, json=_OK_RESPONSE)
+
+    transcriber.client._http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        headers=transcriber.client.http_client.headers,
+    )
+    return captured
 
 
 async def test_transcribe_bytes_parses_response(httpx_mock: HTTPXMock):
@@ -58,40 +84,37 @@ async def test_transcribe_bytes_parses_response(httpx_mock: HTTPXMock):
     assert result.request_time_ms == 243.7
 
 
-async def test_transcribe_sends_model_header_and_wav_part(httpx_mock: HTTPXMock):
-    # Given a mocked sync endpoint
-    _mock_ok(httpx_mock)
-
-    # When transcribing bytes with the default config
+async def test_transcribe_sends_model_header_and_wav_part():
+    # Given a transcriber whose transport records the body as it is sent
     async with aai.AsyncSyncTranscriber() as transcriber:
+        captured = _capture(transcriber)
+
+        # When transcribing bytes with the default config
         await transcriber.transcribe(b"RIFFfake-wav-bytes")
 
     # Then the request routes via X-AAI-Model and ships a WAV audio part
-    request = httpx_mock.get_requests()[0]
-    assert request.headers["X-AAI-Model"] == "universal-3-5-pro"
-    body = request.read()
+    assert captured.headers["X-AAI-Model"] == "universal-3-5-pro"
+    body = captured.first
     assert b'name="audio"' in body
     assert b"Content-Type: audio/wav" in body
     # And an empty config part still goes out, ahead of the audio: the endpoint
     # decodes the audio as it arrives and will not start without one.
     assert body.index(b'name="config"') < body.index(b'name="audio"')
-    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
+    assert b"Content-Type: application/json\r\n\r\n{}\r\n" in body
 
 
-async def test_transcribe_sends_config_part(httpx_mock: HTTPXMock):
-    # Given a mocked sync endpoint
-    _mock_ok(httpx_mock)
-
+async def test_transcribe_sends_config_part():
     # When transcribing with a prompt and keyterms_prompt
     config = aai.SyncTranscriptionConfig(
         prompt="Transcribe verbatim.",
         keyterms_prompt=["AssemblyAI"],
     )
     async with aai.AsyncSyncTranscriber() as transcriber:
+        captured = _capture(transcriber)
         await transcriber.transcribe(b"RIFFfake-wav-bytes", config=config)
 
     # Then a config JSON part carries the options
-    body = httpx_mock.get_requests()[0].read()
+    body = captured.first
     assert b'name="config"' in body
     assert b"Transcribe verbatim." in body
     assert b'"AssemblyAI"' in body
@@ -99,15 +122,12 @@ async def test_transcribe_sends_config_part(httpx_mock: HTTPXMock):
     assert b'"model"' not in body
 
 
-async def test_transcribe_uses_default_config_and_per_call_override(
-    httpx_mock: HTTPXMock,
-):
+async def test_transcribe_uses_default_config_and_per_call_override():
     # Given a transcriber with a default config
-    _mock_ok(httpx_mock)
-    _mock_ok(httpx_mock)
     default = aai.SyncTranscriptionConfig(prompt="default prompt")
 
     async with aai.AsyncSyncTranscriber(config=default) as transcriber:
+        captured = _capture(transcriber)
         # When transcribing without a per-call config
         await transcriber.transcribe(b"RIFFfake-wav-bytes")
         # And with a per-call override
@@ -115,22 +135,20 @@ async def test_transcribe_uses_default_config_and_per_call_override(
         await transcriber.transcribe(b"RIFFfake-wav-bytes", config=override)
 
     # Then the default applies to the first call and the override to the second
-    first, second = (request.read() for request in httpx_mock.get_requests())
+    first, second = captured
     assert b"default prompt" in first
     assert b"override prompt" in second
 
 
-async def test_transcribe_pcm_sends_pcm_part_and_rate(httpx_mock: HTTPXMock):
-    # Given a mocked sync endpoint
-    _mock_ok(httpx_mock)
-
+async def test_transcribe_pcm_sends_pcm_part_and_rate():
     # When transcribing bytes with sample_rate + channels (raw PCM)
     config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
     async with aai.AsyncSyncTranscriber() as transcriber:
+        captured = _capture(transcriber)
         await transcriber.transcribe(b"\x00\x01" * 100, config=config)
 
     # Then the audio part is PCM and the config carries rate + channels
-    body = httpx_mock.get_requests()[0].read()
+    body = captured.first
     assert b"Content-Type: audio/pcm" in body
     assert b'"sample_rate"' in body
     assert b'"channels"' in body
@@ -154,20 +172,19 @@ async def test_transcribe_rejects_url():
             await transcriber.transcribe("https://example.com/audio.wav")
 
 
-async def test_transcribe_path_input(httpx_mock: HTTPXMock, tmp_path):
+async def test_transcribe_path_input(tmp_path):
     # Given a local WAV file
-    _mock_ok(httpx_mock)
     audio_file = tmp_path / "call.wav"
     audio_file.write_bytes(b"RIFFfake-wav-bytes")
 
     # When transcribing the path
     async with aai.AsyncSyncTranscriber() as transcriber:
+        captured = _capture(transcriber)
         result = await transcriber.transcribe(str(audio_file))
 
     # Then it succeeds and ships the file under its own name
     assert result.text == "hello world"
-    body = httpx_mock.get_requests()[0].read()
-    assert b'filename="call.wav"' in body
+    assert b'filename="call.wav"' in captured.first
 
 
 async def test_transcribe_gather_runs_concurrently(httpx_mock: HTTPXMock):

@@ -873,9 +873,8 @@ def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
     and the service still serves it — but nothing here sends to it, so a
     mocked buffered endpoint goes unused whichever way audio is submitted.
     """
-    # One response per submission below. `is_reusable` is only on newer
-    # pytest_httpx, and the floor envs pin the release that shipped with their
-    # httpx, so queue a response for each call instead.
+    # One registration per call rather than a reusable one: the `is_reusable`
+    # kwarg postdates the oldest pytest-httpx the matrix tests against.
     for _ in range(4):
         httpx_mock.add_response(url=STREAM_URL, json=_OK_RESPONSE)
 
