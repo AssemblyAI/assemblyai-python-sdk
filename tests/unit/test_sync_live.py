@@ -473,3 +473,360 @@ async def test_async_transcribe_live_raises_on_error_response(httpx_mock: HTTPXM
             await transcriber.transcribe_live(chunks())
 
     assert exc.value.error_code == "capacity_exceeded"
+
+
+# --- push-style sessions ------------------------------------------------------
+
+
+def _fake_live(monkeypatch, module, drain, error: Optional[Exception] = None) -> dict:
+    """
+    Replaces the transport with a fake that drains the producer the way a real
+    transport would, recording what it saw. `drain` turns the producer into a
+    list (sync or async), so an abort raised by the producer propagates from it
+    exactly as it would from httpx.
+    """
+    seen: dict = {"called": threading.Event(), "completed": False}
+
+    if asyncio.iscoroutinefunction(drain):
+
+        async def fake(client, **kwargs):
+            seen["called"].set()
+            seen["config"] = kwargs["config"]
+            seen["chunks"] = await drain(kwargs["chunks"])
+            seen["completed"] = True
+            if error:
+                raise error
+            return aai.SyncTranscriptResponse.parse_obj(_OK_RESPONSE)
+
+    else:
+
+        def fake(client, **kwargs):
+            seen["called"].set()
+            seen["config"] = kwargs["config"]
+            seen["chunks"] = drain(kwargs["chunks"])
+            seen["completed"] = True
+            if error:
+                raise error
+            return aai.SyncTranscriptResponse.parse_obj(_OK_RESPONSE)
+
+    monkeypatch.setattr(module, "transcribe_live", fake)
+    return seen
+
+
+def _drain(chunks):
+    return list(chunks)
+
+
+async def _adrain(chunks):
+    return [chunk async for chunk in chunks]
+
+
+def test_open_live_uploads_written_chunks_in_order(monkeypatch):
+    # Given a session fed from a callback-style producer
+    seen = _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live(
+            aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+        )
+        for piece in (b"\x00\x01", bytearray(b"\x02\x03"), memoryview(b"\x04\x05")):
+            session.write(piece)
+
+        # When the audio ends and the result is awaited
+        result = session.result()
+
+    # Then the chunks went out in order, as bytes, with the config, and the
+    # transcript came back parsed
+    assert seen["chunks"] == [b"\x00\x01", b"\x02\x03", b"\x04\x05"]
+    assert seen["config"] == {"sample_rate": 16000, "channels": 1}
+    assert result.text == "hello world"
+
+
+def test_open_live_starts_the_request_before_any_audio(monkeypatch):
+    # Given a session that has just been opened
+    seen = _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+
+        # Then the request is already in flight, which is the point: the
+        # connection and config go out while the speaker is still talking
+        assert seen["called"].wait(timeout=2.0)
+        assert not seen["completed"]
+
+        session.result()
+
+
+def test_live_session_context_manager_ends_the_audio(monkeypatch):
+    # Given audio written inside a with-block
+    _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        with transcriber.open_live() as session:
+            session.write(b"RIFF")
+            assert not session.closed
+
+        # Then leaving the block closes the audio and the result is waiting
+        assert session.closed
+        assert session.result().text == "hello world"
+
+
+def test_live_session_rejects_writes_after_close(monkeypatch):
+    # Given a closed session
+    _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.close()
+
+        # When more audio arrives, then it is refused rather than dropped silently
+        with pytest.raises(RuntimeError, match="closed"):
+            session.write(b"RIFF")
+
+        session.result()
+
+
+def test_live_session_rejects_text_at_write_time(monkeypatch):
+    # Given a producer handing out str
+    _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+
+        # When it is written, then the mistake is named immediately, not when
+        # the result is collected
+        with pytest.raises(TypeError, match="bytes"):
+            session.write("RIFF")
+
+        session.result()
+
+
+def test_live_session_abort_drops_the_request(monkeypatch):
+    # Given a session mid-upload
+    seen = _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.write(b"RIFF")
+        assert seen["called"].wait(timeout=2.0)
+
+        # When it is aborted
+        session.abort()
+
+        # Then the transport never completed the upload, there is no result,
+        # and a second abort is harmless
+        assert not seen["completed"]
+        assert session.closed
+        with pytest.raises(RuntimeError, match="aborted"):
+            session.result()
+        session.abort()
+
+
+def test_live_session_aborts_when_the_block_raises(monkeypatch):
+    # Given a with-block that fails part-way through recording
+    seen = _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        with pytest.raises(ValueError):
+            with transcriber.open_live() as session:
+                session.write(b"RIFF")
+                raise ValueError("microphone unplugged")
+
+        # Then the upload was dropped rather than transcribed
+        assert not seen["completed"]
+        with pytest.raises(RuntimeError, match="aborted"):
+            session.result()
+
+
+def test_live_session_abort_after_completion_is_a_no_op(monkeypatch):
+    # Given a session whose result has already arrived
+    _fake_live(monkeypatch, api, _drain)
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        result = session.result()
+
+        # When it is aborted anyway, then nothing changes
+        session.abort()
+        assert session.result() is result
+
+
+def test_live_session_rejects_job_api_config():
+    # Given the job API's config type
+    with aai.SyncTranscriber() as transcriber:
+        with pytest.raises(TypeError, match="SyncTranscriptionConfig"):
+            transcriber.open_live(aai.TranscriptionConfig())
+
+
+def test_live_session_roundtrip_over_http(httpx_mock: HTTPXMock):
+    # Given the real transport against a mocked endpoint
+    _mock_ok(httpx_mock)
+
+    with aai.SyncTranscriber() as transcriber:
+        with transcriber.open_live() as session:
+            session.write(b"RIFF")
+            session.write(b"fake")
+
+        # Then the request hit the live route and parsed like the pull path
+        result = session.result()
+
+    assert result.text == "hello world"
+    request = httpx_mock.get_requests()[0]
+    assert str(request.url) == STREAM_URL
+    assert request.headers.get("transfer-encoding") == "chunked"
+
+
+def test_live_session_surfaces_server_errors(httpx_mock: HTTPXMock):
+    # Given a rejection the server may send mid-upload
+    httpx_mock.add_response(
+        url=STREAM_URL,
+        method="POST",
+        status_code=httpx.codes.SERVICE_UNAVAILABLE,
+        json={"status": 503, "title": "Capacity Exceeded", "detail": "no capacity"},
+    )
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.write(b"RIFF")
+
+        # When the result is collected, then it is the same error the pull path raises
+        with pytest.raises(aai.SyncTranscriptError) as exc:
+            session.result()
+
+    assert exc.value.error_code == "capacity_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_async_open_live_uploads_written_chunks_in_order(monkeypatch):
+    # Given an asyncio session fed from a callback-style producer
+    seen = _fake_live(monkeypatch, async_api, _adrain)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        session = transcriber.open_live(
+            aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+        )
+        for piece in (b"\x00\x01", bytearray(b"\x02\x03")):
+            session.write(piece)
+
+        # When the audio ends and the result is awaited
+        result = await session.result()
+
+    # Then it matches the sync twin
+    assert seen["chunks"] == [b"\x00\x01", b"\x02\x03"]
+    assert seen["config"] == {"sample_rate": 16000, "channels": 1}
+    assert result.text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_context_manager_ends_the_audio(monkeypatch):
+    # Given audio written inside an async with-block
+    _fake_live(monkeypatch, async_api, _adrain)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        async with transcriber.open_live() as session:
+            session.write(b"RIFF")
+
+        # Then leaving the block closes the audio and the result is waiting
+        assert session.closed
+        assert (await session.result()).text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_rejects_writes_after_close(monkeypatch):
+    # Given a closed session
+    _fake_live(monkeypatch, async_api, _adrain)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.close()
+
+        # When more audio arrives, then it is refused
+        with pytest.raises(RuntimeError, match="closed"):
+            session.write(b"RIFF")
+
+        await session.result()
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_abort_drops_the_request(monkeypatch):
+    # Given a session mid-upload
+    seen = _fake_live(monkeypatch, async_api, _adrain)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.write(b"RIFF")
+        await asyncio.sleep(0)  # let the task start consuming
+
+        # When it is aborted
+        await session.abort()
+
+        # Then the transport never completed the upload and there is no result
+        assert not seen["completed"]
+        with pytest.raises(RuntimeError, match="aborted"):
+            await session.result()
+        await session.abort()
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_aborts_when_the_block_raises(monkeypatch):
+    # Given an async with-block that fails mid-recording
+    seen = _fake_live(monkeypatch, async_api, _adrain)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        with pytest.raises(ValueError):
+            async with transcriber.open_live() as session:
+                session.write(b"RIFF")
+                raise ValueError("call dropped")
+
+        # Then the upload was dropped rather than transcribed
+        assert not seen["completed"]
+        with pytest.raises(RuntimeError, match="aborted"):
+            await session.result()
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_roundtrip_over_http(httpx_mock: HTTPXMock):
+    # Given the real transport against a mocked endpoint
+    _mock_ok(httpx_mock)
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        async with transcriber.open_live() as session:
+            session.write(b"RIFF")
+
+        result = await session.result()
+
+    # Then the request hit the live route and parsed like the pull path
+    assert result.text == "hello world"
+    assert str(httpx_mock.get_requests()[0].url) == STREAM_URL
+
+
+@pytest.mark.asyncio
+async def test_async_live_session_surfaces_server_errors(httpx_mock: HTTPXMock):
+    # Given a rejection
+    httpx_mock.add_response(
+        url=STREAM_URL,
+        method="POST",
+        status_code=httpx.codes.TOO_MANY_REQUESTS,
+        json={"status": 429, "title": "Rate Limited", "detail": "slow down"},
+        headers={"Retry-After": "3"},
+    )
+
+    async with aai.AsyncSyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        session.write(b"RIFF")
+
+        # When the result is collected, then it is the same error the pull path raises
+        with pytest.raises(aai.SyncTranscriptError) as exc:
+            await session.result()
+
+    assert exc.value.status_code == 429
+    assert exc.value.retry_after == 3
+
+
+def test_async_open_live_needs_a_running_loop():
+    # Given no event loop
+    transcriber = aai.AsyncSyncTranscriber()
+
+    # When a session is opened, then the mistake is named rather than deferred
+    with pytest.raises(RuntimeError, match="no running event loop"):
+        transcriber.open_live()

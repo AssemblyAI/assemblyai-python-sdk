@@ -2,14 +2,167 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-from typing import Any, Optional
+import queue
+from typing import Any, Callable, Iterator, Optional
 
 import httpx
 
 from ... import client as _client
 from ... import types
 from . import api
-from ._base import AudioChunks, AudioInput, _SyncTranscriberImpl, check_config
+from ._base import (
+    AudioChunks,
+    AudioInput,
+    _Aborted,
+    _SyncTranscriberImpl,
+    check_config,
+)
+from ._multipart import _as_bytes
+
+
+class LiveSession:
+    """
+    A live upload that audio is pushed into.
+
+    Returned by `SyncTranscriber.open_live()`. The request starts on one of
+    the transcriber's worker threads the moment the session opens; `write()`
+    hands it audio, `close()` ends the audio, and `result()` waits for the
+    transcript. Built for callback-driven sources — a microphone library, a
+    WebRTC track, a telephony media stream — where the audio arrives in a
+    callback rather than from an iterator you can hand to `transcribe_live()`.
+
+    Everything `transcribe_live()` says about when it pays off, the 120 s
+    audio cap, the server-side silence abort and errors surfacing mid-upload
+    applies here unchanged.
+
+    Example:
+        ```python
+        import sounddevice as sd
+
+        config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+
+        with aai.SyncTranscriber() as transcriber:
+            with transcriber.open_live(config) as session:
+                stream = sd.RawInputStream(
+                    samplerate=16000, channels=1, dtype="int16",
+                    callback=lambda data, *_: session.write(bytes(data)),
+                )
+                with stream:
+                    input("Recording, press Enter to stop... ")
+            print(session.result().text)
+        ```
+    """
+
+    def __init__(
+        self,
+        start: Callable[
+            [Iterator[bytes]], concurrent.futures.Future[types.SyncTranscriptResponse]
+        ],
+    ) -> None:
+        """
+        Args:
+            start: begins the upload from the given producer and returns the
+                future that will hold its outcome. Supplied by the transcriber.
+        """
+        self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
+        self._closed = False
+        self._aborted = False
+        self._future = start(self._chunks())
+
+    def _chunks(self) -> Iterator[bytes]:
+        while True:
+            chunk = self._queue.get()
+            if chunk is None:
+                if self._aborted:
+                    raise _Aborted()
+                return
+            yield chunk
+
+    @property
+    def closed(self) -> bool:
+        """Whether the audio has ended, by `close()`, `result()` or `abort()`."""
+
+        return self._closed
+
+    def write(self, chunk: bytes) -> None:
+        """
+        Queues a piece of audio for upload.
+
+        Safe to call from any thread, including an audio library's capture
+        callback; it never blocks.
+
+        Args:
+            chunk: `bytes`, `bytearray` or `memoryview` of audio, in order.
+
+        Raises:
+            TypeError: if `chunk` is not bytes-like.
+            RuntimeError: if the session is closed.
+        """
+        if self._closed:
+            raise RuntimeError(
+                "the live session is closed; no more audio can be written"
+            )
+
+        self._queue.put(_as_bytes(chunk))
+
+    def close(self) -> None:
+        """
+        Ends the audio. The server transcribes what was sent; `result()`
+        returns it. Idempotent, and never blocks.
+        """
+        if not self._closed:
+            self._closed = True
+            self._queue.put(None)
+
+    def result(self) -> types.SyncTranscriptResponse:
+        """
+        Waits for the transcript, ending the audio first if it is still open.
+
+        Raises:
+            SyncTranscriptError: if the request failed, including a rejection
+                the server sent while the upload was still in flight.
+            RuntimeError: if the session was aborted.
+        """
+        if self._aborted:
+            raise RuntimeError("the live session was aborted; there is no result")
+
+        self.close()
+
+        return self._future.result()
+
+    def abort(self) -> None:
+        """
+        Drops the request without a transcript.
+
+        The connection is closed and nothing the server may still return is
+        kept; `result()` raises afterwards. Idempotent, and a no-op once the
+        request has completed. Blocks until the worker thread has let go of
+        the connection. After `close()` the upload is already complete, so
+        aborting then waits out the in-flight response instead.
+        """
+        if self._aborted or self._future.done():
+            return
+
+        self._aborted = True
+        if not self._closed:
+            self._closed = True
+            self._queue.put(None)
+
+        try:
+            self._future.result()
+        except Exception:
+            pass
+
+    def __enter__(self) -> "LiveSession":
+        return self
+
+    def __exit__(self, exc_type: Any, *_exc: Any) -> None:
+        """Ends the audio on a clean exit; aborts if the block raised."""
+
+        if exc_type is not None:
+            self.abort()
+        else:
+            self.close()
 
 
 class SyncTranscriber:
@@ -186,6 +339,43 @@ class SyncTranscriber:
         check_config(type(self).__name__, config)
 
         return self._impl.transcribe_live(data=data, config=config)
+
+    def open_live(
+        self,
+        config: Optional[types.SyncTranscriptionConfig] = None,
+    ) -> LiveSession:
+        """
+        Opens a live upload that audio is pushed into.
+
+        The push-style counterpart of `transcribe_live()`, for sources that
+        deliver audio through a callback rather than an iterator. The request
+        starts on a worker thread immediately; call `session.write(chunk)` from
+        the callback, then `session.result()` for the transcript once the
+        speaker stops. See `LiveSession`.
+
+        Args:
+            config: Options for this call. If `None`, the transcriber's default
+                configuration is used. Raw PCM requires `sample_rate` and
+                `channels`.
+
+        Raises:
+            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+
+        Example:
+            ```python
+            with transcriber.open_live(config) as session:
+                start_capture(on_audio=session.write)
+                wait_until_done()
+            result = session.result()
+            ```
+        """
+        check_config(type(self).__name__, config)
+
+        return LiveSession(
+            lambda chunks: self._executor.submit(
+                self._impl.transcribe_live, data=chunks, config=config
+            )
+        )
 
     def warm(self) -> bool:
         """
