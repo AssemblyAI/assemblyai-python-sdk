@@ -16,7 +16,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
-from assemblyai._multipart import _STREAM_READ_SIZE
+from assemblyai._multipart import _STREAM_READ_SIZE, aiter_chunks
 from assemblyai.dictation.v1 import async_api
 
 pytestmark = pytest.mark.asyncio
@@ -93,6 +93,25 @@ async def _asend(chunks, config: Optional[dict] = None) -> List[httpx.Request]:
             timeout=30.0,
         )
 
+    return seen
+
+
+def _capture(monkeypatch) -> dict:
+    """
+    Replaces the async transport with a fake that records what the client
+    handed it, draining the chunks. Body-shape assertions on a recorded
+    request are not possible on the httpx floors — `pytest_httpx` there does
+    not read an async request's stream — so the client-level tests inspect
+    the transport call instead; the framing itself is covered by `_asend`.
+    """
+    seen: dict = {"calls": []}
+
+    async def fake(client, **kwargs):
+        kwargs["chunks"] = [chunk async for chunk in aiter_chunks(kwargs["chunks"])]
+        seen["calls"].append(kwargs)
+        return aai.DictationResponse.parse_obj(_OK_RESPONSE)
+
+    monkeypatch.setattr(async_api, "transcribe_live", fake)
     return seen
 
 
@@ -203,20 +222,32 @@ async def test_complete_audio_goes_over_the_live_connection(httpx_mock: HTTPXMoc
     async with aai.AsyncDictationTranscriber() as transcriber:
         await transcriber.transcribe_live(b"RIFFfake-wav-bytes")
 
-    # Then it takes the live route as a single chunk, config first
+    # Then it takes the live route, framed without a length
     request = httpx_mock.get_requests()[0]
     assert str(request.url) == LIVE_URL
     assert "content-length" not in request.headers
-    body = request.read()
-    assert body.index(b'name="config"') < body.index(b'name="audio"')
-    assert b"RIFFfake-wav-bytes" in body
+    assert request.headers["content-type"].startswith("multipart/form-data")
 
 
-async def test_transcribe_live_reads_a_path_off_the_loop(
-    httpx_mock: HTTPXMock, tmp_path
-):
+async def test_complete_audio_is_one_chunk(monkeypatch):
+    # Given audio the caller already holds whole
+    seen = _capture(monkeypatch)
+
+    # When streaming it
+    async with aai.AsyncDictationTranscriber() as transcriber:
+        await transcriber.transcribe_live(b"RIFFfake-wav-bytes")
+
+    # Then the transport receives it as a single chunk, typed as WAV
+    (call,) = seen["calls"]
+    assert call["chunks"] == [b"RIFFfake-wav-bytes"]
+    assert call["filename"] == "audio.wav"
+    assert call["audio_content_type"] == "audio/wav"
+    assert call["config"] is None
+
+
+async def test_transcribe_live_reads_a_path_off_the_loop(monkeypatch, tmp_path):
     # Given a local MP3 file
-    _mock_ok(httpx_mock)
+    seen = _capture(monkeypatch)
     audio_file = tmp_path / "note.mp3"
     audio_file.write_bytes(b"ID3fake-mp3-bytes")
 
@@ -225,18 +256,15 @@ async def test_transcribe_live_reads_a_path_off_the_loop(
         await transcriber.transcribe_live(str(audio_file))
 
     # Then the file is sent whole with its true Content-Type and name
-    body = httpx_mock.get_requests()[0].read()
-    assert b"ID3fake-mp3-bytes" in body
-    assert b"Content-Type: audio/mpeg" in body
-    assert b'filename="note.mp3"' in body
+    (call,) = seen["calls"]
+    assert call["chunks"] == [b"ID3fake-mp3-bytes"]
+    assert call["audio_content_type"] == "audio/mpeg"
+    assert call["filename"] == "note.mp3"
 
 
-async def test_transcribe_live_uses_default_config_and_per_call_override(
-    httpx_mock: HTTPXMock,
-):
+async def test_transcribe_live_uses_default_config_and_per_call_override(monkeypatch):
     # Given a transcriber with a default config
-    _mock_ok(httpx_mock)
-    _mock_ok(httpx_mock)
+    seen = _capture(monkeypatch)
     default = aai.DictationConfig(llm_instruction="default instruction")
 
     async with aai.AsyncDictationTranscriber(config=default) as transcriber:
@@ -246,14 +274,14 @@ async def test_transcribe_live_uses_default_config_and_per_call_override(
         await transcriber.transcribe_live(_achunks(b"RIFF"), config=override)
 
     # Then the default applies to the first call and the override to the second
-    first, second = (request.read() for request in httpx_mock.get_requests())
-    assert b"default instruction" in first
-    assert b"override instruction" in second
+    first, second = seen["calls"]
+    assert first["config"] == {"llm_instruction": "default instruction"}
+    assert second["config"] == {"llm_instruction": "override instruction"}
 
 
-async def test_transcribe_live_marks_pcm_from_config(httpx_mock: HTTPXMock):
+async def test_transcribe_live_marks_pcm_from_config(monkeypatch):
     # Given a config carrying the fields only raw PCM needs
-    _mock_ok(httpx_mock)
+    seen = _capture(monkeypatch)
     config = aai.DictationConfig(sample_rate=16000, channels=1)
 
     # When streaming
@@ -261,10 +289,10 @@ async def test_transcribe_live_marks_pcm_from_config(httpx_mock: HTTPXMock):
         await transcriber.transcribe_live(_achunks(b"\x00\x01"), config=config)
 
     # Then the audio part selects the PCM decoder and the config carries both
-    body = httpx_mock.get_requests()[0].read()
-    assert b"Content-Type: audio/pcm" in body
-    assert b'"sample_rate"' in body
-    assert b'"channels"' in body
+    (call,) = seen["calls"]
+    assert call["audio_content_type"] == "audio/pcm"
+    assert call["filename"] == "audio.pcm"
+    assert call["config"] == {"sample_rate": 16000, "channels": 1}
 
 
 async def test_transcribe_live_requires_both_pcm_fields():
@@ -635,10 +663,10 @@ async def test_live_session_surfaces_server_errors(httpx_mock: HTTPXMock):
     assert exc.value.retry_after == 3
 
 
-@pytest.mark.asyncio(loop_scope="function")
 async def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
     """No entry point on the asyncio client posts to `/v1/transcribe`."""
-    httpx_mock.add_response(url=LIVE_URL, json=_OK_RESPONSE, is_reusable=True)
+    for _ in range(4):  # one per request; older pytest-httpx has no is_reusable
+        _mock_ok(httpx_mock)
 
     async with aai.AsyncDictationTranscriber() as transcriber:
         await transcriber.transcribe_live(b"RIFFfake-wav-bytes")

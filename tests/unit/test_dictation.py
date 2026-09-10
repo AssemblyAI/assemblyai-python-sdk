@@ -744,7 +744,8 @@ def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
     The service still serves the buffered route, but the live route is the
     only one this client opens, whichever way audio is submitted.
     """
-    httpx_mock.add_response(url=LIVE_URL, json=_OK_RESPONSE, is_reusable=True)
+    for _ in range(4):  # one per request; older pytest-httpx has no is_reusable
+        _mock_ok(httpx_mock)
 
     with aai.DictationTranscriber() as transcriber:
         transcriber.transcribe_live(b"RIFFfake-wav-bytes")
