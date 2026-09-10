@@ -96,6 +96,47 @@ def _resolve_audio(
     else:
         raise TypeError(f"unsupported audio input type: {type(data).__name__}")
 
+    resolved_filename, content_type = resolve_format(
+        suffix=suffix,
+        filename=filename,
+        sample_rate=sample_rate,
+        channels=channels,
+        config_name=config_name,
+        content_types=content_types,
+    )
+
+    return audio, resolved_filename, content_type
+
+
+def resolve_format(
+    *,
+    suffix: str,
+    filename: Optional[str],
+    sample_rate: Optional[int],
+    channels: Optional[int],
+    config_name: str,
+    content_types: Mapping[str, str],
+) -> Tuple[str, str]:
+    """
+    Decides the multipart filename and Content-Type for the audio part.
+
+    PCM is selected when `suffix` is a PCM extension or when `sample_rate` /
+    `channels` are set — the fields these APIs require only for raw PCM — and
+    both must then be present. Any other suffix takes the Content-Type
+    `content_types` maps it to, and `audio/wav` when it is unknown or absent.
+    Needs no audio bytes, so it serves a streamed upload as well as a buffered
+    one.
+
+    Args:
+        suffix: the source's lowercased file extension (with the dot), or "".
+        filename: the name for the multipart part; defaulted when absent.
+        sample_rate: the config's `sample_rate`, or `None`.
+        channels: the config's `channels`, or `None`.
+        config_name: the config class to name in error messages.
+        content_types: extension (lowercased, with the dot) → Content-Type.
+
+    Returns: `(filename, content_type)`.
+    """
     wants_pcm = sample_rate is not None or channels is not None
     is_pcm = suffix in _PCM_SUFFIXES or wants_pcm
     if is_pcm and (sample_rate is None or channels is None):
@@ -110,7 +151,7 @@ def _resolve_audio(
     if not filename:
         filename = "audio.pcm" if is_pcm else "audio.wav"
 
-    return audio, filename, content_type
+    return filename, content_type
 
 
 def _config_to_json(config: Any, *, exclude: Tuple[str, ...] = ()) -> Optional[dict]:

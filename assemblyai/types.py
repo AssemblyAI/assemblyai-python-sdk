@@ -123,7 +123,11 @@ class Settings(BaseSettings):
     "The base URL for the Dictation API (used by `DictationTranscriber`)"
 
     dictation_http_timeout: float = 300.0
-    "The HTTP timeout for Dictation API requests. The documented client timeout for dictation, which may run an LLM pass over the transcript."
+    """The HTTP timeout for Dictation API requests. Like every httpx timeout it
+    bounds each socket operation — connecting, each write, each read while
+    waiting for the response — not the request end to end, so time spent
+    producing audio is not counted. Sized to outlast the final segment's
+    inference plus the LLM pass over the transcript."""
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"

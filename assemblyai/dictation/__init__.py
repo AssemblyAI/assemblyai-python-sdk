@@ -1,4 +1,5 @@
-"""The Dictation API: audio in, transcript (and optional LLM rewrite) out.
+"""The Dictation API: audio in as it is spoken, transcript (and optional LLM
+rewrite) out.
 
 The implementation lives in ``dictation/v1/``, mirroring the ``sync/v1/`` and
 ``streaming/v3/`` layout. This ``__init__`` re-exports the public surface so
@@ -7,20 +8,26 @@ versioned path.
 """
 
 from .v1 import (
+    AsyncAudioSource,
+    AsyncDictationLiveSession,
     AsyncDictationTranscriber,
-    AudioInput,
+    AudioSource,
     DictationConfig,
     DictationError,
+    DictationLiveSession,
     DictationResponse,
     DictationTranscriber,
     DictationWord,
 )
 
 __all__ = [
+    "AsyncAudioSource",
+    "AsyncDictationLiveSession",
     "AsyncDictationTranscriber",
-    "AudioInput",
+    "AudioSource",
     "DictationConfig",
     "DictationError",
+    "DictationLiveSession",
     "DictationResponse",
     "DictationTranscriber",
     "DictationWord",

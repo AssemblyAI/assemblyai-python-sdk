@@ -1,6 +1,6 @@
-from ._base import AudioInput
-from .async_client import AsyncDictationTranscriber
-from .client import DictationTranscriber
+from ._base import AsyncAudioSource, AudioSource
+from .async_client import AsyncDictationLiveSession, AsyncDictationTranscriber
+from .client import DictationLiveSession, DictationTranscriber
 from .models import (
     DictationConfig,
     DictationError,
@@ -9,10 +9,13 @@ from .models import (
 )
 
 __all__ = [
+    "AsyncAudioSource",
+    "AsyncDictationLiveSession",
     "AsyncDictationTranscriber",
-    "AudioInput",
+    "AudioSource",
     "DictationConfig",
     "DictationError",
+    "DictationLiveSession",
     "DictationResponse",
     "DictationTranscriber",
     "DictationWord",

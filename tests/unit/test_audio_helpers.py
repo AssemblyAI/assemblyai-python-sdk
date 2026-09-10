@@ -28,7 +28,6 @@ def test_sync_base_still_exposes_the_helper_names():
 def test_sync_audio_input_is_the_shared_alias():
     # Given the shared alias, Then sync re-exports the same object
     assert sync_base.AudioInput is _audio.AudioInput
-    assert dictation_base.AudioInput is _audio.AudioInput
 
 
 def test_sync_resolve_audio_defaults_unknown_extensions_to_wav(tmp_path):
@@ -47,17 +46,19 @@ def test_sync_resolve_audio_defaults_unknown_extensions_to_wav(tmp_path):
     assert content_type == "audio/wav"
 
 
-def test_dictation_resolve_audio_maps_the_extension(tmp_path):
+def test_dictation_resolve_source_maps_the_extension(tmp_path):
     # Given the same MP3 file and a default dictation config
     audio_file = tmp_path / "call.mp3"
     audio_file.write_bytes(b"ID3fake-mp3-bytes")
 
     # When resolving it for the Dictation API
-    _, filename, content_type = dictation_base._resolve_audio(
+    chunks, filename, content_type = dictation_base.resolve_source(
         str(audio_file), aai.DictationConfig(), "DictationTranscriber"
     )
 
-    # Then the extension picks the container Content-Type
+    # Then the file is read whole as one chunk and the extension picks the
+    # container Content-Type
+    assert list(chunks) == [b"ID3fake-mp3-bytes"]
     assert filename == "call.mp3"
     assert content_type == "audio/mpeg"
 
@@ -69,7 +70,7 @@ def test_resolve_audio_selects_pcm_for_both_products():
 
     # When resolving for either product
     _, sync_name, sync_type = sync_base._resolve_audio(b"\x00\x01", sync_config)
-    _, dictation_name, dictation_type = dictation_base._resolve_audio(
+    _, dictation_name, dictation_type = dictation_base.resolve_source(
         b"\x00\x01", dictation_config, "DictationTranscriber"
     )
 
@@ -134,15 +135,40 @@ def test_check_config_accepts_none():
     assert dictation_base.check_config("DictationTranscriber", None) is None
 
 
-def test_resolve_audio_names_the_calling_client_in_url_errors():
+def test_resolve_source_names_the_calling_client_in_url_errors():
     # Given each dictation client's own class name
     for owner in ("DictationTranscriber", "AsyncDictationTranscriber"):
         # When a URL is passed, Then the error names that client, not a fixed one
         try:
-            dictation_base._resolve_audio(
+            dictation_base.resolve_source(
                 "https://example.com/audio.wav", aai.DictationConfig(), owner
             )
         except ValueError as error:
             assert str(error).startswith(f"{owner} does not accept URLs.")
         else:
-            raise AssertionError("_resolve_audio accepted a URL")
+            raise AssertionError("resolve_source accepted a URL")
+
+
+def test_resolve_format_serves_the_streamed_path_without_audio_bytes():
+    # Given only a suffix and the PCM fields, no audio
+    filename, content_type = _audio.resolve_format(
+        suffix="",
+        filename=None,
+        sample_rate=16000,
+        channels=1,
+        config_name="DictationConfig",
+        content_types={},
+    )
+
+    # Then the part is named and typed as PCM without reading anything
+    assert (filename, content_type) == ("audio.pcm", "audio/pcm")
+
+    # And an unknown suffix falls back to WAV under the given name
+    assert _audio.resolve_format(
+        suffix=".xyz",
+        filename="clip.xyz",
+        sample_rate=None,
+        channels=None,
+        config_name="DictationConfig",
+        content_types={},
+    ) == ("clip.xyz", "audio/wav")
