@@ -1,7 +1,15 @@
-"""Multipart encoding for streamed uploads.
+"""Multipart encoding for streamed uploads, shared by the single-request products.
 
-Kept apart from `_base.py` so the transport modules can use it: `_base.py`
-imports `api.py`, so anything `api.py` needs must not live there.
+The buffered upload hands httpx a ``files=`` mapping and lets it encode the
+whole body up front. A streamed upload cannot: the audio does not exist yet
+when the request starts. This module emits the ``multipart/form-data`` framing
+itself so the ``config`` part can go out immediately and audio can follow as
+it arrives, and it turns whatever the caller produces — a file object, an
+iterable, an async iterable — into the byte chunks that framing carries.
+
+Product-neutral by design: the sync API and the Dictation API stream the same
+body shape to their live endpoints, so each product package wraps this with
+its own endpoint, config type and error class.
 """
 
 from __future__ import annotations
@@ -21,8 +29,7 @@ from typing import (
 )
 
 # Audio for a streamed upload, delivered in whatever pieces the producer has
-# ready. A file object is read lazily. Audio the caller already holds whole
-# belongs in `transcribe()`, which is faster for it.
+# ready. A file object is read lazily, in bounded pieces.
 AudioChunks = Union[Iterable[bytes], BinaryIO]
 AsyncAudioChunks = Union[AsyncIterable[bytes], Iterable[bytes], BinaryIO]
 
@@ -46,20 +53,24 @@ def _escape_form_param(value: str) -> str:
     return _FORM_PARAM_RE.sub(lambda m: _FORM_PARAM_REPLACEMENTS[m.group(0)], value)
 
 
+class _Aborted(Exception):
+    """
+    Raised inside a live session's producer when the session is aborted.
+
+    Propagates out of the transport, which drops the connection, and is
+    swallowed by the session's `abort()`; it never reaches the caller.
+    """
+
+
 class StreamingMultipartEncoder:
     """
     Builds a `multipart/form-data` body one part at a time.
-
-    The buffered path hands httpx a `files=` mapping and lets it encode the
-    whole body up front. A streamed upload cannot: the audio does not exist yet
-    when the request starts. This emits the framing itself so the `config` part
-    can go out immediately and audio can follow as it arrives.
 
     **Part order is significant and is enforced here by construction.** The
     server decodes audio as it lands, so it needs `sample_rate` and `channels`
     before the first audio byte; `config` therefore precedes `audio`. Audio
     first is rejected by the server rather than buffered, which is the whole
-    point of the endpoint.
+    point of a live endpoint.
     """
 
     def __init__(self, boundary: Optional[str] = None) -> None:
@@ -80,9 +91,9 @@ class StreamingMultipartEncoder:
         """
         Encodes the JSON `config` part.
 
-        Always emitted: the streaming endpoint rejects a body whose audio is
-        not preceded by a `config` part, so when the caller set no options an
-        empty object is sent. The buffered route omits the part instead.
+        Always emitted: a live endpoint rejects a body whose audio is not
+        preceded by a `config` part, so when the caller set no options an
+        empty object is sent.
         """
 
         return (
@@ -148,7 +159,7 @@ def iter_chunks(data: AudioChunks) -> Iterator[bytes]:
 
     if hasattr(data, "read"):
         while True:
-            chunk = data.read(_STREAM_READ_SIZE)
+            chunk = data.read(_STREAM_READ_SIZE)  # type: ignore[union-attr]
             if not chunk:
                 return
             yield _as_bytes(chunk)

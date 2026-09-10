@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 from types import TracebackType
 from typing import Any, AsyncIterator, Callable, Optional, Type, TypeVar
 
@@ -10,18 +11,10 @@ import httpx
 from typing_extensions import Self
 
 from ... import async_client as _async_client
-from ... import types
-from ..._multipart import AsyncAudioChunks, _as_bytes
+from ..._multipart import _Aborted, _as_bytes
 from . import api, async_api
-from ._base import (
-    AudioInput,
-    _Aborted,
-    _config_to_json,
-    _resolve_audio,
-    check_chunks,
-    check_config,
-    stream_filename,
-)
+from ._base import AsyncAudioSource, _config_to_json, check_config, resolve_source
+from .models import DictationConfig, DictationResponse
 
 _T = TypeVar("_T")
 
@@ -34,42 +27,40 @@ async def _run_in_thread(func: Callable[..., _T], *args: Any) -> _T:
     return await loop.run_in_executor(None, func, *args)
 
 
-class AsyncLiveSession:
+class AsyncDictationLiveSession:
     """
-    A live upload that audio is pushed into, for asyncio code.
+    A live dictation that audio is pushed into, for asyncio code.
 
-    Returned by `AsyncSyncTranscriber.open_live()`. The request runs as a task
-    on the current event loop from the moment the session opens; `write()`
-    hands it audio, `close()` ends the audio, and `await result()` waits for
-    the transcript. Built for callback-driven sources — a WebRTC track, a
-    websocket handler receiving frames, a telephony media stream — where the
-    audio arrives in a callback rather than from an async iterator you can
-    hand to `transcribe_live()`.
+    Returned by `AsyncDictationTranscriber.open_live()`. The request runs as a
+    task on the current event loop from the moment the session opens;
+    `write()` hands it audio, `close()` ends the audio, and `await result()`
+    waits for the transcript. Built for callback-driven sources — a WebRTC
+    track, a websocket handler receiving frames, a telephony media stream —
+    where the audio arrives in a callback rather than from an async iterator
+    you can hand to `transcribe_live()`.
 
     `write()` and `close()` are plain functions so a callback can call them,
     and must run on the event loop's thread. From another thread — an audio
     library's capture thread, say — schedule them with
     `loop.call_soon_threadsafe(session.write, chunk)`.
 
-    Everything `transcribe_live()` says about when it pays off, the 120 s
-    audio cap, the server-side silence abort and errors surfacing mid-upload
-    applies here unchanged.
+    Everything `transcribe_live()` says about the 120 s audio cap, the
+    server-side silence abort and errors surfacing mid-upload applies here
+    unchanged.
 
     Example:
         ```python
-        async with aai.AsyncSyncTranscriber() as transcriber:
+        async with aai.AsyncDictationTranscriber() as transcriber:
             async with transcriber.open_live(config) as session:
                 async for frame in websocket:      # audio frames from a browser
                     session.write(frame)
-            print((await session.result()).text)
+            print((await session.result()).final_text)
         ```
     """
 
     def __init__(
         self,
-        start: Callable[
-            [AsyncIterator[bytes]], asyncio.Task[types.SyncTranscriptResponse]
-        ],
+        start: Callable[[AsyncIterator[bytes]], asyncio.Task[DictationResponse]],
     ) -> None:
         """
         Args:
@@ -126,13 +117,13 @@ class AsyncLiveSession:
             self._closed = True
             self._queue.put_nowait(None)
 
-    async def result(self) -> types.SyncTranscriptResponse:
+    async def result(self) -> DictationResponse:
         """
         Waits for the transcript, ending the audio first if it is still open.
 
         Raises:
-            SyncTranscriptError: if the request failed, including a rejection
-                the server sent while the upload was still in flight.
+            DictationError: if the request failed, including a rejection the
+                server sent while the upload was still in flight.
             RuntimeError: if the session was aborted.
         """
         if self._aborted:
@@ -165,7 +156,7 @@ class AsyncLiveSession:
         except Exception:
             pass
 
-    async def __aenter__(self) -> "AsyncLiveSession":
+    async def __aenter__(self) -> "AsyncDictationLiveSession":
         return self
 
     async def __aexit__(
@@ -182,17 +173,18 @@ class AsyncLiveSession:
             self.close()
 
 
-class AsyncSyncTranscriber:
+class AsyncDictationTranscriber:
     """
-    The asyncio counterpart of `SyncTranscriber`: audio in, transcript out,
-    one request — without blocking the event loop.
+    The asyncio counterpart of `DictationTranscriber`: audio in, transcript
+    out, one request — without blocking the event loop.
 
-    Like `SyncTranscriber`, it posts the audio to the sync API and returns
-    the finished `SyncTranscriptResponse` directly; there is no job id or
-    status to poll. Accepts a local file path, raw bytes, or a binary file
-    object — but not a URL. Use it in asyncio code (FastAPI, aiohttp, voice
-    agents), where `SyncTranscriber.transcribe()` would block the loop and
-    `transcribe_async()`'s `concurrent.futures.Future` is not awaitable.
+    Same audio sources (an async or plain iterable of chunks, a file object,
+    bytes or a local path — no URLs), same `DictationConfig`, same
+    `DictationResponse` and `DictationError`, with `transcribe_live()` and
+    `warm()` as coroutines and `open_live()` returning an
+    `AsyncDictationLiveSession`. Use it in asyncio code (FastAPI, aiohttp,
+    voice agents), where the threaded `DictationTranscriber` would block the
+    loop.
 
     The transcriber owns an HTTP connection pool. Close it with `aclose()`,
     or use the transcriber as an async context manager.
@@ -205,20 +197,13 @@ class AsyncSyncTranscriber:
         aai.settings.api_key = "your-key"
 
         async def main():
-            async with aai.AsyncSyncTranscriber() as transcriber:
-                result = await transcriber.transcribe("./call.wav")
-                print(result.text)
+            async with aai.AsyncDictationTranscriber() as transcriber:
+                async with transcriber.open_live() as session:
+                    async for frame in websocket:
+                        session.write(frame)
+                print((await session.result()).final_text)
 
         asyncio.run(main())
-        ```
-
-        Transcribing several clips concurrently is plain asyncio:
-        ```python
-        async with aai.AsyncSyncTranscriber() as transcriber:
-            results = await asyncio.gather(
-                transcriber.transcribe("./one.wav"),
-                transcriber.transcribe("./two.wav"),
-            )
         ```
     """
 
@@ -226,19 +211,18 @@ class AsyncSyncTranscriber:
         self,
         *,
         client: Optional[_async_client.AsyncClient] = None,
-        config: Optional[types.SyncTranscriptionConfig] = None,
+        config: Optional[DictationConfig] = None,
         api_key: Optional[str] = None,
     ) -> None:
         """
-        Creates an `AsyncSyncTranscriber`.
+        Creates an `AsyncDictationTranscriber`.
 
         Args:
             client: The `AsyncClient` to use. If `None`, the transcriber
                 creates one from the global `settings` and closes it on
                 `aclose()`. Pass a client to share one pool between
                 transcribers.
-            config: Default transcription options. Per-call `config`
-                overrides it.
+            config: Default dictation options. Per-call `config` overrides it.
             api_key: The API key to authenticate with. The transcriber builds
                 its own `AsyncClient` from it and closes that client on
                 `aclose()`. Given alongside `client`, it takes precedence: the
@@ -247,13 +231,13 @@ class AsyncSyncTranscriber:
                 left untouched and stays the caller's to close.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            TypeError: if `config` is not a `DictationConfig`.
         """
         check_config(type(self).__name__, config)
 
         self._owns_client = client is None or api_key is not None
         self._client = _async_client._resolve_client(client, api_key)
-        self.config = config or types.SyncTranscriptionConfig()
+        self.config = config or DictationConfig()
 
     @property
     def client(self) -> _async_client.AsyncClient:
@@ -261,83 +245,42 @@ class AsyncSyncTranscriber:
 
         return self._client
 
-    async def transcribe(
-        self,
-        data: AudioInput,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> types.SyncTranscriptResponse:
-        """
-        Transcribes audio and returns the finished transcript.
-
-        Reads path and file-object input off the event loop.
-
-        Args:
-            data: A local file path, raw audio bytes, or a binary file object.
-                Raw PCM also requires `sample_rate` and `channels` on the config.
-            config: Options for this call. If `None`, the transcriber's default
-                configuration is used.
-
-        Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
-            SyncTranscriptError: if the request fails.
-        """
-        check_config(type(self).__name__, config)
-
-        config = config or self.config
-        audio, filename, content_type = await _run_in_thread(
-            _resolve_audio, data, config
-        )
-
-        return await async_api.transcribe(
-            self._client.http_client,
-            base_url=self._client.settings.sync_base_url,
-            audio=audio,
-            filename=filename,
-            audio_content_type=content_type,
-            model=config.model,
-            config=_config_to_json(config),
-            # The live timeout: this rides the same streamed connection.
-            timeout=self._client.settings.sync_live_http_timeout,
-        )
-
     async def transcribe_live(
         self,
-        data: AsyncAudioChunks,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> types.SyncTranscriptResponse:
+        data: AsyncAudioSource,
+        config: Optional[DictationConfig] = None,
+    ) -> DictationResponse:
         """
         Transcribes audio uploaded as it is produced.
 
-        The asyncio counterpart of `SyncTranscriber.transcribe_live`. Where
-        `transcribe()` needs the whole clip before it can send anything, this
-        starts the request immediately and uploads chunks as they arrive, so
-        authorization, the upload and every speech segment but the last resolve
-        while the caller is still recording.
-
-        That only pays off when the audio is genuinely still being produced —
-        a live microphone, an in-progress call. Streaming a file already on
-        disk is slower than `transcribe()`. The saving also needs enough audio
-        to have segments to release early: below roughly a minute, only the
-        elided upload counts.
+        The asyncio counterpart of `DictationTranscriber.transcribe_live`.
+        Starts the request immediately and uploads chunks as they arrive, so
+        authorization, the upload and every speech segment but the last
+        resolve while the caller is still recording. Audio that is already
+        complete — bytes, or a local path, which is read off the event loop —
+        is accepted as well and sent as a single chunk over the same
+        connection.
 
         The caller must keep producing: an upload that goes silent for long
         enough is aborted server-side. Stop by ending the iterator, not by
-        pausing it.
+        pausing it. The service caps a request at 120 s of audio.
 
         Args:
-            data: An async iterable of audio chunks, a file object, or a plain
-                iterable. A file object is read in a worker thread, so a
-                blocking `read()` is fine; a plain iterable is consumed inline
-                and so must not block. Raw PCM also requires `sample_rate` and
-                `channels` on the config.
+            data: An async iterable of audio chunks, a plain iterable, a file
+                object, raw audio bytes, or a local file path. A file object is
+                read in a worker thread, so a blocking `read()` is fine; a
+                plain iterable is consumed inline and so must not block. Raw
+                PCM also requires `sample_rate` and `channels` on the config.
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`; if
-                `data` is a path or a bytes buffer rather than a stream; or if
-                a chunk is not bytes (a file opened in text mode, say).
-            SyncTranscriptError: if the request fails. Auth, rate-limit and
+            TypeError: if `config` is not a `DictationConfig`; if `data` is of
+                an unsupported type; or if a chunk is not bytes (a file opened
+                in text mode, say).
+            ValueError: for a URL, or raw PCM without both `sample_rate` and
+                `channels`.
+            DictationError: if the request fails. Auth, rate-limit, size and
                 capacity failures can surface part-way through the upload.
             Exception: anything the producer raises mid-upload propagates
                 unchanged. The connection is dropped and no transcript is
@@ -349,39 +292,44 @@ class AsyncSyncTranscriber:
                 while recording:
                     yield await stream.read(4096)
 
-            async with aai.AsyncSyncTranscriber() as transcriber:
+            async with aai.AsyncDictationTranscriber() as transcriber:
                 result = await transcriber.transcribe_live(mic_chunks())
             ```
         """
         check_config(type(self).__name__, config)
 
         config = config or self.config
-        check_chunks(data, allow_async=True)
-        filename, content_type = stream_filename(data, config)
+        # Resolving may read a whole file for a path source; keep that off
+        # the loop.
+        chunks, filename, content_type = await _run_in_thread(
+            functools.partial(
+                resolve_source, data, config, type(self).__name__, allow_async=True
+            )
+        )
 
         return await async_api.transcribe_live(
             self._client.http_client,
-            base_url=self._client.settings.sync_base_url,
-            chunks=data,
+            base_url=self._client.settings.dictation_base_url,
+            chunks=chunks,
             filename=filename,
             audio_content_type=content_type,
-            model=config.model,
             config=_config_to_json(config),
-            timeout=self._client.settings.sync_live_http_timeout,
+            timeout=self._client.settings.dictation_http_timeout,
         )
 
     def open_live(
         self,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> AsyncLiveSession:
+        config: Optional[DictationConfig] = None,
+    ) -> AsyncDictationLiveSession:
         """
-        Opens a live upload that audio is pushed into.
+        Opens a live dictation that audio is pushed into.
 
         The push-style counterpart of `transcribe_live()`, for sources that
         deliver audio through a callback rather than an async iterator. The
         request starts as a task on the running event loop immediately; call
         `session.write(chunk)` as audio arrives, then `await session.result()`
-        for the transcript once the speaker stops. See `AsyncLiveSession`.
+        for the transcript once the speaker stops. See
+        `AsyncDictationLiveSession`.
 
         Not a coroutine, so it can be used directly as `async with
         transcriber.open_live(config) as session:`. Must be called while the
@@ -393,38 +341,34 @@ class AsyncSyncTranscriber:
                 `channels`.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            TypeError: if `config` is not a `DictationConfig`.
             RuntimeError: if no event loop is running.
         """
         check_config(type(self).__name__, config)
         loop = asyncio.get_running_loop()
 
-        return AsyncLiveSession(
+        return AsyncDictationLiveSession(
             lambda chunks: loop.create_task(self.transcribe_live(chunks, config=config))
         )
 
     async def warm(self) -> bool:
         """
-        Opens the connection to the sync API ahead of time.
+        Opens the connection to the Dictation API ahead of time.
 
-        The sync API is a single request/response, so a `transcribe()` that
-        opens its connection on demand pays the full DNS + TCP + TLS handshake
-        on the critical path — one network round trip that, for a distant
-        client, can rival the transcription itself. Awaiting `warm()` as soon
-        as you know audio is coming — typically while the clip is still being
-        recorded, e.g. via `asyncio.create_task(transcriber.warm())` — spends
-        that setup concurrently: the next `transcribe()` reuses the
-        already-open connection.
+        A request that opens its connection on demand pays the full DNS + TCP
+        + TLS handshake before the first audio byte can leave — one network
+        round trip that, for a distant client, is a noticeable share of a
+        short dictation. Awaiting `warm()` as soon as you know audio is coming
+        — e.g. via `asyncio.create_task(transcriber.warm())` when the user
+        reaches for the record button — spends that setup early: the next
+        request reuses the already-open connection.
 
         The warmed connection is reused while it stays in the HTTP pool —
-        `settings.keepalive_expiry` seconds (httpx's 5s default unless raised).
-        Call `warm()` shortly before `transcribe()`, or raise
-        `keepalive_expiry` (e.g. to 120, the sync audio cap) so a single call
-        covers a whole in-progress recording. `warm()` is idempotent and cheap,
-        so calling it again to refresh the connection is fine.
-
-        Routing the same `config.model` as the eventual transcription ensures
-        the warmed connection lands on the right backend.
+        `settings.keepalive_expiry` seconds (httpx's 5s default unless
+        raised). Call `warm()` shortly before the request, or raise
+        `keepalive_expiry` so a single call covers a longer pause. `warm()` is
+        idempotent and cheap, so calling it again to refresh the connection is
+        fine.
 
         Returns:
             True once the connection is open (any HTTP response — even a
@@ -432,12 +376,11 @@ class AsyncSyncTranscriber:
             connection could not be opened (transport error).
         """
         settings = self._client.settings
-        url = settings.sync_base_url.rstrip("/") + api.ENDPOINT_WARM
+        url = settings.dictation_base_url.rstrip("/") + api.ENDPOINT_WARM
         try:
             await self._client.http_client.get(
                 url,
-                headers={api.MODEL_HEADER: self.config.model},
-                timeout=min(settings.sync_http_timeout, 10.0),
+                timeout=min(settings.dictation_http_timeout, 10.0),
             )
         except httpx.HTTPError:
             return False

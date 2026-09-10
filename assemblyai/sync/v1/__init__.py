@@ -1,3 +1,4 @@
+from ..._multipart import AsyncAudioChunks, AudioChunks
 from ...types import (
     SyncSpeechModel,
     SyncTranscriptError,
@@ -6,7 +7,6 @@ from ...types import (
     SyncWord,
 )
 from ._base import AudioInput
-from ._multipart import AsyncAudioChunks, AudioChunks
 from .async_client import AsyncLiveSession, AsyncSyncTranscriber
 from .client import LiveSession, SyncTranscriber
 
