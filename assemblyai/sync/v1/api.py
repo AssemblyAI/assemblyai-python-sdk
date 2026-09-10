@@ -1,13 +1,15 @@
 import json
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import httpx
 
 from ... import types
+from ._multipart import AudioChunks, StreamingMultipartEncoder, iter_chunks
 
 # Canonical paths since the sync API gained a /v1 prefix (#18103); the
 # unprefixed routes remain served for SDK versions that predate it.
 ENDPOINT_TRANSCRIBE = "/v1/transcribe"
+ENDPOINT_TRANSCRIBE_STREAM = "/v1/transcribe/stream"
 ENDPOINT_WARM = "/v1/warm"
 MODEL_HEADER = "X-AAI-Model"
 
@@ -102,6 +104,78 @@ def transcribe(
         base_url.rstrip("/") + ENDPOINT_TRANSCRIBE,
         files=files,
         headers={MODEL_HEADER: model},
+        timeout=timeout,
+    )
+
+    if response.status_code != httpx.codes.OK:
+        raise _error_from_response(response)
+
+    return types.SyncTranscriptResponse.parse_obj(response.json())
+
+
+def transcribe_live(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    chunks: AudioChunks,
+    filename: str,
+    audio_content_type: str,
+    model: str,
+    config: Optional[dict],
+    timeout: float,
+) -> types.SyncTranscriptResponse:
+    """
+    Posts a transcription request whose audio is uploaded as it arrives.
+
+    Sends the body with chunked transfer encoding — httpx frames an unsized
+    iterator that way — so the request can start before the audio exists. The
+    server transcribes each speech segment as it lands, leaving only the final
+    segment's inference to wait on once the caller stops speaking.
+
+    Args:
+        client: the HTTP client (carries the `Authorization` header).
+        base_url: the sync API base URL, e.g. `https://sync.assemblyai.com`.
+        chunks: audio pieces (WAV container or S16LE PCM), in order.
+        filename: name for the audio multipart part.
+        audio_content_type: `audio/wav` or `audio/pcm`; selects the decoder.
+        model: sent as the `X-AAI-Model` routing header.
+        config: the JSON `config` part. None sends an empty object: the
+            streaming endpoint requires the part ahead of the audio.
+        timeout: per-operation timeout in seconds, as for every httpx request:
+            it bounds connecting, each socket write and each read while waiting
+            for the response, not the request end to end. Time blocked in the
+            caller's producer is not counted, so it need not cover the
+            recording.
+
+    Returns: the parsed transcript response.
+
+    Raises: `SyncTranscriptError` on any non-200 response — including one the
+        server sends while the upload is still in flight, which it may do for
+        auth, rate-limit and capacity failures. `TypeError` if the producer
+        yields something other than bytes. Any other exception the producer
+        raises propagates unchanged; the connection is dropped and no
+        transcript is returned.
+    """
+    encoder = StreamingMultipartEncoder()
+
+    def body() -> Iterator[bytes]:
+        # config first: the server needs sample_rate and channels before it can
+        # decode a single audio byte, and rejects audio that arrives first.
+        head = encoder.config_part(config) + encoder.audio_header(
+            filename, audio_content_type
+        )
+        yield head
+
+        for chunk in iter_chunks(chunks):
+            if chunk:
+                yield chunk
+
+        yield encoder.closing()
+
+    response = client.post(
+        base_url.rstrip("/") + ENDPOINT_TRANSCRIBE_STREAM,
+        content=body(),
+        headers={MODEL_HEADER: model, "Content-Type": encoder.content_type},
         timeout=timeout,
     )
 
