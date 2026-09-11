@@ -2690,10 +2690,11 @@ class ListTranscriptResponse(BaseModel):
 # Caps mirror the sync service's `config` part. `prompt` and `keyterms_prompt`
 # over their caps are rejected; `conversation_context` over its caps is
 # trimmed (oldest turns first), matching the server.
-_SYNC_MAX_PROMPT_LEN = 4096
-_SYNC_MAX_KEYTERMS_PROMPT_LEN = 2048
-_SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
-_SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
+_SYNC_MAX_PROMPT_LEN = 6000
+_SYNC_MAX_KEYTERMS_PROMPT_LEN = 8000
+_SYNC_MAX_KEYTERMS_COUNT = 100
+_SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 500
+_SYNC_MAX_CONVERSATION_CONTEXT_LEN = 16000
 
 
 def _normalize_conversation_context(v):
@@ -2741,10 +2742,10 @@ class SyncTranscriptionConfig(BaseModel):
     "The sync speech model to route to. Sent as the `X-AAI-Model` header."
 
     prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
-    "Custom transcription instruction prepended to the model's system prompt. Max 4096 characters."
+    "Custom transcription instruction prepended to the model's system prompt. Max 6000 characters."
 
     keyterms_prompt: Optional[List[str]] = None
-    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
+    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 100 terms / 8000 characters total."
 
     conversation_context: Optional[Union[str, List[str]]] = None
     """Prior turns from the same conversation, in chronological order (oldest
@@ -2752,8 +2753,8 @@ class SyncTranscriptionConfig(BaseModel):
     audio so it transcribes the clip with better continuity and proper-noun
     consistency. Include turns from either side of the conversation (e.g. a
     voice agent's replies) as separate entries; entries carry no speaker labels.
-    A single string is accepted and treated as one turn. Capped at 100 turns /
-    4096 characters total — over-cap context is trimmed (oldest turns dropped
+    A single string is accepted and treated as one turn. Capped at 500 turns /
+    16000 characters total — over-cap context is trimmed (oldest turns dropped
     first), not rejected, and the oldest turns are likewise dropped first when
     the prompt exceeds the model token budget, so put the most recent turn
     last."""
@@ -2785,6 +2786,10 @@ class SyncTranscriptionConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _SYNC_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
@@ -2804,6 +2809,10 @@ class SyncTranscriptionConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _SYNC_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(

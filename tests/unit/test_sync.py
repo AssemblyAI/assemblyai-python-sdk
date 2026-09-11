@@ -3,6 +3,12 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.types import (
+    _SYNC_MAX_CONVERSATION_CONTEXT_LEN,
+    _SYNC_MAX_CONVERSATION_CONTEXT_TURNS,
+    _SYNC_MAX_KEYTERMS_COUNT,
+    _SYNC_MAX_KEYTERMS_PROMPT_LEN,
+)
 
 aai.settings.api_key = "test"
 
@@ -147,25 +153,28 @@ def test_transcribe_coerces_conversation_context_string(httpx_mock: HTTPXMock):
 
 
 def test_conversation_context_trims_oldest_turns_over_char_cap():
-    # Given conversation_context whose total length exceeds the 4096-char cap
-    config = aai.SyncTranscriptionConfig(conversation_context=["a" * 3000, "b" * 3000])
+    # Given two turns that together exceed the character cap
+    half = _SYNC_MAX_CONVERSATION_CONTEXT_LEN // 2 + 1
+    config = aai.SyncTranscriptionConfig(conversation_context=["a" * half, "b" * half])
 
     # Then the oldest turn is dropped and the most recent turn is kept
-    assert config.conversation_context == ["b" * 3000]
+    assert config.conversation_context == ["b" * half]
 
 
 def test_conversation_context_trims_oldest_turns_over_turn_cap():
-    # Given conversation_context with more than 100 turns
-    turns = [f"turn {i}" for i in range(120)]
+    # Given conversation_context with more turns than the cap allows
+    turns = [f"turn {i}" for i in range(_SYNC_MAX_CONVERSATION_CONTEXT_TURNS + 20)]
     config = aai.SyncTranscriptionConfig(conversation_context=turns)
 
-    # Then it is trimmed to the 100 most recent turns, oldest dropped first
+    # Then it is trimmed to the most recent capped-many, oldest dropped first
     assert config.conversation_context == turns[20:]
 
 
 def test_conversation_context_empties_when_single_turn_over_char_cap():
     # Given a single turn that alone exceeds the character cap
-    config = aai.SyncTranscriptionConfig(conversation_context=["a" * 5000])
+    config = aai.SyncTranscriptionConfig(
+        conversation_context=["a" * (_SYNC_MAX_CONVERSATION_CONTEXT_LEN + 1)]
+    )
 
     # Then the context trims to nothing rather than raising
     assert config.conversation_context is None
@@ -308,10 +317,31 @@ def test_transcribe_path_input(httpx_mock: HTTPXMock, tmp_path):
 
 
 def test_keyterms_prompt_too_long_raises():
-    # Given a keyterms_prompt exceeding the 2048-char cap
+    # Given a keyterms_prompt exceeding the character cap
     # When building the config, Then validation fails immediately
-    with pytest.raises(ValueError, match="keyterms_prompt exceeds"):
-        aai.SyncTranscriptionConfig(keyterms_prompt=["x" * 3000])
+    with pytest.raises(ValueError, match="characters"):
+        aai.SyncTranscriptionConfig(
+            keyterms_prompt=["x" * (_SYNC_MAX_KEYTERMS_PROMPT_LEN + 1)]
+        )
+
+
+def test_keyterms_prompt_too_many_terms_raises():
+    # Given more terms than the count cap allows, each short enough that the
+    # character cap is not the binding constraint
+    with pytest.raises(ValueError, match="terms"):
+        aai.SyncTranscriptionConfig(
+            keyterms_prompt=["t"] * (_SYNC_MAX_KEYTERMS_COUNT + 1)
+        )
+
+
+def test_keyterms_prompt_at_the_count_cap_accepted():
+    # Given exactly as many terms as the cap allows
+    config = aai.SyncTranscriptionConfig(
+        keyterms_prompt=["t"] * _SYNC_MAX_KEYTERMS_COUNT
+    )
+
+    # Then the cap is inclusive
+    assert len(config.keyterms_prompt) == _SYNC_MAX_KEYTERMS_COUNT
 
 
 def test_problem_details_envelope_maps_to_sync_transcript_error(
