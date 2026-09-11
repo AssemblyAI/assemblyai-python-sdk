@@ -1200,7 +1200,7 @@ class TranscriptionConfig:
         self.auto_highlights = auto_highlights
         self.language_detection = language_detection
         self.language_confidence_threshold = language_confidence_threshold
-        self.language_detection_options = language_detection_options
+        self.language_detection_options = language_detection_options  # type: ignore[assignment]
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
         self.speech_models = speech_models
@@ -1208,8 +1208,8 @@ class TranscriptionConfig:
         self.temperature = temperature
         self.remove_audio_tags = remove_audio_tags
         self.keyterms_prompt = keyterms_prompt
-        self.keyterms_prompt_options = keyterms_prompt_options
-        self.speech_understanding = speech_understanding
+        self.keyterms_prompt_options = keyterms_prompt_options  # type: ignore[assignment]
+        self.speech_understanding = speech_understanding  # type: ignore[assignment]
         self.domain = domain
 
     @property
