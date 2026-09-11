@@ -50,9 +50,10 @@ class DictationError(AssemblyAIError):
         self.retry_after = retry_after
 
 
-_DICTATION_MAX_KEYTERMS_PROMPT_LEN = 2048
+_DICTATION_MAX_KEYTERMS_PROMPT_LEN = 8000
+_DICTATION_MAX_KEYTERMS_COUNT = 100
 _DICTATION_MAX_LLM_INSTRUCTION_LEN = 2048
-_DICTATION_MAX_STT_PROMPT_LEN = 4096
+_DICTATION_MAX_STT_PROMPT_LEN = 6000
 
 
 class DictationConfig(BaseModel):
@@ -95,10 +96,10 @@ class DictationConfig(BaseModel):
     about, e.g. "A doctor dictating a patient visit note." It describes the
     situation rather than instructing the model, and steers the decoder as it
     writes the transcript — where `llm_instruction` reshapes the transcript
-    afterwards. Max 4096 characters."""
+    afterwards. Max 6000 characters."""
 
     keyterms_prompt: Optional[List[str]] = None
-    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
+    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 100 terms / 8000 characters total."
 
     llm_instruction: Optional[str] = Field(
         default=None, max_length=_DICTATION_MAX_LLM_INSTRUCTION_LEN
@@ -116,6 +117,10 @@ class DictationConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _DICTATION_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_DICTATION_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _DICTATION_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
@@ -133,6 +138,10 @@ class DictationConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _DICTATION_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_DICTATION_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _DICTATION_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
