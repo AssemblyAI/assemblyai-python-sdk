@@ -975,7 +975,7 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 async def main():
     async with aai.AsyncTranscriber() as transcriber:
         # Returns as soon as the job is queued - no polling.
-        transcript = await transcriber.submit("https://example.org/audio.mp3")
+        transcript = await transcriber.submit("https://assembly.ai/wildfires.mp3")
         print(transcript.id, transcript.status)
 
         # Later, in the same or another process:
@@ -1629,7 +1629,7 @@ config = aai.TranscriptionConfig(punctuate=False, format_text=False)
 transcriber = aai.Transcriber(config=config)
 
 # will use the same config for all `.transcribe*(...)` operations
-transcriber.transcribe("https://example.org/audio.wav")
+transcriber.transcribe("https://assembly.ai/wildfires.mp3")
 ```
 
 ### Overriding Defaults
@@ -1651,7 +1651,7 @@ config = aai.TranscriptionConfig(punctuate=False, format_text=False)
 transcriber = aai.Transcriber(config=config)
 
 transcriber.transcribe(
-    "https://example.com/audio.mp3",
+    "https://assembly.ai/wildfires.mp3",
     # overrides the above configuration on the `Transcriber` with the following
     config=aai.TranscriptionConfig(speech_models=["universal-3-5-pro", "universal-2"], multichannel=True, disfluencies=True)
 )

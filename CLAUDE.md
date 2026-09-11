@@ -15,7 +15,7 @@ import assemblyai as aai
 aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
 
 transcript = aai.Transcriber().transcribe(
-    "https://example.com/audio.mp3",
+    "https://assembly.ai/wildfires.mp3",
     config=aai.TranscriptionConfig(
         speech_models=["universal-3-5-pro", "universal-2"],
         speaker_labels=True,
