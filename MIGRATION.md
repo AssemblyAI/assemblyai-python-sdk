@@ -32,7 +32,7 @@ from assemblyai import TranscriptStatus
 from assemblyai.prerecorded.v2 import Transcriber
 
 transcript = Transcriber(api_key="YOUR_API_KEY").transcribe(
-    "https://example.org/audio.wav"
+    "https://assembly.ai/wildfires.mp3"
 )
 
 if transcript.status == TranscriptStatus.error:
@@ -143,7 +143,7 @@ from assemblyai.prerecorded.v2 import AsyncTranscriber
 
 async def main():
     async with AsyncTranscriber(api_key="YOUR_API_KEY") as transcriber:
-        transcript = await transcriber.transcribe("https://example.org/audio.wav")
+        transcript = await transcriber.transcribe("https://assembly.ai/wildfires.mp3")
         print(transcript.text)
 
 
@@ -164,7 +164,7 @@ transcriber = Transcriber(api_key="YOUR_API_KEY")
 
 try:
     transcript = transcriber.transcribe(
-        "https://example.org/audio.wav",
+        "https://assembly.ai/wildfires.mp3",
         poll_timeout=300,
     )
 except TranscriptError as error:
@@ -183,7 +183,7 @@ from assemblyai import TranscriptStatus
 from assemblyai.prerecorded.v2 import Transcriber
 
 transcriber = Transcriber(api_key="YOUR_API_KEY")
-transcript = transcriber.transcribe("https://example.org/audio.wav")
+transcript = transcriber.transcribe("https://assembly.ai/wildfires.mp3")
 
 if transcript.status == TranscriptStatus.error:
     raise RuntimeError(f"Transcription failed: {transcript.error}")
