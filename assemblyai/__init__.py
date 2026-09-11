@@ -1,6 +1,14 @@
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
+from .dictation.v1 import (
+    AsyncDictationTranscriber,
+    DictationConfig,
+    DictationError,
+    DictationResponse,
+    DictationTranscriber,
+    DictationWord,
+)
 from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
 from .sync.v1 import AsyncSyncTranscriber, SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
@@ -96,6 +104,7 @@ __all__ = [
     # types
     "AssemblyAIError",
     "AsyncClient",
+    "AsyncDictationTranscriber",
     "AsyncSyncTranscriber",
     "AsyncTranscriber",
     "AsyncTranscript",
@@ -109,6 +118,11 @@ __all__ = [
     "ContentSafetySeverityScore",
     "CustomFormattingRequest",
     "CustomFormattingResponse",
+    "DictationConfig",
+    "DictationError",
+    "DictationResponse",
+    "DictationTranscriber",
+    "DictationWord",
     "Entity",
     "EntityType",
     "IABLabelResult",

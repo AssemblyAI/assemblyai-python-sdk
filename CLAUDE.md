@@ -15,7 +15,7 @@ import assemblyai as aai
 aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
 
 transcript = aai.Transcriber().transcribe(
-    "https://example.com/audio.mp3",
+    "https://assembly.ai/wildfires.mp3",
     config=aai.TranscriptionConfig(
         speech_models=["universal-3-5-pro", "universal-2"],
         speaker_labels=True,
@@ -44,10 +44,14 @@ aai.settings.api_key = "your-key"
 - `assemblyai.prerecorded.v2` — Canonical module for both transcribers, matching the `/v2/transcript` API. The top-level `aai.*` names re-export it
 - `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
-- `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_async()`
-- `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()` and `warm()` are coroutines. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
+- `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_live()`, `open_live()`, `transcribe_async()`, `warm()`
+- `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()`, `transcribe_live()` and `warm()` are coroutines; `open_live()` returns an `AsyncLiveSession`. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
 - `aai.SyncTranscriptionConfig` — Sync options: `model` (default `universal-3-5-pro`), `prompt`, `keyterms_prompt`, `conversation_context`, `language_codes`, `timestamps`, `sample_rate`, `channels`
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
+- `aai.DictationTranscriber` — Dictation API: audio uploaded as it is spoken over one live request, transcript (and optional LLM pass) out. Methods: `open_live()` (push-style `DictationLiveSession`: `write()`/`close()`/`result()`/`abort()`), `transcribe_live()` (iterable, file object, bytes or path), `warm()`. There is no buffered `transcribe()`: every entry point posts to `/v1/transcribe/live`
+- `aai.AsyncDictationTranscriber` — Asyncio counterpart of `DictationTranscriber`; `open_live()` returns an `AsyncDictationLiveSession`. Owns an HTTP pool: use `async with` or `await aclose()`
+- `aai.DictationConfig` — Dictation options: `sample_rate`, `channels`, `language_codes`, `keyterms_prompt`, `llm_instruction`. Rejects unknown fields
+- `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
 
@@ -212,6 +216,40 @@ result = aai.SyncTranscriber().transcribe(raw_pcm_bytes, config=config)
 **Concurrency**: `transcribe_async()` returns a `concurrent.futures.Future` (thread-based,
 not asyncio) for fanning out a handful of files. In asyncio code use
 `aai.AsyncSyncTranscriber` instead (see "Asyncio sync transcription" below).
+
+**Live upload** (`open_live()` / `transcribe_live()`): uploads audio as it is produced instead of
+waiting for the whole clip. The request starts immediately, so authorization, the upload
+and every speech segment but the last resolve while the caller is still recording; what
+is left to wait for once they stop is the final segment. Takes an iterable of chunks or a
+file object read as it fills — not a path, and not a bytes buffer:
+```python
+def mic_chunks():
+    while recording:
+        yield stream.read(4096)
+
+result = aai.SyncTranscriber().transcribe_live(mic_chunks())
+```
+For callback-driven sources (most microphone libraries, WebRTC, telephony) use the
+push-style session instead; `write()` is thread-safe and never blocks:
+```python
+with transcriber.open_live(config) as session:
+    start_capture(on_audio=session.write)   # e.g. sounddevice callback
+    wait_until_done()
+result = session.result()                    # raises SyncTranscriptError on failure
+```
+Leaving the block calls `close()`; an exception in the block calls `abort()` instead. The
+asyncio twin is `AsyncSyncTranscriber.open_live()` → `AsyncLiveSession` (`write()`/`close()`
+plain functions, `result()`/`abort()` coroutines; call `write()` on the loop thread).
+It pays off only when the audio is genuinely still being produced. Streaming a file
+already on disk is *slower* than `transcribe()`, which sends it in one piece — the saving
+comes from overlapping the recording, not from chunking. It also needs enough audio to
+have segments to release early: below roughly a minute only the elided upload counts, so
+short clips gain little. Keep producing until done — an upload that goes silent for long
+enough is aborted server-side; end the iterator to finish, don't pause it. Auth,
+rate-limit and capacity failures can surface part-way through the upload rather than at
+the end. `settings.sync_live_http_timeout` (180s) bounds each socket operation, as every
+httpx timeout does, not the request end to end: time spent waiting on the producer is not
+counted, so it does not need to cover the recording.
 
 ## Asyncio sync transcription (`AsyncSyncTranscriber`)
 

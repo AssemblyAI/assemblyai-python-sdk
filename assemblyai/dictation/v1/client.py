@@ -8,55 +8,50 @@ from typing import Any, Callable, Iterator, Optional
 import httpx
 
 from ... import client as _client
-from ... import types
-from ..._multipart import _as_bytes
+from ..._multipart import _Aborted, _as_bytes
 from . import api
-from ._base import (
-    AudioChunks,
-    AudioInput,
-    _Aborted,
-    _SyncTranscriberImpl,
-    check_config,
-)
+from ._base import AudioSource, _DictationTranscriberImpl, check_config
+from .models import DictationConfig, DictationResponse
 
 
-class LiveSession:
+class DictationLiveSession:
     """
-    A live upload that audio is pushed into.
+    A live dictation that audio is pushed into.
 
-    Returned by `SyncTranscriber.open_live()`. The request starts on one of
-    the transcriber's worker threads the moment the session opens; `write()`
-    hands it audio, `close()` ends the audio, and `result()` waits for the
-    transcript. Built for callback-driven sources — a microphone library, a
-    WebRTC track, a telephony media stream — where the audio arrives in a
-    callback rather than from an iterator you can hand to `transcribe_live()`.
+    Returned by `DictationTranscriber.open_live()`. The request starts on one
+    of the transcriber's worker threads the moment the session opens;
+    `write()` hands it audio, `close()` ends the audio, and `result()` waits
+    for the transcript. Built for callback-driven sources — a microphone
+    library, a WebRTC track, a telephony media stream — where the audio
+    arrives in a callback rather than from an iterator you can hand to
+    `transcribe_live()`.
 
-    Everything `transcribe_live()` says about when it pays off, the 120 s
-    audio cap, the server-side silence abort and errors surfacing mid-upload
-    applies here unchanged.
+    Everything `transcribe_live()` says about the 120 s audio cap, the
+    server-side silence abort and errors surfacing mid-upload applies here
+    unchanged.
 
     Example:
         ```python
         import sounddevice as sd
 
-        config = aai.SyncTranscriptionConfig(sample_rate=16000, channels=1)
+        config = aai.DictationConfig(sample_rate=16000, channels=1)
 
-        with aai.SyncTranscriber() as transcriber:
+        with aai.DictationTranscriber() as transcriber:
             with transcriber.open_live(config) as session:
                 stream = sd.RawInputStream(
                     samplerate=16000, channels=1, dtype="int16",
                     callback=lambda data, *_: session.write(bytes(data)),
                 )
                 with stream:
-                    input("Recording, press Enter to stop... ")
-            print(session.result().text)
+                    input("Dictating, press Enter to stop... ")
+            print(session.result().final_text)
         ```
     """
 
     def __init__(
         self,
         start: Callable[
-            [Iterator[bytes]], concurrent.futures.Future[types.SyncTranscriptResponse]
+            [Iterator[bytes]], concurrent.futures.Future[DictationResponse]
         ],
     ) -> None:
         """
@@ -114,13 +109,13 @@ class LiveSession:
             self._closed = True
             self._queue.put(None)
 
-    def result(self) -> types.SyncTranscriptResponse:
+    def result(self) -> DictationResponse:
         """
         Waits for the transcript, ending the audio first if it is still open.
 
         Raises:
-            SyncTranscriptError: if the request failed, including a rejection
-                the server sent while the upload was still in flight.
+            DictationError: if the request failed, including a rejection the
+                server sent while the upload was still in flight.
             RuntimeError: if the session was aborted.
         """
         if self._aborted:
@@ -153,7 +148,7 @@ class LiveSession:
         except Exception:
             pass
 
-    def __enter__(self) -> "LiveSession":
+    def __enter__(self) -> "DictationLiveSession":
         return self
 
     def __exit__(self, exc_type: Any, *_exc: Any) -> None:
@@ -165,15 +160,21 @@ class LiveSession:
             self.close()
 
 
-class SyncTranscriber:
+class DictationTranscriber:
     """
-    Transcribes audio synchronously: audio in, transcript out, one request.
+    Transcribes dictated audio as it is spoken: audio in, transcript out, one
+    request.
 
-    Unlike `Transcriber` (which submits a job to the async API and polls for
-    completion), `SyncTranscriber` posts the audio to the sync API and returns
-    the finished `SyncTranscriptResponse` directly. There is no job id or
-    status to poll. Accepts a local file path, raw bytes, or a binary file
-    object — but not a URL.
+    Targets the Dictation API (`dictation.assemblyai.com`), tuned for short
+    dictated clips. The audio is uploaded while it is still being produced —
+    from a callback with `open_live()`, or from an iterator or file object
+    with `transcribe_live()` — so the upload and every speech segment but the
+    last are done by the time the speaker stops. Audio you already hold whole
+    (bytes, or a local path) goes to `transcribe_live()` too; it travels the
+    same connection as a single chunk. Like `SyncTranscriber` there is no job
+    id and no polling, and no URL ingestion. Beyond the transcript it can run
+    a follow-up LLM pass: set `llm_instruction` on the config and read
+    `result.final_text`.
 
     Example:
         ```python
@@ -181,8 +182,11 @@ class SyncTranscriber:
 
         aai.settings.api_key = "your-key"
 
-        result = aai.SyncTranscriber().transcribe("./call.wav")
-        print(result.text)
+        with aai.DictationTranscriber() as transcriber:
+            with transcriber.open_live() as session:
+                start_capture(on_audio=session.write)
+                wait_until_done()
+            print(session.result().final_text)
         ```
     """
 
@@ -190,18 +194,19 @@ class SyncTranscriber:
         self,
         *,
         client: Optional[_client.Client] = None,
-        config: Optional[types.SyncTranscriptionConfig] = None,
+        config: Optional[DictationConfig] = None,
         max_workers: Optional[int] = None,
         api_key: Optional[str] = None,
     ) -> None:
         """
-        Creates a `SyncTranscriber`.
+        Creates a `DictationTranscriber`.
 
         Args:
             client: The HTTP client to use. Defaults to the shared default client.
-            config: Default transcription options. Per-call `config` overrides it.
-            max_workers: Thread pool size for `transcribe_async`. Defaults to
-                the CPU count minus one.
+            config: Default dictation options. Per-call `config` overrides it.
+            max_workers: Thread pool size for `open_live()` sessions, each of
+                which runs its request on a worker thread. Defaults to the CPU
+                count minus one.
             api_key: The API key to authenticate with. Builds a `Client` for this
                 transcriber. Given alongside `client`, it takes precedence: the
                 transcriber builds its own client from a copy of that client's
@@ -209,14 +214,15 @@ class SyncTranscriber:
                 untouched.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            TypeError: if `config` is not a `DictationConfig`.
         """
         check_config(type(self).__name__, config)
 
         self._client = _client._resolve_client(client, api_key)
-        self._impl = _SyncTranscriberImpl(
+        self._impl = _DictationTranscriberImpl(
             client=self._client,
-            config=config or types.SyncTranscriptionConfig(),
+            config=config or DictationConfig(),
+            owner=type(self).__name__,
         )
 
         if not max_workers:
@@ -228,100 +234,49 @@ class SyncTranscriber:
         )
 
     @property
-    def config(self) -> types.SyncTranscriptionConfig:
-        """The default configuration of the `SyncTranscriber`."""
+    def config(self) -> DictationConfig:
+        """The default configuration of the `DictationTranscriber`."""
         return self._impl.config
 
     @config.setter
-    def config(self, config: types.SyncTranscriptionConfig) -> None:
+    def config(self, config: DictationConfig) -> None:
         check_config(type(self).__name__, config)
 
         self._impl.config = config
 
-    def transcribe(
-        self,
-        data: AudioInput,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> types.SyncTranscriptResponse:
-        """
-        Transcribes audio and returns the finished transcript.
-
-        Args:
-            data: A local file path, raw audio bytes, or a binary file object.
-                Raw PCM also requires `sample_rate` and `channels` on the config.
-            config: Options for this call. If `None`, the transcriber's default
-                configuration is used.
-
-        Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
-            SyncTranscriptError: if the request fails.
-        """
-        check_config(type(self).__name__, config)
-
-        return self._impl.transcribe(data=data, config=config)
-
-    def transcribe_async(
-        self,
-        data: AudioInput,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> "concurrent.futures.Future[types.SyncTranscriptResponse]":
-        """
-        Transcribes audio on a worker thread.
-
-        Returns a `concurrent.futures.Future` (not an asyncio coroutine); call
-        `.result()` to block for the transcript. Useful for fanning out a
-        handful of files concurrently.
-
-        Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
-        """
-        check_config(type(self).__name__, config)
-
-        return self._executor.submit(
-            self._impl.transcribe,
-            data=data,
-            config=config,
-        )
-
     def transcribe_live(
         self,
-        data: AudioChunks,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> types.SyncTranscriptResponse:
+        data: AudioSource,
+        config: Optional[DictationConfig] = None,
+    ) -> DictationResponse:
         """
         Transcribes audio uploaded as it is produced.
 
-        Where `transcribe()` needs the whole clip before it can send anything,
-        this starts the request immediately and uploads chunks as they arrive,
-        so authorization, the upload and every speech segment but the last
+        Starts the request immediately and uploads chunks as they arrive, so
+        authorization, the upload and every speech segment but the last
         resolve while the caller is still recording. What is left to wait for
-        once they stop is the final segment.
-
-        That only pays off when the audio is genuinely still being produced —
-        a live microphone, an in-progress call. Streaming a file that is
-        already on disk is slower than `transcribe()`, which uploads it in one
-        piece; the saving comes from overlapping the recording, not from the
-        chunking itself. The saving also needs enough audio to have segments to
-        release early: below roughly a minute, only the elided upload counts.
+        once they stop is the final segment, and the LLM pass if one was asked
+        for. Audio that is already complete — bytes, or a local path — is
+        accepted as well and sent as a single chunk over the same connection.
 
         The caller must keep producing: an upload that goes silent for long
         enough is aborted server-side. Stop by ending the iterator, not by
-        pausing it.
+        pausing it. The service caps a request at 120 s of audio.
 
         Args:
-            data: An iterable of audio chunks, or a binary file object read as
-                it fills. Raw PCM also requires `sample_rate` and `channels` on
-                the config. Audio you already hold whole belongs in
-                `transcribe()`.
+            data: An iterable of audio chunks, a binary file object read as it
+                fills, raw audio bytes, or a local file path. Raw PCM also
+                requires `sample_rate` and `channels` on the config.
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`; if
-                `data` is a path, a bytes buffer or an async iterable rather
-                than a stream; or if a chunk is not bytes (a file opened in
-                text mode, say).
-            SyncTranscriptError: if the request fails. Auth, rate-limit and
+            TypeError: if `config` is not a `DictationConfig`; if `data` is an
+                async iterable or an unsupported type; or if a chunk is not
+                bytes (a file opened in text mode, say).
+            ValueError: for a URL, or raw PCM without both `sample_rate` and
+                `channels`.
+            DictationError: if the request fails. Auth, rate-limit, size and
                 capacity failures can surface part-way through the upload.
             Exception: anything the producer raises mid-upload propagates
                 unchanged. The connection is dropped and no transcript is
@@ -333,7 +288,7 @@ class SyncTranscriber:
                 while recording:
                     yield stream.read(4096)
 
-            result = aai.SyncTranscriber().transcribe_live(mic_chunks())
+            result = aai.DictationTranscriber().transcribe_live(mic_chunks())
             ```
         """
         check_config(type(self).__name__, config)
@@ -342,16 +297,16 @@ class SyncTranscriber:
 
     def open_live(
         self,
-        config: Optional[types.SyncTranscriptionConfig] = None,
-    ) -> LiveSession:
+        config: Optional[DictationConfig] = None,
+    ) -> DictationLiveSession:
         """
-        Opens a live upload that audio is pushed into.
+        Opens a live dictation that audio is pushed into.
 
         The push-style counterpart of `transcribe_live()`, for sources that
         deliver audio through a callback rather than an iterator. The request
         starts on a worker thread immediately; call `session.write(chunk)` from
         the callback, then `session.result()` for the transcript once the
-        speaker stops. See `LiveSession`.
+        speaker stops. See `DictationLiveSession`.
 
         Args:
             config: Options for this call. If `None`, the transcriber's default
@@ -359,7 +314,7 @@ class SyncTranscriber:
                 `channels`.
 
         Raises:
-            TypeError: if `config` is not a `SyncTranscriptionConfig`.
+            TypeError: if `config` is not a `DictationConfig`.
 
         Example:
             ```python
@@ -371,7 +326,7 @@ class SyncTranscriber:
         """
         check_config(type(self).__name__, config)
 
-        return LiveSession(
+        return DictationLiveSession(
             lambda chunks: self._executor.submit(
                 self._impl.transcribe_live, data=chunks, config=config
             )
@@ -379,25 +334,21 @@ class SyncTranscriber:
 
     def warm(self) -> bool:
         """
-        Opens the connection to the sync API ahead of time.
+        Opens the connection to the Dictation API ahead of time.
 
-        The sync API is a single request/response, so a `transcribe()` that
-        opens its connection on demand pays the full DNS + TCP + TLS handshake
-        on the critical path — one network round trip that, for a distant
-        client, can rival the transcription itself. Calling `warm()` as soon as
-        you know audio is coming — typically while the clip is still being
-        recorded — spends that setup concurrently: the next `transcribe()`
-        reuses the already-open connection.
+        A request that opens its connection on demand pays the full DNS + TCP
+        + TLS handshake before the first audio byte can leave — one network
+        round trip that, for a distant client, is a noticeable share of a
+        short dictation. Calling `warm()` as soon as you know audio is coming
+        — when the user reaches for the record button, say — spends that setup
+        early: the next request reuses the already-open connection.
 
         The warmed connection is reused while it stays in the HTTP pool —
-        `settings.keepalive_expiry` seconds (httpx's 5s default unless raised).
-        Call `warm()` shortly before `transcribe()`, or raise
-        `keepalive_expiry` (e.g. to 120, the sync audio cap) so a single call
-        covers a whole in-progress recording. `warm()` is idempotent and cheap,
-        so calling it again to refresh the connection is fine.
-
-        Routing the same `config.model` as the eventual transcription ensures
-        the warmed connection lands on the right backend.
+        `settings.keepalive_expiry` seconds (httpx's 5s default unless
+        raised). Call `warm()` shortly before the request, or raise
+        `keepalive_expiry` so a single call covers a longer pause. `warm()` is
+        idempotent and cheap, so calling it again to refresh the connection is
+        fine.
 
         Returns:
             True once the connection is open (any HTTP response — even a
@@ -405,22 +356,21 @@ class SyncTranscriber:
             connection could not be opened (transport error).
         """
         settings = self._client.settings
-        url = settings.sync_base_url.rstrip("/") + api.ENDPOINT_WARM
+        url = settings.dictation_base_url.rstrip("/") + api.ENDPOINT_WARM
         try:
             self._client.http_client.get(
                 url,
-                headers={api.MODEL_HEADER: self.config.model},
-                timeout=min(settings.sync_http_timeout, 10.0),
+                timeout=min(settings.dictation_http_timeout, 10.0),
             )
         except httpx.HTTPError:
             return False
         return True
 
     def close(self) -> None:
-        """Shuts down the worker-thread pool used by `transcribe_async`."""
+        """Shuts down the worker-thread pool that `open_live()` sessions run on."""
         self._executor.shutdown(wait=False)
 
-    def __enter__(self) -> "SyncTranscriber":
+    def __enter__(self) -> "DictationTranscriber":
         return self
 
     def __exit__(self, *_exc: Any) -> None:
