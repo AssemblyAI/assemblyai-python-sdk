@@ -449,8 +449,8 @@ import assemblyai as aai
 aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.SyncTranscriptionConfig(
-    prompt="Transcribe verbatim. Preserve disfluencies.",  # max 4096 chars
-    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 2048 chars total
+    prompt="Transcribe verbatim. Preserve disfluencies.",  # max 6000 chars
+    keyterms_prompt=["AssemblyAI", "Universal", "U3-Pro"], # max 100 terms / 8000 chars
     conversation_context=[
         # prior turns from the same conversation, oldest first
         "I'd like to book a flight to Denver.",
@@ -790,8 +790,8 @@ aai.settings.api_key = "<YOUR_API_KEY>"
 
 config = aai.DictationConfig(
     language_codes=["en", "es"],                 # one code, or several for multilingual audio
-    stt_prompt="A doctor dictating a visit note.", # what the audio is about; ≤4096 chars
-    keyterms_prompt=["AssemblyAI", "Universal"], # bias the decoder; ≤2048 chars total
+    stt_prompt="A doctor dictating a visit note.", # what the audio is about; ≤6000 chars
+    keyterms_prompt=["AssemblyAI", "Universal"], # bias the decoder; ≤100 terms / 8000 chars
     llm_instruction="Fix punctuation only.",     # optional LLM pass
 )
 

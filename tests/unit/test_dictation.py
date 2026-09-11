@@ -16,6 +16,11 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.dictation.v1.models import (
+    _DICTATION_MAX_KEYTERMS_COUNT,
+    _DICTATION_MAX_KEYTERMS_PROMPT_LEN,
+    _DICTATION_MAX_STT_PROMPT_LEN,
+)
 from assemblyai._multipart import _STREAM_READ_SIZE
 from assemblyai.dictation.v1 import api
 
@@ -581,15 +586,32 @@ def test_transcribe_live_sends_stt_prompt(httpx_mock: HTTPXMock):
 
 
 def test_stt_prompt_too_long_raises():
-    # Given an stt_prompt exceeding the 4096-char cap
+    # Given an stt_prompt exceeding the character cap
     with pytest.raises(ValueError):
-        aai.DictationConfig(stt_prompt="x" * 5000)
+        aai.DictationConfig(stt_prompt="x" * (_DICTATION_MAX_STT_PROMPT_LEN + 1))
 
 
 def test_keyterms_prompt_too_long_raises():
-    # Given a keyterms_prompt exceeding the 2048-char cap
-    with pytest.raises(ValueError, match="keyterms_prompt exceeds"):
-        aai.DictationConfig(keyterms_prompt=["x" * 3000])
+    # Given a keyterms_prompt exceeding the character cap
+    with pytest.raises(ValueError, match="characters"):
+        aai.DictationConfig(
+            keyterms_prompt=["x" * (_DICTATION_MAX_KEYTERMS_PROMPT_LEN + 1)]
+        )
+
+
+def test_keyterms_prompt_too_many_terms_raises():
+    # Given more terms than the count cap allows, each short enough that the
+    # character cap is not the binding constraint
+    with pytest.raises(ValueError, match="terms"):
+        aai.DictationConfig(keyterms_prompt=["t"] * (_DICTATION_MAX_KEYTERMS_COUNT + 1))
+
+
+def test_keyterms_prompt_at_the_count_cap_accepted():
+    # Given exactly as many terms as the cap allows
+    config = aai.DictationConfig(keyterms_prompt=["t"] * _DICTATION_MAX_KEYTERMS_COUNT)
+
+    # Then the cap is inclusive
+    assert len(config.keyterms_prompt) == _DICTATION_MAX_KEYTERMS_COUNT
 
 
 def test_llm_instruction_too_long_raises():
