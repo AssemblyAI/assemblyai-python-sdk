@@ -39,6 +39,7 @@ from .models import (
     RealTimeEvents,
     RealTimeParameters,
     RealTimeTranscriberOptions,
+    SilenceEvent,
     SpeakerRevisionEvent,
     SpeechStartedEvent,
     TerminationEvent,
@@ -284,6 +285,8 @@ class _BaseStreamingClient:
                 return _parse_model(SpeakerRevisionEvent, data)
             elif event_type == RealTimeEvents.Heartbeat:
                 return _parse_model(HeartbeatEvent, data)
+            elif event_type == RealTimeEvents.Silence:
+                return _parse_model(SilenceEvent, data)
             elif event_type == RealTimeEvents.Error:
                 return _parse_model(ErrorEvent, data)
             elif event_type == RealTimeEvents.Warning:
