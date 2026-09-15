@@ -143,6 +143,19 @@ class Settings(BaseSettings):
     sync_http_timeout: float = 60.0
     "The HTTP timeout for synchronous transcription requests. Kept above the server's 30s deadline so the client doesn't race it."
 
+    sync_live_http_timeout: float = 180.0
+    "The HTTP timeout for streamed synchronous transcription requests (`transcribe_live`). Like every httpx timeout it bounds each socket operation, not the request as a whole: connecting, each write of a chunk, and each read while waiting for the response after the last byte. Time spent waiting on the caller's producer is not counted, so it need not cover the recording. The sync API caps audio at 120 seconds and independently aborts an upload that goes silent."
+
+    dictation_base_url: str = "https://dictation.assemblyai.com"
+    "The base URL for the Dictation API (used by `DictationTranscriber`)"
+
+    dictation_http_timeout: float = 300.0
+    """The HTTP timeout for Dictation API requests. Like every httpx timeout it
+    bounds each socket operation — connecting, each write, each read while
+    waiting for the response — not the request end to end, so time spent
+    producing audio is not counted. Sized to outlast the final segment's
+    inference plus the LLM pass over the transcript."""
+
     llm_gateway_base_url: str = "https://llm-gateway.assemblyai.com"
     "The base URL for the LLM Gateway API (used by `LLMGateway`/`AsyncLLMGateway`)"
 
@@ -1042,11 +1055,12 @@ class RawTranscriptionConfig(BaseModel):
     "The domain to use for the transcription (e.g. 'medical-v1')."
 
     if pydantic_v2:
-        model_config = ConfigDict(extra="allow")
+        model_config = ConfigDict(extra="allow", validate_assignment=True)
     else:
 
         class Config:
             extra = "allow"
+            validate_assignment = True
 
 
 class TranscriptionConfig:
@@ -1076,13 +1090,15 @@ class TranscriptionConfig:
         redact_pii: Optional[bool] = None,
         redact_pii_audio: Optional[bool] = None,
         redact_pii_audio_quality: Optional[PIIRedactedAudioQuality] = None,
-        redact_pii_audio_options: Optional[RedactPiiAudioOptions] = None,
+        redact_pii_audio_options: Optional[
+            Union[RedactPiiAudioOptions, Dict[str, Any]]
+        ] = None,
         redact_pii_policies: Optional[List[PIIRedactionPolicy]] = None,
         redact_pii_sub: Optional[PIISubstitutionPolicy] = None,
         redact_pii_return_unredacted: Optional[bool] = None,
         speaker_labels: Optional[bool] = None,
         speakers_expected: Optional[int] = None,
-        speaker_options: Optional[SpeakerOptions] = None,
+        speaker_options: Optional[Union[SpeakerOptions, Dict[str, Any]]] = None,
         content_safety: Optional[bool] = None,
         content_safety_confidence: Optional[int] = None,
         iab_categories: Optional[bool] = None,
@@ -1097,7 +1113,9 @@ class TranscriptionConfig:
         auto_highlights: Optional[bool] = None,
         language_detection: Optional[bool] = None,
         language_confidence_threshold: Optional[float] = None,
-        language_detection_options: Optional[LanguageDetectionOptions] = None,
+        language_detection_options: Optional[
+            Union[LanguageDetectionOptions, Dict[str, Any]]
+        ] = None,
         speech_threshold: Optional[float] = None,
         raw_transcription_config: Optional[RawTranscriptionConfig] = None,
         speech_model: Optional[SpeechModel] = None,
@@ -1106,8 +1124,12 @@ class TranscriptionConfig:
         temperature: Optional[float] = None,
         remove_audio_tags: Optional[str] = None,
         keyterms_prompt: Optional[List[str]] = None,
-        keyterms_prompt_options: Optional[KeytermsPromptOptions] = None,
-        speech_understanding: Optional[SpeechUnderstandingRequest] = None,
+        keyterms_prompt_options: Optional[
+            Union[KeytermsPromptOptions, Dict[str, Any]]
+        ] = None,
+        speech_understanding: Optional[
+            Union[SpeechUnderstandingRequest, Dict[str, Any]]
+        ] = None,
         domain: Optional[str] = None,
     ) -> None:
         """
@@ -1208,7 +1230,7 @@ class TranscriptionConfig:
         self.auto_highlights = auto_highlights
         self.language_detection = language_detection
         self.language_confidence_threshold = language_confidence_threshold
-        self.language_detection_options = language_detection_options
+        self.language_detection_options = language_detection_options  # type: ignore[assignment]
         self.speech_threshold = speech_threshold
         self.speech_model = speech_model
         self.speech_models = speech_models
@@ -1216,8 +1238,8 @@ class TranscriptionConfig:
         self.temperature = temperature
         self.remove_audio_tags = remove_audio_tags
         self.keyterms_prompt = keyterms_prompt
-        self.keyterms_prompt_options = keyterms_prompt_options
-        self.speech_understanding = speech_understanding
+        self.keyterms_prompt_options = keyterms_prompt_options  # type: ignore[assignment]
+        self.speech_understanding = speech_understanding  # type: ignore[assignment]
         self.domain = domain
 
     @property
@@ -1305,11 +1327,12 @@ class TranscriptionConfig:
 
     @keyterms_prompt_options.setter
     def keyterms_prompt_options(
-        self, keyterms_prompt_options: Optional[KeytermsPromptOptions]
+        self,
+        keyterms_prompt_options: Optional[Union[KeytermsPromptOptions, Dict[str, Any]]],
     ) -> None:
         "Sets the keyterms_prompt_options to use for the transcription."
 
-        self._raw_transcription_config.keyterms_prompt_options = keyterms_prompt_options
+        self._raw_transcription_config.keyterms_prompt_options = keyterms_prompt_options  # type: ignore[assignment]
 
     @property
     def speech_understanding(self) -> Optional[SpeechUnderstandingRequest]:
@@ -1318,10 +1341,15 @@ class TranscriptionConfig:
 
     @speech_understanding.setter
     def speech_understanding(
-        self, speech_understanding: Optional[SpeechUnderstandingRequest]
+        self,
+        speech_understanding: Optional[
+            Union[SpeechUnderstandingRequest, Dict[str, Any]]
+        ],
     ) -> None:
         "Sets the speech understanding configuration for LLM Gateway features."
-        self._raw_transcription_config.speech_understanding = speech_understanding
+        # `RawTranscriptionConfig`'s `validate_assignment` coerces a dict to `SpeechUnderstandingRequest`
+        # at runtime; mypy doesn't model that, so the narrower assignment is type: ignore'd here.
+        self._raw_transcription_config.speech_understanding = speech_understanding  # type: ignore[assignment]
 
     @property
     def domain(self) -> Optional[str]:
@@ -1696,11 +1724,11 @@ class TranscriptionConfig:
 
     @language_detection_options.setter
     def language_detection_options(
-        self, options: Optional[LanguageDetectionOptions]
+        self, options: Optional[Union[LanguageDetectionOptions, Dict[str, Any]]]
     ) -> None:
         "Set the options for controlling the behavior or Automatic Language Detection."
 
-        self._raw_transcription_config.language_detection_options = options
+        self._raw_transcription_config.language_detection_options = options  # type: ignore[assignment]
 
     @property
     def speech_threshold(self) -> Optional[float]:
@@ -1756,7 +1784,7 @@ class TranscriptionConfig:
         self,
         enable: Optional[bool] = True,
         speakers_expected: Optional[int] = None,
-        speaker_options: Optional[SpeakerOptions] = None,
+        speaker_options: Optional[Union[SpeakerOptions, Dict[str, Any]]] = None,
     ) -> Self:
         """
         Whether to enable Speaker Diarization on the transcript.
@@ -1781,7 +1809,7 @@ class TranscriptionConfig:
             if speakers_expected is not None:
                 self._raw_transcription_config.speakers_expected = speakers_expected
             if speaker_options is not None:
-                self._raw_transcription_config.speaker_options = speaker_options
+                self._raw_transcription_config.speaker_options = speaker_options  # type: ignore[assignment]
 
         return self
 
@@ -1874,7 +1902,9 @@ class TranscriptionConfig:
         enable: Optional[bool] = True,
         redact_audio: Optional[bool] = None,
         redact_audio_quality: Optional[PIIRedactedAudioQuality] = None,
-        redact_audio_options: Optional[RedactPiiAudioOptions] = None,
+        redact_audio_options: Optional[
+            Union[RedactPiiAudioOptions, Dict[str, Any]]
+        ] = None,
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
         return_unredacted: Optional[bool] = None,
@@ -1909,7 +1939,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.redact_pii = True
         self._raw_transcription_config.redact_pii_audio = redact_audio
         self._raw_transcription_config.redact_pii_audio_quality = redact_audio_quality
-        self._raw_transcription_config.redact_pii_audio_options = redact_audio_options
+        self._raw_transcription_config.redact_pii_audio_options = redact_audio_options  # type: ignore[assignment]
         self._raw_transcription_config.redact_pii_policies = policies
         self._raw_transcription_config.redact_pii_sub = substitution
         self._raw_transcription_config.redact_pii_return_unredacted = return_unredacted
@@ -1944,16 +1974,13 @@ class TranscriptionConfig:
         if self._raw_transcription_config.custom_spelling is None or override:
             self._raw_transcription_config.custom_spelling = []
 
-        for to, from_ in replacement.items():
-            if isinstance(from_, str):
-                from_ = [from_]
-
-            self._raw_transcription_config.custom_spelling.append(
-                {
-                    "from": list(from_),
-                    "to": to,
-                }
-            )
+        new_entries: List[Dict[str, Union[str, List[str]]]] = [
+            {"from": [from_] if isinstance(from_, str) else list(from_), "to": to}
+            for to, from_ in replacement.items()
+        ]
+        self._raw_transcription_config.custom_spelling = (
+            self._raw_transcription_config.custom_spelling + new_entries
+        )
 
         return self
 
@@ -2707,10 +2734,11 @@ class ListTranscriptResponse(BaseModel):
 # Caps mirror the sync service's `config` part. `prompt` and `keyterms_prompt`
 # over their caps are rejected; `conversation_context` over its caps is
 # trimmed (oldest turns first), matching the server.
-_SYNC_MAX_PROMPT_LEN = 4096
-_SYNC_MAX_KEYTERMS_PROMPT_LEN = 2048
-_SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 100
-_SYNC_MAX_CONVERSATION_CONTEXT_LEN = 4096
+_SYNC_MAX_PROMPT_LEN = 6000
+_SYNC_MAX_KEYTERMS_PROMPT_LEN = 8000
+_SYNC_MAX_KEYTERMS_COUNT = 100
+_SYNC_MAX_CONVERSATION_CONTEXT_TURNS = 500
+_SYNC_MAX_CONVERSATION_CONTEXT_LEN = 16000
 
 
 def _normalize_conversation_context(v):
@@ -2758,10 +2786,10 @@ class SyncTranscriptionConfig(BaseModel):
     "The sync speech model to route to. Sent as the `X-AAI-Model` header."
 
     prompt: Optional[str] = Field(default=None, max_length=_SYNC_MAX_PROMPT_LEN)
-    "Custom transcription instruction prepended to the model's system prompt. Max 4096 characters."
+    "Custom transcription instruction prepended to the model's system prompt. Max 6000 characters."
 
     keyterms_prompt: Optional[List[str]] = None
-    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 2048 characters total."
+    "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 100 terms / 8000 characters total."
 
     conversation_context: Optional[Union[str, List[str]]] = None
     """Prior turns from the same conversation, in chronological order (oldest
@@ -2769,8 +2797,8 @@ class SyncTranscriptionConfig(BaseModel):
     audio so it transcribes the clip with better continuity and proper-noun
     consistency. Include turns from either side of the conversation (e.g. a
     voice agent's replies) as separate entries; entries carry no speaker labels.
-    A single string is accepted and treated as one turn. Capped at 100 turns /
-    4096 characters total — over-cap context is trimmed (oldest turns dropped
+    A single string is accepted and treated as one turn. Capped at 500 turns /
+    16000 characters total — over-cap context is trimmed (oldest turns dropped
     first), not rejected, and the oldest turns are likewise dropped first when
     the prompt exceeds the model token budget, so put the most recent turn
     last."""
@@ -2802,6 +2830,10 @@ class SyncTranscriptionConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _SYNC_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(
@@ -2821,6 +2853,10 @@ class SyncTranscriptionConfig(BaseModel):
             if not v:
                 return None
             terms = [t.strip() for t in v if t and t.strip()]
+            if len(terms) > _SYNC_MAX_KEYTERMS_COUNT:
+                raise ValueError(
+                    f"keyterms_prompt exceeds {_SYNC_MAX_KEYTERMS_COUNT} terms (got {len(terms)})"
+                )
             total = sum(len(t) for t in terms)
             if total > _SYNC_MAX_KEYTERMS_PROMPT_LEN:
                 raise ValueError(

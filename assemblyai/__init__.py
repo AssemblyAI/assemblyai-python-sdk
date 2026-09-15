@@ -1,6 +1,14 @@
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
+from .dictation.v1 import (
+    AsyncDictationTranscriber,
+    DictationConfig,
+    DictationError,
+    DictationResponse,
+    DictationTranscriber,
+    DictationWord,
+)
 from .llm_gateway.v1 import (
     AsyncLLMGateway,
     LLMGateway,
@@ -113,6 +121,7 @@ __all__ = [
     # types
     "AssemblyAIError",
     "AsyncClient",
+    "AsyncDictationTranscriber",
     "AsyncLLMGateway",
     "AsyncSyncTranscriber",
     "AsyncTranscriber",
@@ -127,6 +136,11 @@ __all__ = [
     "ContentSafetySeverityScore",
     "CustomFormattingRequest",
     "CustomFormattingResponse",
+    "DictationConfig",
+    "DictationError",
+    "DictationResponse",
+    "DictationTranscriber",
+    "DictationWord",
     "Entity",
     "EntityType",
     "IABLabelResult",
