@@ -1031,6 +1031,83 @@ async def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
     await client.disconnect()
 
 
+async def test_set_params_with_acknowledge_silence(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingSessionParameters,
+    )
+
+    # When: set_params is called with acknowledge_silence mid-stream
+    await client.set_params(StreamingSessionParameters(acknowledge_silence=True))
+
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            break
+        await asyncio.sleep(0.01)
+
+    # Then: an UpdateConfiguration frame carrying acknowledge_silence is sent
+    update_frames = [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+    assert len(update_frames) == 1
+    payload = json.loads(update_frames[0])
+    assert payload["type"] == "UpdateConfiguration"
+    assert payload["acknowledge_silence"] is True
+
+    await client.disconnect()
+
+
+async def test_silence_event_dispatched_to_handler(mocker: MockFixture):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    received = []
+
+    def on_silence(_client, event):
+        received.append(event)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Silence, on_silence)
+    await client.connect(_default_params())
+
+    fake_ws.push_message(
+        json.dumps(
+            {
+                "type": "Silence",
+                "start_ms": 12000,
+                "end_ms": 13000,
+            }
+        )
+    )
+
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+
+    from assemblyai.streaming.v3.models import SilenceEvent
+
+    assert len(received) == 1
+    assert isinstance(received[0], SilenceEvent)
+    assert received[0].start_ms == 12000
+    assert received[0].end_ms == 13000
+
+    await client.disconnect()
+
+
 async def test_force_endpoint_enqueues_force_endpoint_frame(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)

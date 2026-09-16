@@ -95,6 +95,21 @@ class HeartbeatEvent(BaseModel):
     max_speech_probability: float = 0.0
 
 
+class SilenceEvent(BaseModel):
+    """A stretch of audio the server transcribed no speech in.
+
+    Emitted roughly once per second while no speech is being transcribed, and
+    only when the session opted in with `acknowledge_silence` (U3Pro only).
+    """
+
+    type: Literal["Silence"] = "Silence"
+    # Session audio positions, on the same clock as word start/end timestamps.
+    start_ms: int
+    # A worker reconnect replays ~500 ms of audio, so a range can overlap
+    # audio already reported as speech; trim with a running max.
+    end_ms: int
+
+
 class LLMGatewayResponseEvent(BaseModel):
     type: Literal["LLMGatewayResponse"] = "LLMGatewayResponse"
     turn_order: int
@@ -135,6 +150,7 @@ EventMessage = Union[
     ErrorEvent,
     WarningEvent,
     HeartbeatEvent,
+    SilenceEvent,
     LLMGatewayResponseEvent,
     SpeakerRevisionEvent,
 ]
@@ -169,6 +185,11 @@ class RealTimeSessionParameters(BaseModel):
     turn_left_pad_ms: Optional[int] = None
     language_codes: Optional[List[str]] = None
     session_heartbeat: Optional[bool] = None
+    # Opt in to Silence messages during silence (U3Pro only). When True, the
+    # server emits a Silence message roughly once per second while no speech is
+    # being transcribed, carrying `start_ms` and `end_ms`, the audio positions
+    # the silent stretch spans. When unset/False, no Silence messages are sent.
+    acknowledge_silence: Optional[bool] = None
 
 
 # Alias: the former name for `RealTimeSessionParameters`, bound to the same object.
@@ -446,6 +467,7 @@ class RealTimeEvents(Enum):
     Error = "Error"
     Warning = "Warning"
     Heartbeat = "Heartbeat"
+    Silence = "Silence"
     LLMGatewayResponse = "LLMGatewayResponse"
     SpeakerRevision = "SpeakerRevision"
 
