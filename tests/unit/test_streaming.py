@@ -32,6 +32,7 @@ from assemblyai.streaming.v3._base import _build_uri
 from assemblyai.streaming.v3.models import (
     HeartbeatEvent,
     KeepAlive,
+    SilenceEvent,
     TerminateSession,
     UpdateConfiguration,
 )
@@ -2294,3 +2295,99 @@ def test_heartbeat_event_dispatched_to_handler(mocker: MockFixture):
     assert received[0].total_duration_ms == 45205
     assert received[0].realtime_factor == 0.9964
     assert received[0].max_speech_probability == 0.999954
+
+
+def test_client_connect_with_acknowledge_silence(mocker: MockFixture):
+    # Given: client + acknowledge_silence=True
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        acknowledge_silence=True,
+    )
+
+    # When: connect
+    client.connect(params)
+
+    # Then: the acknowledge_silence wire param is forwarded
+    assert "acknowledge_silence=True" in actual_url
+
+
+def test_acknowledge_silence_defaults_to_none():
+    # Given: params/update-config with no acknowledge_silence set
+    params = StreamingParameters(sample_rate=16000)
+    update = UpdateConfiguration()
+
+    # Then: the field defaults to None on both StreamingSessionParameters
+    # subclasses and is omitted from the connection querystring when unset.
+    assert params.acknowledge_silence is None
+    assert update.acknowledge_silence is None
+    uri = _build_uri("wss://example.com/v3/ws", params)
+    assert "acknowledge_silence" not in uri
+
+
+def test_silence_event_parses_from_wire_message():
+    # Given: a raw Silence wire message
+    data = {
+        "type": "Silence",
+        "start_ms": 12000,
+        "end_ms": 13000,
+    }
+
+    # When: routed through the shared inbound-message dispatch
+    event = StreamingClient._parse_message(data)
+
+    # Then: a fully-populated SilenceEvent is returned
+    assert isinstance(event, SilenceEvent)
+    assert event.type == "Silence"
+    assert event.start_ms == 12000
+    assert event.end_ms == 13000
+
+
+def test_silence_event_dispatched_to_handler(mocker: MockFixture):
+    # Given: a Silence frame on the wire and a handler registered
+    silence_json = json.dumps(
+        {
+            "type": "Silence",
+            "start_ms": 12000,
+            "end_ms": 13000,
+        }
+    )
+    fake_ws = _FakeWebSocket(recv_script=[silence_json])
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    received = []
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Silence, lambda _c, event: received.append(event))
+
+    # When: the client reads the frame
+    client.connect(_default_params())
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not received:
+        time.sleep(0.02)
+    client.disconnect(terminate=False)
+
+    # Then: the handler is invoked with a parsed SilenceEvent
+    assert len(received) == 1
+    assert isinstance(received[0], SilenceEvent)
+    assert received[0].start_ms == 12000
+    assert received[0].end_ms == 13000
