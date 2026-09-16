@@ -1388,16 +1388,16 @@ The SDK provides specific exception classes and status checks to help you handle
 
 ### Exception Hierarchy
 
-All custom SDK exceptions inherit from `aai.AssemblyAIError`:
+All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streaming `RealTimeError`, which subclasses `Exception` directly and is delivered through the `Error` event rather than raised:
 
 | Exception Class | Description | Key Attributes |
 |---|---|---|
 | `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
-| `aai.TranscriptError` | Raised when an asynchronous transcription job fails. | `status_code: Optional[int]` |
+| `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
-| `aai.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
-| `aai.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
-| `aai.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
+| `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
+| `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
+| `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
 | `aai.streaming.v3.RealTimeError` *(alias `StreamingError`)* | Dispatched via the `RealTimeEvents.Error` event during WebSocket streaming. | `code: Optional[int]` |
 
 ### Catching Specific Exceptions
