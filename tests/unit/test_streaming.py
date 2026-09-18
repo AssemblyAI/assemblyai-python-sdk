@@ -2391,3 +2391,47 @@ def test_silence_event_dispatched_to_handler(mocker: MockFixture):
     assert isinstance(received[0], SilenceEvent)
     assert received[0].start_ms == 12000
     assert received[0].end_ms == 13000
+
+
+# ---------------------------------------------------------------------------
+# Boundary validation tests for RealTimeTranscriberOptions
+# ---------------------------------------------------------------------------
+
+
+def test_connect_timeout_rejects_negative():
+    """Negative connect_timeout must raise a validation error."""
+    with pytest.raises(Exception):  # pydantic ValidationError (v1 or v2)
+        StreamingClientOptions(api_key="test", connect_timeout=-1.0)
+
+
+def test_max_connection_retries_rejects_negative():
+    """Negative max_connection_retries must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", max_connection_retries=-1)
+
+
+def test_connection_retry_delay_rejects_negative():
+    """Negative connection_retry_delay must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", connection_retry_delay=-0.5)
+
+
+def test_terminate_timeout_rejects_negative():
+    """Negative terminate_timeout must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", terminate_timeout=-5.0)
+
+
+def test_options_zero_values_are_accepted():
+    """Zero values must be accepted for all numeric option fields."""
+    opts = StreamingClientOptions(
+        api_key="test",
+        connect_timeout=0,
+        max_connection_retries=0,
+        connection_retry_delay=0,
+        terminate_timeout=0,
+    )
+    assert opts.connect_timeout == 0
+    assert opts.max_connection_retries == 0
+    assert opts.connection_retry_delay == 0
+    assert opts.terminate_timeout == 0
