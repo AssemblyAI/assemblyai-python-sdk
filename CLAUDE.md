@@ -524,7 +524,7 @@ transcript — `transcript_id` is required, there is no raw-text path.
 ```python
 result = gateway.understanding.create(
     transcript_id="transcript_abc123",
-    request={"speaker_identification": {"speaker_type": "name", "known_values": ["Ana", "Peter"]}},
+    request={"speaker_identification": {"speaker_type": "name", "speakers": [{"name": "Ana"}, {"name": "Peter"}]}},
 )
 print(result.speech_understanding["response"], result.utterances)
 

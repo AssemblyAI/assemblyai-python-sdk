@@ -1448,7 +1448,10 @@ result = gateway.understanding.create(
     request={
         "speaker_identification": {
             "speaker_type": "name",
-            "known_values": ["Michel Martin", "Peter DeCarlo"],
+            "speakers": [
+                {"name": "Michel Martin", "description": "Hosts the program and interviews the guests"},
+                {"name": "Peter DeCarlo", "description": "Answers questions from the interview"},
+            ],
         },
     },
 )
