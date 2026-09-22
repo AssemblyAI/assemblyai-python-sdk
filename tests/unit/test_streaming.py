@@ -2398,10 +2398,12 @@ def test_silence_event_dispatched_to_handler(mocker: MockFixture):
 # ---------------------------------------------------------------------------
 
 
-def test_connect_timeout_rejects_negative():
-    """Negative connect_timeout must raise a validation error."""
+def test_connect_timeout_rejects_non_positive():
+    """Negative or zero connect_timeout must raise a validation error."""
     with pytest.raises(Exception):  # pydantic ValidationError (v1 or v2)
         StreamingClientOptions(api_key="test", connect_timeout=-1.0)
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", connect_timeout=0)
 
 
 def test_max_connection_retries_rejects_negative():
@@ -2423,15 +2425,15 @@ def test_terminate_timeout_rejects_negative():
 
 
 def test_options_zero_values_are_accepted():
-    """Zero values must be accepted for all numeric option fields."""
+    """Zero values must be accepted for non-negative option fields (retries, delays, timeouts)."""
     opts = StreamingClientOptions(
         api_key="test",
-        connect_timeout=0,
+        connect_timeout=0.1,
         max_connection_retries=0,
         connection_retry_delay=0,
         terminate_timeout=0,
     )
-    assert opts.connect_timeout == 0
+    assert opts.connect_timeout == 0.1
     assert opts.max_connection_retries == 0
     assert opts.connection_retry_delay == 0
     assert opts.terminate_timeout == 0

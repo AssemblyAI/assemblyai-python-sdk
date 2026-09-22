@@ -402,7 +402,7 @@ class RealTimeTranscriberOptions(BaseModel):
     token: Optional[str] = None
     # Seconds to wait for the WebSocket handshake to complete before treating
     # the attempt as failed. Must be positive.
-    connect_timeout: float = Field(default=1.0, ge=0)
+    connect_timeout: float = Field(default=1.0, gt=0)
     # Additional handshake attempts after the first one fails on a transient
     # error (timeout, network drop). 0 disables retries. HTTP-level rejections
     # (auth, quota, bad request) are never retried. Must be non-negative.
