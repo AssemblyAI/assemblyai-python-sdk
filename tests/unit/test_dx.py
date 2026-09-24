@@ -1,7 +1,7 @@
 """Tests for the client developer-experience surface.
 
-Covers the pieces shared across the four transcribers and the two streaming
-clients rather than any single product: `api_key=` construction, the
+Covers the pieces shared across the transcribers, the LLM gateway, and the
+streaming clients rather than any single product: `api_key=` construction, the
 config-type guard, the audio input types the sync `Transcriber` accepts,
 `poll_timeout`, the sync API's error parsing, and the lazily imported
 `aai.streaming` attribute.
@@ -143,13 +143,61 @@ async def test_async_sync_transcriber_accepts_api_key(no_global_api_key):
     assert transcriber.client.http_client.is_closed
 
 
+def test_dictation_transcriber_accepts_api_key(no_global_api_key):
+    transcriber = aai.DictationTranscriber(api_key="explicit-key")
+
+    assert transcriber._client.settings.api_key == "explicit-key"
+    assert aai.settings.api_key is None
+
+
+def test_llm_gateway_accepts_api_key(no_global_api_key):
+    gateway = aai.LLMGateway(api_key="explicit-key")
+
+    assert gateway.client.settings.api_key == "explicit-key"
+    assert aai.settings.api_key is None
+
+
+@pytest.mark.asyncio
+async def test_async_dictation_transcriber_accepts_api_key(no_global_api_key):
+    transcriber = aai.AsyncDictationTranscriber(api_key="explicit-key")
+    try:
+        assert transcriber.client.settings.api_key == "explicit-key"
+        assert transcriber._owns_client is True
+        assert aai.settings.api_key is None
+    finally:
+        await transcriber.aclose()
+
+    assert transcriber.client.http_client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_async_llm_gateway_accepts_api_key(no_global_api_key):
+    gateway = aai.AsyncLLMGateway(api_key="explicit-key")
+    try:
+        assert gateway.client.settings.api_key == "explicit-key"
+        assert gateway._owns_client is True
+        assert aai.settings.api_key is None
+    finally:
+        await gateway.aclose()
+
+    assert gateway.client.http_client.is_closed
+
+
 def _caller_settings() -> aai.Settings:
     """Settings with a distinguishable field, to prove they survive a derive."""
 
     return aai.Settings(api_key="from-client", http_timeout=42.5)
 
 
-@pytest.mark.parametrize("transcriber_class", [aai.Transcriber, aai.SyncTranscriber])
+@pytest.mark.parametrize(
+    "transcriber_class",
+    [
+        aai.Transcriber,
+        aai.SyncTranscriber,
+        aai.DictationTranscriber,
+        aai.LLMGateway,
+    ],
+)
 def test_api_key_takes_precedence_over_a_given_client(transcriber_class):
     caller_client = aai.Client(settings=_caller_settings())
 
@@ -165,7 +213,13 @@ def test_api_key_takes_precedence_over_a_given_client(transcriber_class):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "transcriber_class", [aai.AsyncTranscriber, aai.AsyncSyncTranscriber]
+    "transcriber_class",
+    [
+        aai.AsyncTranscriber,
+        aai.AsyncSyncTranscriber,
+        aai.AsyncDictationTranscriber,
+        aai.AsyncLLMGateway,
+    ],
 )
 async def test_async_api_key_takes_precedence_over_a_given_client(transcriber_class):
     caller_client = aai.AsyncClient(settings=_caller_settings())
@@ -190,7 +244,13 @@ async def test_async_api_key_takes_precedence_over_a_given_client(transcriber_cl
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "transcriber_class", [aai.AsyncTranscriber, aai.AsyncSyncTranscriber]
+    "transcriber_class",
+    [
+        aai.AsyncTranscriber,
+        aai.AsyncSyncTranscriber,
+        aai.AsyncDictationTranscriber,
+        aai.AsyncLLMGateway,
+    ],
 )
 async def test_async_client_passed_alone_stays_the_callers(transcriber_class):
     async with aai.AsyncClient(settings=aai.settings) as caller_client:
@@ -317,6 +377,90 @@ async def test_async_sync_transcriber_rejects_a_job_api_config():
             )
 
     assert "AsyncSyncTranscriber expects SyncTranscriptionConfig" in str(exc_info.value)
+
+
+def test_dictation_transcriber_rejects_a_job_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.DictationTranscriber(config=aai.TranscriptionConfig())
+
+    assert str(exc_info.value) == (
+        "DictationTranscriber expects DictationConfig, got TranscriptionConfig. "
+        "Use aai.DictationConfig."
+    )
+
+
+def test_dictation_transcriber_rejects_a_sync_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.DictationTranscriber(config=aai.SyncTranscriptionConfig())
+
+    assert str(exc_info.value) == (
+        "DictationTranscriber expects DictationConfig, got SyncTranscriptionConfig. "
+        "Use aai.DictationConfig."
+    )
+
+
+def test_transcriber_rejects_a_dictation_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.Transcriber(config=aai.DictationConfig())
+
+    assert str(exc_info.value) == (
+        "Transcriber expects TranscriptionConfig, got DictationConfig. "
+        "Use aai.TranscriptionConfig."
+    )
+
+
+def test_sync_transcriber_rejects_a_dictation_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.SyncTranscriber(config=aai.DictationConfig())
+
+    assert str(exc_info.value) == (
+        "SyncTranscriber expects SyncTranscriptionConfig, got DictationConfig. "
+        "Use aai.SyncTranscriptionConfig."
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_dictation_transcriber_rejects_a_job_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.AsyncDictationTranscriber(config=aai.TranscriptionConfig())
+
+    assert str(exc_info.value) == (
+        "AsyncDictationTranscriber expects DictationConfig, got TranscriptionConfig. "
+        "Use aai.DictationConfig."
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_dictation_transcriber_rejects_a_sync_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.AsyncDictationTranscriber(config=aai.SyncTranscriptionConfig())
+
+    assert str(exc_info.value) == (
+        "AsyncDictationTranscriber expects DictationConfig, got SyncTranscriptionConfig. "
+        "Use aai.DictationConfig."
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_transcriber_rejects_a_dictation_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.AsyncTranscriber(config=aai.DictationConfig())
+
+    assert str(exc_info.value) == (
+        "AsyncTranscriber expects TranscriptionConfig, got DictationConfig. "
+        "Use aai.TranscriptionConfig."
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_sync_transcriber_rejects_a_dictation_api_config():
+    with pytest.raises(TypeError) as exc_info:
+        aai.AsyncSyncTranscriber(config=aai.DictationConfig())
+
+    assert str(exc_info.value) == (
+        "AsyncSyncTranscriber expects SyncTranscriptionConfig, got DictationConfig. "
+        "Use aai.SyncTranscriptionConfig."
+    )
 
 
 def test_the_matching_config_class_is_accepted(httpx_mock: HTTPXMock):
