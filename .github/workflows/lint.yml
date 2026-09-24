@@ -85,7 +85,7 @@ jobs:
       - uses: actions/setup-python@v4
         if: ${{ steps.counter.outputs.count > 0 }}
         with:
-          python-version: '3.9'
+          python-version: '3.11'
       - run: pip install mypy==1.5.1
         if: ${{ steps.counter.outputs.count > 0 }}
       - run: mypy ${{ steps.filter.outputs.python_files }} --follow-imports=silent --ignore-missing-imports
