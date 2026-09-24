@@ -49,7 +49,8 @@ class LLMGatewayPricing(_LLMGatewayResponseModel):
 class LLMGatewayDefaultParameters(_LLMGatewayResponseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
-    frequency_penalty: Optional[int] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
 
 
 class LLMGatewayTopProvider(_LLMGatewayResponseModel):
@@ -118,22 +119,22 @@ class LLMGatewayModelList(_LLMGatewayResponseModel):
 
 
 class LLMGatewayCacheCreation(_LLMGatewayResponseModel):
-    ephemeral_5m_input_tokens: int
-    ephemeral_1h_input_tokens: int
+    ephemeral_5m_input_tokens: Optional[int] = None
+    ephemeral_1h_input_tokens: Optional[int] = None
 
 
 class LLMGatewayPromptTokensDetails(_LLMGatewayResponseModel):
-    cached_tokens: int
-    audio_tokens: int
+    cached_tokens: Optional[int] = None
+    audio_tokens: Optional[int] = None
     cache_creation: Optional[LLMGatewayCacheCreation] = None
     cache_write_tokens: Optional[int] = None
 
 
 class LLMGatewayCompletionTokensDetails(_LLMGatewayResponseModel):
-    reasoning_tokens: int
-    audio_tokens: int
-    accepted_prediction_tokens: int
-    rejected_prediction_tokens: int
+    reasoning_tokens: Optional[int] = None
+    audio_tokens: Optional[int] = None
+    accepted_prediction_tokens: Optional[int] = None
+    rejected_prediction_tokens: Optional[int] = None
 
 
 class LLMGatewayUsage(_LLMGatewayResponseModel):
@@ -232,6 +233,7 @@ class LLMGatewayChunkToolCall(_LLMGatewayResponseModel):
 class LLMGatewayChunkDelta(_LLMGatewayResponseModel):
     content: Optional[str] = None
     role: Optional[str] = None
+    thinking: Optional[str] = None
     tool_calls: Optional[List[LLMGatewayChunkToolCall]] = None
 
 

@@ -757,3 +757,148 @@ def test_stream_chunk_exposes_tool_call_delta(httpx_mock: HTTPXMock):
     assert tool_call.function.name == "get_weather"
     # arguments stream in fragments; the SDK doesn't reassemble them
     assert tool_call.function.arguments == '{"ci'
+
+
+def test_chat_completions_tolerates_partial_token_details(httpx_mock: HTTPXMock):
+    # Given a completion whose usage has partial details (e.g. reasoning models
+    # returning only reasoning_tokens without audio/speculative prediction tokens,
+    # and prompt caching returning only cached_tokens without audio tokens)
+    response = dict(
+        _COMPLETION_RESPONSE,
+        usage={
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "prompt_tokens_details": {
+                "cached_tokens": 80,
+                "cache_creation": {"ephemeral_5m_input_tokens": 40},
+            },
+            "completion_tokens_details": {
+                "reasoning_tokens": 30,
+            },
+        },
+    )
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When creating a completion
+    result = aai.LLMGateway().chat.completions.create(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "Explain quantum computing."}],
+    )
+
+    # Then partial details parse without error and missing fields are None
+    assert result.usage.prompt_tokens_details is not None
+    assert result.usage.prompt_tokens_details.cached_tokens == 80
+    assert result.usage.prompt_tokens_details.audio_tokens is None
+    assert result.usage.prompt_tokens_details.cache_creation is not None
+    assert (
+        result.usage.prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens
+        == 40
+    )
+    assert (
+        result.usage.prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens
+        is None
+    )
+
+    assert result.usage.completion_tokens_details is not None
+    assert result.usage.completion_tokens_details.reasoning_tokens == 30
+    assert result.usage.completion_tokens_details.audio_tokens is None
+    assert result.usage.completion_tokens_details.accepted_prediction_tokens is None
+    assert result.usage.completion_tokens_details.rejected_prediction_tokens is None
+
+
+def test_stream_chunk_exposes_thinking_delta(httpx_mock: HTTPXMock):
+    # Given a streaming chunk carrying a thinking delta
+    chunk = {
+        "id": "chatcmpl-thinking-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "claude-sonnet-5",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "thinking": "Let's break down this problem step by step.",
+                },
+                "finish_reason": None,
+            }
+        ],
+    }
+    import json as _json
+
+    httpx_mock.add_response(
+        url=COMPLETIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        stream=IteratorStream(
+            [f"data: {_json.dumps(chunk)}\n\n".encode(), b"data: [DONE]\n\n"]
+        ),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    # When consuming the stream
+    chunks = list(
+        aai.LLMGateway().chat.completions.create(
+            model="claude-sonnet-5",
+            messages=[{"role": "user", "content": "Hello"}],
+            stream=True,
+        )
+    )
+
+    # Then thinking delta is parsed and reachable
+    delta = chunks[0].choices[0].delta
+    assert delta.thinking == "Let's break down this problem step by step."
+
+
+def test_list_models_tolerates_float_penalties_and_presence_penalty(
+    httpx_mock: HTTPXMock,
+):
+    # Given a models endpoint returning float frequency_penalty and presence_penalty
+    response = {
+        "data": [
+            {
+                "id": "gpt-4o",
+                "name": "GPT-4o",
+                "description": "OpenAI's GPT-4o",
+                "default_parameters": {
+                    "temperature": 0.7,
+                    "top_p": 0.95,
+                    "frequency_penalty": 0.5,
+                    "presence_penalty": 0.2,
+                },
+                "supported_parameters": ["temperature", "frequency_penalty"],
+                "top_provider": {
+                    "is_moderated": True,
+                    "context_length": 128000,
+                    "max_completion_tokens": 4096,
+                },
+                "context_length": 128000,
+                "pricing": {
+                    "global": {"completions": 10.0, "prompt": 2.5},
+                },
+                "creator": "openai",
+                "retirement_date": 0,
+                "default_provider": {"id": "openai", "name": "Open AI"},
+            }
+        ]
+    }
+    httpx_mock.add_response(
+        url=MODELS_URL,
+        method="GET",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When listing models
+    result = aai.LLMGateway().models.list()
+
+    # Then float penalties are preserved
+    model = result.data[0]
+    assert model.default_parameters.frequency_penalty == 0.5
+    assert model.default_parameters.presence_penalty == 0.2
