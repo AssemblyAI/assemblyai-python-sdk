@@ -597,7 +597,7 @@ client for it. Given alongside `client`, the key wins and the passed client is l
 - **`transcribe_async()` returns a `concurrent.futures.Future`**, not an asyncio coroutine. In asyncio code use `aai.AsyncTranscriber` (see "Asyncio transcription" above) — or `aai.AsyncSyncTranscriber` for the sync API
 - **LLM Gateway request params are `**kwargs`**: everything past `model`/`messages`/`stream` is forwarded verbatim, so there is no client-side check on the name — spell params carefully
 - **Timestamps are in milliseconds** throughout the SDK
-- **Minimum Python**: 3.8+
+- **Minimum Python**: 3.11+
 
 ## Dependencies
 
