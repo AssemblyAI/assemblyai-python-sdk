@@ -4,12 +4,12 @@ from typing import Any, List, Literal, Optional, Union
 
 try:
     # pydantic v2 import
-    from pydantic import BaseModel, model_validator
+    from pydantic import BaseModel, Field, model_validator
 
     pydantic_v2 = True
 except ImportError:
     # pydantic v1 import (fallback for Python < 3.14)
-    from pydantic import BaseModel, root_validator
+    from pydantic import BaseModel, Field, root_validator
 
     pydantic_v2 = False
 
@@ -332,6 +332,13 @@ class RealTimeParameters(RealTimeSessionParameters):
     webhook_auth_header_value: Optional[str] = None
     llm_gateway: Optional[LLMGatewayConfig] = None
     speaker_labels: Optional[bool] = None
+    # Cadence, in ms of audio time, at which the server emits mid-stream
+    # SpeakerRevision events (plus the final one at end of stream). Unset or
+    # 0 means end-of-stream revision only. Values below 120_000 are raised
+    # to 120_000 server-side; larger values are honored, and 300_000 is the
+    # recommended cadence. The server rejects values outside 0..86_400_000
+    # (24 h) at connect. Only used when speaker_labels is enabled.
+    speaker_labels_revision_interval_ms: Optional[int] = Field(None, ge=0)
     max_speakers: Optional[int] = None
     voice_focus: Optional[NoiseSuppressionModel] = None
     voice_focus_threshold: Optional[float] = None

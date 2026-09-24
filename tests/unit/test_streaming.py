@@ -867,6 +867,102 @@ def test_client_connect_with_speaker_labels(mocker: MockFixture):
     assert "max_speakers=3" in actual_url
 
 
+def test_client_connect_with_speaker_labels_revision_interval(mocker: MockFixture):
+    # Given: speaker_labels plus a mid-stream revision cadence
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: connecting
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+            speaker_labels=True,
+            speaker_labels_revision_interval_ms=120_000,
+        )
+    )
+
+    # Then: the GA (un-prefixed) query param carries the value verbatim
+    assert "speaker_labels=True" in actual_url
+    assert "speaker_labels_revision_interval_ms=120000" in actual_url
+    assert "_speaker_labels_revision_interval_ms" not in actual_url
+
+
+def test_build_uri_keeps_explicit_zero_revision_interval():
+    # Given: the interval explicitly set to 0 (end-of-stream revision only)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        speaker_labels=True,
+        speaker_labels_revision_interval_ms=0,
+    )
+
+    # When: the connection URI is built
+    uri = _build_uri("api.example.com", params)
+
+    # Then: 0 is sent, not dropped like an unset value
+    assert "speaker_labels_revision_interval_ms=0" in uri
+
+
+def test_build_uri_omits_unset_revision_interval():
+    # Given: speaker_labels without a revision interval
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        speaker_labels=True,
+    )
+
+    # When: the connection URI is built
+    uri = _build_uri("api.example.com", params)
+
+    # Then: the param is absent so the server default applies
+    assert "speaker_labels_revision_interval_ms" not in uri
+
+
+def test_negative_revision_interval_is_rejected():
+    # Given/When: a negative cadence, which the server also rejects at connect
+    # Then: the SDK refuses it before a connection is attempted
+    with pytest.raises(ValueError, match="speaker_labels_revision_interval_ms"):
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+            speaker_labels=True,
+            speaker_labels_revision_interval_ms=-1,
+        )
+
+
+def test_large_revision_interval_is_not_clamped_client_side():
+    # Given: a cadence above the server's 300_000 default, which the server
+    # honors rather than clamps
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        speaker_labels=True,
+        speaker_labels_revision_interval_ms=600_000,
+    )
+
+    # When/Then: the SDK forwards it unchanged
+    assert "speaker_labels_revision_interval_ms=600000" in _build_uri(
+        "api.example.com", params
+    )
+
+
 def test_client_connect_with_continuous_partials(mocker: MockFixture):
     # Given: client + continuous_partials=True (U3-Pro steady-partials mode)
     actual_url = None
