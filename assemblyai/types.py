@@ -707,6 +707,73 @@ class SpeakerType(str, Enum):
     "Identify speakers by their name"
 
 
+class SpeechUnderstandingEffort(str, Enum):
+    """
+    How much processing power to spend on a speech understanding task. 'medium' produces
+    higher quality results on harder audio at a higher cost.
+    """
+
+    low = "low"
+    "Standard processing effort"
+
+    medium = "medium"
+    "Higher quality processing effort for harder audio"
+
+
+class SpeakerDescription(BaseModel):
+    """
+    Speaker description for speaker identification with rich metadata
+    """
+
+    name: Optional[str] = None
+    "Speaker name (when speaker_type is 'name')"
+
+    role: Optional[str] = None
+    "Speaker role (when speaker_type is 'role')"
+
+    description: Optional[str] = None
+    "Description of the speaker's role or characteristics in the audio"
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="allow")
+    else:
+
+        class Config:
+            extra = "allow"
+
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            val = getattr(self, item)
+            if val is not None:
+                return val
+        if (
+            hasattr(self, "__pydantic_extra__")
+            and self.__pydantic_extra__
+            and item in self.__pydantic_extra__
+        ):
+            return self.__pydantic_extra__[item]
+        if hasattr(self, item):
+            return getattr(self, item)
+        raise KeyError(item)
+
+    def __contains__(self, item: str) -> bool:
+        if hasattr(self, item) and getattr(self, item) is not None:
+            return True
+        if (
+            hasattr(self, "__pydantic_extra__")
+            and self.__pydantic_extra__
+            and item in self.__pydantic_extra__
+        ):
+            return True
+        return False
+
+    def get(self, item: str, default: Any = None) -> Any:
+        try:
+            return self[item]
+        except KeyError:
+            return default
+
+
 class SpeakerIdentificationRequest(BaseModel):
     """
     Speaker identification configuration for speech understanding
@@ -718,8 +785,11 @@ class SpeakerIdentificationRequest(BaseModel):
     known_values: Optional[List[str]] = None
     "Known speaker values (required when speaker_type is 'role')"
 
-    speakers: Optional[List[Dict[str, Any]]] = None
+    speakers: Optional[List[Union[SpeakerDescription, Dict[str, Any]]]] = None
     "Known speaker definitions with optional descriptions for improved accuracy"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
 
 
 class TranslationRequest(BaseModel):
@@ -736,6 +806,12 @@ class TranslationRequest(BaseModel):
     match_original_utterance: Optional[bool] = False
     "Whether to match the original utterance structure in translations (default: False)"
 
+    force_translation: Optional[bool] = False
+    "Whether to translate even when the detected source language equals the target language (default: False)"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
+
 
 class CustomFormattingRequest(BaseModel):
     """
@@ -750,6 +826,12 @@ class CustomFormattingRequest(BaseModel):
 
     email: Optional[str] = None
     "Custom email format pattern (e.g., 'username@domain.com')"
+
+    format_utterances: Optional[bool] = False
+    "Whether to also format utterance-level text (default: False)"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
 
 
 class SummarizationRequest(BaseModel):
@@ -766,7 +848,9 @@ class SummarizationRequest(BaseModel):
     approximate_chapters: Optional[int] = None
     "Override: Approximate number of chapters to split the transcript into"
 
-    effort: Optional[Literal["low", "medium"]] = None
+    effort: Optional[
+        Union[SpeechUnderstandingEffort, Literal["low", "medium"], str]
+    ] = None
     "How much effort to spend on this task (default: 'low')"
 
 
@@ -883,7 +967,9 @@ class SummarizationResponse(BaseModel):
     summary_type: Optional[Literal["bullets", "paragraph"]] = None
     "The summary type that was used"
 
-    effort: Optional[Literal["low", "medium"]] = None
+    effort: Optional[
+        Union[SpeechUnderstandingEffort, Literal["low", "medium"], str]
+    ] = None
     "The effort level that was used"
 
 
