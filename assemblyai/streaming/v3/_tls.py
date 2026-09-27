@@ -7,6 +7,11 @@ blocked on the socket while that request is written occasionally leaves the
 connection without a handshake response, and the connect times out. Sockets
 created from ``_create_tls_context()`` hold reads until the first write has
 returned, so the request is written before anything is read.
+
+Reads are held only on sockets the context builds from its
+``sslsocket_class``. An ``SSLContext`` replacement whose ``wrap_socket()``
+builds sockets some other way keeps its own sockets, and reads on them are not
+held.
 """
 
 from __future__ import annotations
@@ -85,7 +90,14 @@ def _create_tls_context() -> ssl.SSLContext:
     Certificate and hostname verification are those of
     ``ssl.create_default_context()``, which is also what websockets uses when
     no context is given.
+
+    ``_WriteFirstSSLSocket`` extends the ``ssl.SSLSocket`` present when this
+    module was imported. If the default context uses a socket class that
+    ``_WriteFirstSSLSocket`` does not extend, for example because gevent
+    patched ``ssl`` afterwards, the context keeps that class: its
+    ``wrap_socket()`` may not be able to construct ``_WriteFirstSSLSocket``.
     """
     context = ssl.create_default_context()
-    context.sslsocket_class = _WriteFirstSSLSocket
+    if issubclass(_WriteFirstSSLSocket, context.sslsocket_class):
+        context.sslsocket_class = _WriteFirstSSLSocket
     return context

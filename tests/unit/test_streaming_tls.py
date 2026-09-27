@@ -155,10 +155,29 @@ def _connect_tls(context: ssl.SSLContext, port: int) -> ssl.SSLSocket:
     )
 
 
+class _OtherSSLSocket(ssl.SSLSocket):
+    """A socket class that ``_WriteFirstSSLSocket`` does not extend."""
+
+
 def test_tls_context_keeps_verification_on():
     context = _tls._create_tls_context()
 
     assert context.sslsocket_class is _tls._WriteFirstSSLSocket
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+
+
+def test_tls_context_keeps_socket_class_it_does_not_extend(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Given: default contexts that build sockets of another class
+    monkeypatch.setattr(ssl.SSLContext, "sslsocket_class", _OtherSSLSocket)
+
+    # When: creating the SDK context
+    context = _tls._create_tls_context()
+
+    # Then: the context keeps that class and its verification settings
+    assert context.sslsocket_class is _OtherSSLSocket
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname is True
 
