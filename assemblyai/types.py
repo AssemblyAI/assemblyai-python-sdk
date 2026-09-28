@@ -698,6 +698,19 @@ class SpeakerType(str, Enum):
     "Identify speakers by their name"
 
 
+class SpeechUnderstandingEffort(str, Enum):
+    """
+    How much processing power to spend on a speech understanding task. 'medium' produces
+    higher quality results on harder audio at a higher cost.
+    """
+
+    low = "low"
+    "Standard processing effort"
+
+    medium = "medium"
+    "Higher quality processing effort for harder audio"
+
+
 class SpeakerIdentificationRequest(BaseModel):
     """
     Speaker identification configuration for speech understanding
@@ -711,6 +724,9 @@ class SpeakerIdentificationRequest(BaseModel):
 
     speakers: Optional[List[Dict[str, Any]]] = None
     "Known speaker definitions with optional descriptions for improved accuracy"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
 
 
 class TranslationRequest(BaseModel):
@@ -727,6 +743,12 @@ class TranslationRequest(BaseModel):
     match_original_utterance: Optional[bool] = False
     "Whether to match the original utterance structure in translations (default: False)"
 
+    force_translation: Optional[bool] = False
+    "Whether to translate even when the detected source language equals the target language (default: False)"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
+
 
 class CustomFormattingRequest(BaseModel):
     """
@@ -741,6 +763,9 @@ class CustomFormattingRequest(BaseModel):
 
     email: Optional[str] = None
     "Custom email format pattern (e.g., 'username@domain.com')"
+
+    effort: Optional[Union[SpeechUnderstandingEffort, str]] = None
+    "How much effort to spend on this task ('low' or 'medium')"
 
 
 class SpeechUnderstandingFeatureRequests(BaseModel):
