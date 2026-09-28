@@ -43,6 +43,7 @@ _OK_RESPONSE = {
     "session_id": "eb92c4ff-4bbb-429f-9b99-7279d7fe738f",
     "request_time_ms": 243.7,
     "sync_time_ms": 180.2,
+    "auth_time_ms": 24.6,
 }
 
 
@@ -288,6 +289,24 @@ def test_transcribe_live_parses_response(httpx_mock: HTTPXMock):
     assert result.audio_duration_ms == 400
     assert result.request_time_ms == 243.7
     assert result.sync_time_ms == 180.2
+    assert result.auth_time_ms == 24.6
+
+
+def test_transcribe_live_parses_response_without_auth_time(httpx_mock: HTTPXMock):
+    # Given a server response that predates the auth_time_ms field
+    response = {k: v for k, v in _OK_RESPONSE.items() if k != "auth_time_ms"}
+    httpx_mock.add_response(
+        url=LIVE_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When streaming audio chunks
+    result = aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF", b"fake"))
+
+    # Then auth_time_ms is None instead of a parse failure
+    assert result.auth_time_ms is None
 
 
 def test_transcribe_live_sends_raw_api_key_to_the_dictation_host(httpx_mock: HTTPXMock):

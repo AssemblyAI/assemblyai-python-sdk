@@ -192,6 +192,10 @@ class DictationResponse(BaseModel):
     sync_time_ms: Optional[float] = None
     "Time in milliseconds spent transcribing, excluding the LLM pass."
 
+    auth_time_ms: Optional[float] = None
+    """Authentication and key-validation time in milliseconds, as a portion
+    of request_time_ms. ``None`` when the server predates the field."""
+
     @property
     def final_text(self) -> str:
         """
