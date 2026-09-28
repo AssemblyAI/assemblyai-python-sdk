@@ -1,14 +1,17 @@
+import inspect
 import json
 import logging
 import queue
 import threading
 import time
 from typing import Any, Dict, Generator, Iterable, Optional, Union
+from urllib.parse import urlsplit
 
 import httpx
 import websockets
 from pydantic import BaseModel
-from websockets.sync.client import connect as websocket_connect
+from websockets.sync.client import ClientConnection
+from websockets.sync.client import connect as _ws_sync_connect
 
 from ._base import (
     _BaseStreamingClient,
@@ -21,6 +24,7 @@ from ._base import (
     _resolve_options,
     _user_agent,
 )
+from ._tls import _create_tls_context
 from .models import (
     ErrorEvent,
     EventMessage,
@@ -39,6 +43,23 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The sync ``connect()`` TLS parameter is ``ssl`` from websockets 13 on and
+# ``ssl_context`` before (``setup.py`` allows ``websockets>=11.0``).
+_WS_SSL_KW = (
+    "ssl" if "ssl" in inspect.signature(_ws_sync_connect).parameters else "ssl_context"
+)
+
+
+def websocket_connect(uri: str, **kwargs: Any) -> ClientConnection:
+    """Open a sync websocket connection with ``websockets.sync.client.connect``.
+
+    ``wss://`` URIs use the context from ``_create_tls_context()``. Module-level
+    indirection so tests can patch a single attribute.
+    """
+    if urlsplit(uri).scheme == "wss":
+        kwargs[_WS_SSL_KW] = _create_tls_context()
+    return _ws_sync_connect(uri, **kwargs)
 
 
 class RealTimeTranscriber(_BaseStreamingClient):
