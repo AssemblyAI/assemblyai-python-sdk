@@ -575,7 +575,8 @@ class SummarizationModel(str, Enum):
     Required Parameters:
         - `punctuate`: `True`
         - `format_text`: `True`
-        - `speaker_labels` or `dual_channel` set to `True`
+        - `speaker_labels`, `multichannel`, or `dual_channel` set to `True`
+          (`multichannel` is the recommended option; `dual_channel` is deprecated)
     """
 
     catchy = "catchy"
