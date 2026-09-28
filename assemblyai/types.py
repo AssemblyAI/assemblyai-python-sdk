@@ -2908,6 +2908,13 @@ class SyncTranscriptResponse(BaseModel):
     session_id: str
     "Server-generated UUID for this request. Record it to correlate with support."
 
+    language_code: Optional[str] = None
+    """ISO 639-1 language code the model used for this transcript (e.g. ``"en"``
+    for English, ``"es"`` for Spanish). Populated when the server detects or is
+    told the language; ``None`` for responses from servers that predate the field.
+    Useful when ``language_codes`` was not set and you need to know which language
+    the model chose."""
+
     request_time_ms: Optional[float] = None
     """End-to-end server-side request time in milliseconds: queue wait, auth,
     multipart parse, decode, inference, and serialization. ``None`` when the

@@ -71,6 +71,40 @@ def test_transcribe_parses_response_without_request_time(httpx_mock: HTTPXMock):
     assert result.request_time_ms is None
 
 
+def test_transcribe_parses_language_code(httpx_mock: HTTPXMock):
+    # Given a server response that includes the language_code field
+    response = {**_OK_RESPONSE, "language_code": "es"}
+    httpx_mock.add_response(
+        url=TRANSCRIBE_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When transcribing
+    result = aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes")
+
+    # Then language_code is surfaced on the response
+    assert result.language_code == "es"
+
+
+def test_transcribe_parses_response_without_language_code(httpx_mock: HTTPXMock):
+    # Given a server response that predates the language_code field
+    response = {k: v for k, v in _OK_RESPONSE.items() if k != "language_code"}
+    httpx_mock.add_response(
+        url=TRANSCRIBE_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When transcribing
+    result = aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes")
+
+    # Then language_code is None instead of a parse failure
+    assert result.language_code is None
+
+
 def test_transcribe_sends_model_header_and_wav_part(httpx_mock: HTTPXMock):
     # Given a mocked sync endpoint
     _mock_ok(httpx_mock)
