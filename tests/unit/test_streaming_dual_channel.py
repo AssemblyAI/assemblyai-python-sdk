@@ -335,6 +335,19 @@ def test_mixer_close_channel_lets_survivor_drain():
     assert sum(len(b) // 2 for b in mixer.drain()) == 800
 
 
+def test_mixer_close_channel_keeps_gating_on_live_channels():
+    # Regression: closing one channel must only stop waiting on that channel.
+    # The other channels still gate mixing, so a live channel that is behind is
+    # not padded with silence (which would shift its later audio out of time).
+    mixer = _mixer(("mic", "system", "room"))
+    mixer.ingest("mic", _pcm(1000, 1600))  # 100ms
+    mixer.ingest("system", _pcm(2000, 1600))  # 100ms
+    mixer.ingest("room", _pcm(3000, 800))  # 50ms
+    mixer.close_channel("mic")  # mic's source ended
+    sent = sum(len(b) // 2 for b in mixer.drain())
+    assert sent == 800  # only the span every live channel has covered
+
+
 # --------------------------------------------------------------------------- #
 # coordinators
 # --------------------------------------------------------------------------- #

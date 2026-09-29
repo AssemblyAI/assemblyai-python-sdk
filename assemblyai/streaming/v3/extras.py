@@ -511,26 +511,24 @@ class _ChannelMixer:
         ``[_MIN_CHUNK_MS, _MAX_CHUNK_MS]`` (the ``_MIN_CHUNK_MS`` floor applies
         only while not ``force``).
 
-        While every channel is still feeding, mixing gates on the shortest live
-        buffer to keep channels time-aligned. Once a channel is closed
-        (``close_channel``) or on the final ``force`` flush, shorter/ended
-        buffers are zero-padded up to the longest instead of gating on them, so
-        a terminated source degrades to the survivors rather than stalling the
-        session and dropping everything accumulated since.
+        Mixing gates on the shortest live buffer to keep channels time-aligned.
+        A closed channel (``close_channel``) no longer gates: its buffer is
+        zero-padded when it is shorter, so a terminated source degrades to the
+        survivors rather than stalling the session. On the final ``force``
+        flush, and once every channel is closed, all buffers are zero-padded up
+        to the longest.
         """
         bufs = [self._buffers[n] for n in self.channels]
         divisor = len(bufs)
-        # Pad (don't gate) once any channel has ended, or on the final flush.
-        pad = force or bool(self._ended)
+        live_channels = [n for n in self.channels if n not in self._ended]
         out_chunks: List[bytes] = []
         while True:
-            if pad:
+            # Ended channels never gate. Pad up to the longest buffer on the
+            # final flush, or once no channel is left feeding.
+            if force or not live_channels:
                 mix_len = max((len(b) for b in bufs), default=0)
             else:
-                live = [
-                    len(self._buffers[n]) for n in self.channels if n not in self._ended
-                ]
-                mix_len = min(live) if live else 0
+                mix_len = min(len(self._buffers[n]) for n in live_channels)
             if mix_len == 0:
                 break
             if not force and mix_len < self._min_chunk_samples:
