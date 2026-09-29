@@ -1,3 +1,5 @@
+import tempfile
+
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
@@ -314,6 +316,24 @@ def test_transcribe_path_input(httpx_mock: HTTPXMock, tmp_path):
     assert result.text == "hello world"
     body = httpx_mock.get_requests()[0].read()
     assert b'filename="call.wav"' in body
+
+
+def test_transcribe_file_object_without_a_path_name(httpx_mock: HTTPXMock):
+    # Given an anonymous temporary file, whose `name` is a file descriptor
+    # rather than a path
+    _mock_ok(httpx_mock)
+    with tempfile.TemporaryFile() as audio_file:
+        audio_file.write(b"RIFFfake-wav-bytes")
+        audio_file.seek(0)
+
+        # When transcribing the file object
+        result = aai.SyncTranscriber().transcribe(audio_file)
+
+    # Then it succeeds and ships the audio under the default name
+    assert result.text == "hello world"
+    body = httpx_mock.get_requests()[0].read()
+    assert b'filename="audio.wav"' in body
+    assert b"RIFFfake-wav-bytes" in body
 
 
 def test_keyterms_prompt_too_long_raises():
