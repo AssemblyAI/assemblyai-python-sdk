@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - exercised on websockets <13 only
     _WS_HEADER_KW = "extra_headers"
 
 from ._base import (
+    _as_bytes_chunk,
     _BaseStreamingClient,
     _build_headers,
     _build_uri,
@@ -272,7 +273,9 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
 
     async def stream(
         self,
-        data: Union[bytes, AsyncIterable[bytes], Iterable[bytes]],
+        data: Union[
+            bytes, bytearray, memoryview, AsyncIterable[bytes], Iterable[bytes]
+        ],
     ) -> None:
         # Loud on misuse (pre-connect), quiet on natural close (post-stop).
         # The first guards against silent data loss; the second keeps cleanup
@@ -281,21 +284,21 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         if stop_event.is_set():
             return
 
-        if isinstance(data, bytes):
-            await write_queue.put(data)
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            await write_queue.put(bytes(data))
             return
 
         if isinstance(data, collections.abc.AsyncIterable):
             async for chunk in data:
                 if stop_event.is_set():
                     return
-                await write_queue.put(chunk)
+                await write_queue.put(_as_bytes_chunk(chunk))
             return
 
         for chunk in data:
             if stop_event.is_set():
                 return
-            await write_queue.put(chunk)
+            await write_queue.put(_as_bytes_chunk(chunk))
 
     async def set_params(self, params: RealTimeSessionParameters) -> None:
         write_queue, stop_event = self._ensure_connected("set_params")

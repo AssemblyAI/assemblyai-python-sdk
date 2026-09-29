@@ -1661,3 +1661,26 @@ async def test_connect_does_not_retry_invalid_status(mocker: MockFixture):
     assert attempts["n"] == 1
     assert len(errors) == 1
     assert errors[0].code == 401
+
+
+@pytest.mark.parametrize("wrap", [bytearray, memoryview])
+async def test_stream_accepts_bytes_like_buffer(mocker: MockFixture, wrap):
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    await client.stream(wrap(b"\x01\x02\x03"))
+    await client.stream(iter([wrap(b"ab"), wrap(b"cd")]))
+
+    for _ in range(50):
+        if len(fake_ws.sent) >= 3:
+            break
+        await asyncio.sleep(0.01)
+
+    assert fake_ws.sent == [b"\x01\x02\x03", b"ab", b"cd"]
+
+    await client.disconnect()
