@@ -332,6 +332,7 @@ class RealTimeParameters(RealTimeSessionParameters):
     webhook_auth_header_value: Optional[str] = None
     llm_gateway: Optional[LLMGatewayConfig] = None
     speaker_labels: Optional[bool] = None
+    speaker_labels_revision_interval_ms: Optional[int] = Field(None, ge=0)
     max_speakers: Optional[int] = None
     voice_focus: Optional[NoiseSuppressionModel] = None
     voice_focus_threshold: Optional[float] = None
