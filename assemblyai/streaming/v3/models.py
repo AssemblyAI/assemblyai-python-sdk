@@ -402,17 +402,17 @@ class RealTimeTranscriberOptions(BaseModel):
     api_key: Optional[str] = None
     token: Optional[str] = None
     # Seconds to wait for the WebSocket handshake to complete before treating
-    # the attempt as failed.
-    connect_timeout: float = 1.0
+    # the attempt as failed. Must be positive.
+    connect_timeout: float = Field(default=1.0, gt=0)
     # Additional handshake attempts after the first one fails on a transient
     # error (timeout, network drop). 0 disables retries. HTTP-level rejections
-    # (auth, quota, bad request) are never retried.
-    max_connection_retries: int = 2
-    # Seconds to wait between handshake attempts.
-    connection_retry_delay: float = 0.5
+    # (auth, quota, bad request) are never retried. Must be non-negative.
+    max_connection_retries: int = Field(default=2, ge=0)
+    # Seconds to wait between handshake attempts. Must be non-negative.
+    connection_retry_delay: float = Field(default=0.5, ge=0)
     # Seconds disconnect(terminate=True) waits for the server's
-    # TerminationEvent (and any final Turn) before tearing down.
-    terminate_timeout: float = 5.0
+    # TerminationEvent (and any final Turn) before tearing down. Must be non-negative.
+    terminate_timeout: float = Field(default=5.0, ge=0)
 
 
 # Alias: the former name for `RealTimeTranscriberOptions`, bound to the same object.
