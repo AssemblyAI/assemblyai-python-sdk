@@ -50,7 +50,7 @@ aai.settings.api_key = "your-key"
 - `aai.SyncTranscriptResponse` — Sync result: `.text`, `.words` (`SyncWord` with `confidence` always, `start`/`end` only when `timestamps=True`), `.confidence`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`
 - `aai.DictationTranscriber` — Dictation API: audio uploaded as it is spoken over one live request, transcript (and optional LLM pass) out. Methods: `open_live()` (push-style `DictationLiveSession`: `write()`/`close()`/`result()`/`abort()`), `transcribe_live()` (iterable, file object, bytes or path), `warm()`. There is no buffered `transcribe()`: every entry point posts to `/v1/transcribe/live`
 - `aai.AsyncDictationTranscriber` — Asyncio counterpart of `DictationTranscriber`; `open_live()` returns an `AsyncDictationLiveSession`. Owns an HTTP pool: use `async with` or `await aclose()`
-- `aai.DictationConfig` — Dictation options: `sample_rate`, `channels`, `language_codes`, `keyterms_prompt`, `llm_instruction`. Rejects unknown fields
+- `aai.DictationConfig` — Dictation options: `sample_rate`, `channels`, `language_codes`, `keyterms_prompt`, `llm_instruction`, `rewrite_mode` (`aai.DictationRewriteMode.fast` default | `smart`). Rejects unknown fields
 - `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events

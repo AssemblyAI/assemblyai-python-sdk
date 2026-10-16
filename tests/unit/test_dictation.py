@@ -373,6 +373,7 @@ def test_config_json_excludes_unset_fields(httpx_mock: HTTPXMock):
     assert b'"language_codes"' not in body
     assert b'"sample_rate"' not in body
     assert b'"keyterms_prompt"' not in body
+    assert b'"rewrite_mode"' not in body
 
 
 def test_transcribe_live_sends_keyterms_prompt_and_language_codes(
@@ -618,6 +619,36 @@ def test_llm_instruction_too_long_raises():
     # Given an llm_instruction exceeding the 2048-char cap
     with pytest.raises(ValueError):
         aai.DictationConfig(llm_instruction="x" * 3000)
+
+
+def test_transcribe_live_sends_rewrite_mode(httpx_mock: HTTPXMock):
+    # Given a config asking for the smart rewrite tier
+    _mock_ok(httpx_mock)
+    config = aai.DictationConfig(
+        llm_instruction="Format this as a SOAP note.",
+        rewrite_mode=aai.DictationRewriteMode.smart,
+    )
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"), config=config)
+
+    # Then the config JSON carries the mode's wire value
+    body = httpx_mock.get_requests()[0].read()
+    assert b'"rewrite_mode": "smart"' in body
+
+
+def test_rewrite_mode_accepts_the_wire_string():
+    # Given rewrite_mode passed as a plain string
+    config = aai.DictationConfig(rewrite_mode="fast")
+
+    # Then it is parsed into the enum
+    assert config.rewrite_mode is aai.DictationRewriteMode.fast
+
+
+def test_rewrite_mode_rejects_an_unknown_tier():
+    # Given a tier the API does not define
+    with pytest.raises(ValueError):
+        aai.DictationConfig(rewrite_mode="gemma")
 
 
 def test_error_envelope_maps_to_dictation_error(httpx_mock: HTTPXMock):
