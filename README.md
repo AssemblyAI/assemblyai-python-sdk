@@ -779,6 +779,15 @@ if result.llm_error:
 
 The instruction is capped at 2048 characters.
 
+`rewrite_mode` picks the model tier that runs the rewrite. `fast` is the default; `smart` follows detailed formatting instructions more reliably, at higher latency:
+
+```python
+config = aai.DictationConfig(
+    llm_instruction="Lowercase unless a name, no final punctuation.",
+    rewrite_mode=aai.DictationRewriteMode.smart,
+)
+```
+
 </details>
 
 <details>
@@ -794,6 +803,7 @@ config = aai.DictationConfig(
     stt_prompt="A doctor dictating a visit note.", # what the audio is about; ≤6000 chars
     keyterms_prompt=["AssemblyAI", "Universal"], # bias the decoder; ≤100 terms / 8000 chars
     llm_instruction="Fix punctuation only.",     # optional LLM pass
+    rewrite_mode="smart",                        # rewrite model tier: "fast" (default) or "smart"
 )
 
 result = aai.DictationTranscriber().transcribe_live("./note.wav", config=config)

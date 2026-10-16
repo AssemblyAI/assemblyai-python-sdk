@@ -16,6 +16,7 @@ from .v1 import (
     DictationError,
     DictationLiveSession,
     DictationResponse,
+    DictationRewriteMode,
     DictationTranscriber,
     DictationWord,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "DictationError",
     "DictationLiveSession",
     "DictationResponse",
+    "DictationRewriteMode",
     "DictationTranscriber",
     "DictationWord",
 ]

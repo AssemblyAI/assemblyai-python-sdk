@@ -6,6 +6,7 @@ from .dictation.v1 import (
     DictationConfig,
     DictationError,
     DictationResponse,
+    DictationRewriteMode,
     DictationTranscriber,
     DictationWord,
 )
@@ -139,6 +140,7 @@ __all__ = [
     "DictationConfig",
     "DictationError",
     "DictationResponse",
+    "DictationRewriteMode",
     "DictationTranscriber",
     "DictationWord",
     "Entity",
