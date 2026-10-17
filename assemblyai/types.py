@@ -2161,16 +2161,16 @@ class Word(BaseModel):
     channel: Optional[str] = None
 
     # This is a workaround to address an issue where sentiment_analysis_results
-    # may return contains sentiments where `start` is null.
+    # may return contains sentiments where `start` or `end` is null.
     if pydantic_v2:
 
-        @field_validator("start", mode="before")
+        @field_validator("start", "end", mode="before")
         def set_start_default(cls, v):
             return 0 if v is None else v
 
     else:
 
-        @validator("start", pre=True)
+        @validator("start", "end", pre=True)
         def set_start_default(cls, v):
             return 0 if v is None else v
 
