@@ -743,6 +743,24 @@ class CustomFormattingRequest(BaseModel):
     "Custom email format pattern (e.g., 'username@domain.com')"
 
 
+class SummarizationRequest(BaseModel):
+    """
+    Summarization configuration for speech understanding
+    """
+
+    summary_type: Literal["bullets", "paragraph"]
+    "The format of the summary"
+
+    headline_length: Optional[int] = None
+    "Target word count for each chapter headline (5-15, default: 10)"
+
+    approximate_chapters: Optional[int] = None
+    "Override: Approximate number of chapters to split the transcript into"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "How much effort to spend on this task (default: 'low')"
+
+
 class SpeechUnderstandingFeatureRequests(BaseModel):
     """
     Speech understanding feature requests
@@ -756,6 +774,9 @@ class SpeechUnderstandingFeatureRequests(BaseModel):
 
     custom_formatting: Optional[CustomFormattingRequest] = None
     "Custom formatting configuration"
+
+    summarization: Optional[SummarizationRequest] = None
+    "Summarization configuration"
 
 
 class SpeechUnderstandingRequest(BaseModel):
@@ -815,6 +836,48 @@ class TranslationResponse(BaseModel):
     "Status of the translation feature"
 
 
+class SummarizationSection(BaseModel):
+    """
+    A summarized section of the transcript
+    """
+
+    start: int
+    "Start of the section, in milliseconds"
+
+    end: int
+    "End of the section, in milliseconds"
+
+    text: Optional[str] = None
+    "Section summary, when summary_type is 'paragraph'"
+
+    bullets: Optional[List[str]] = None
+    "Section summary, when summary_type is 'bullets'"
+
+    headline: Optional[str] = None
+    "Short headline describing the section"
+
+
+class SummarizationResponse(BaseModel):
+    """
+    Summarization response containing the chapter summaries
+    """
+
+    status: str
+    "Status of the summarization feature"
+
+    summary: Optional[List[SummarizationSection]] = None
+    "Per-section summaries"
+
+    block_summary: Optional[str] = None
+    "Single summary covering the whole transcript"
+
+    summary_type: Optional[Literal["bullets", "paragraph"]] = None
+    "The summary type that was used"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "The effort level that was used"
+
+
 class SpeechUnderstandingFeatureResponses(BaseModel):
     """
     Speech understanding feature responses grouped together
@@ -828,6 +891,9 @@ class SpeechUnderstandingFeatureResponses(BaseModel):
 
     custom_formatting: Optional[CustomFormattingResponse] = None
     "Custom formatting results"
+
+    summarization: Optional[SummarizationResponse] = None
+    "Summarization results"
 
 
 class SpeechUnderstandingResponse(BaseModel):
