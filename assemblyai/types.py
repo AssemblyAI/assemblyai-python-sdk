@@ -755,7 +755,7 @@ class SummarizationRequest(BaseModel):
     "Target word count for each chapter headline (5-15, default: 10)"
 
     approximate_chapters: Optional[int] = None
-    "Approximate number of chapters to split the transcript into"
+    "Override: Approximate number of chapters to split the transcript into"
 
     effort: Optional[Literal["low", "medium"]] = None
     "How much effort to spend on this task (default: 'low')"
