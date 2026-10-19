@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import queue
+import threading
 from typing import Any, Callable, Iterator, Optional
 
 import httpx
@@ -60,6 +61,7 @@ class DictationLiveSession:
                 future that will hold its outcome. Supplied by the transcriber.
         """
         self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
+        self._lock = threading.Lock()
         self._closed = False
         self._aborted = False
         self._future = start(self._chunks())
@@ -77,14 +79,16 @@ class DictationLiveSession:
     def closed(self) -> bool:
         """Whether the audio has ended, by `close()`, `result()` or `abort()`."""
 
-        return self._closed
+        with self._lock:
+            return self._closed
 
     def write(self, chunk: bytes) -> None:
         """
         Queues a piece of audio for upload.
 
         Safe to call from any thread, including an audio library's capture
-        callback; it never blocks.
+        callback. It can briefly wait for thread synchronization, but it does
+        not wait for network upload.
 
         Args:
             chunk: `bytes`, `bytearray` or `memoryview` of audio, in order.
@@ -93,21 +97,31 @@ class DictationLiveSession:
             TypeError: if `chunk` is not bytes-like.
             RuntimeError: if the session is closed.
         """
-        if self._closed:
-            raise RuntimeError(
-                "the live session is closed; no more audio can be written"
-            )
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(
+                    "the live session is closed; no more audio can be written"
+                )
 
-        self._queue.put(_as_bytes(chunk))
+        chunk = _as_bytes(chunk)
+
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(
+                    "the live session is closed; no more audio can be written"
+                )
+            self._queue.put(chunk)
 
     def close(self) -> None:
         """
         Ends the audio. The server transcribes what was sent; `result()`
-        returns it. Idempotent, and never blocks.
+        returns it. Idempotent. It can briefly wait for thread synchronization,
+        but it does not wait for network upload.
         """
-        if not self._closed:
-            self._closed = True
-            self._queue.put(None)
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                self._queue.put(None)
 
     def result(self) -> DictationResponse:
         """
@@ -118,8 +132,11 @@ class DictationLiveSession:
                 server sent while the upload was still in flight.
             RuntimeError: if the session was aborted.
         """
-        if self._aborted:
-            raise RuntimeError("the live session was aborted; there is no result")
+        with self._lock:
+            if self._aborted:
+                raise RuntimeError(
+                    "the live session was aborted; there is no result"
+                )
 
         self.close()
 
@@ -135,13 +152,14 @@ class DictationLiveSession:
         the connection. After `close()` the upload is already complete, so
         aborting then waits out the in-flight response instead.
         """
-        if self._aborted or self._future.done():
-            return
+        with self._lock:
+            if self._aborted or self._future.done():
+                return
 
-        self._aborted = True
-        if not self._closed:
-            self._closed = True
-            self._queue.put(None)
+            self._aborted = True
+            if not self._closed:
+                self._closed = True
+                self._queue.put(None)
 
         try:
             self._future.result()
