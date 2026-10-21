@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import pytest_asyncio
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.frames import Close
 
@@ -82,8 +83,10 @@ class _FakeAsyncServer:
         self.push(ConnectionClosedOK(Close(1000, ""), None))
 
 
-@pytest.fixture
-def server(mocker):
+@pytest_asyncio.fixture
+async def server(mocker):
+    # Built inside the running loop: on Python 3.9 an asyncio.Queue binds to
+    # the loop that exists when it is created.
     fake = _FakeAsyncServer()
 
     async def connect(uri, additional_headers):
