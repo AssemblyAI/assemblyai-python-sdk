@@ -8,6 +8,7 @@ import json
 from typing import Any, Iterator, Optional
 
 import httpx
+import pydantic
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -593,6 +594,22 @@ def test_config_rejects_unknown_fields():
     # `speed` exists on the API, but only as 1: the config leaves it out
     with pytest.raises(ValueError):
         aai.TTSConfig(speed=1)  # type: ignore[call-arg]
+
+
+def test_config_is_a_native_model_of_the_installed_pydantic():
+    # The default install is pydantic 2 without pydantic-settings, so the
+    # major version is read from pydantic itself
+    if int(pydantic.VERSION.split(".")[0]) >= 2:
+        assert models.pydantic_v2 is True
+        assert "Config" not in vars(aai.TTSConfig)
+        assert aai.TTSConfig.model_config["extra"] == "forbid"
+        assert aai.TTSConfig.model_config["protected_namespaces"] == ()
+    else:
+        assert models.pydantic_v2 is False
+        assert aai.TTSConfig.__config__.extra == "forbid"
+
+    with pytest.raises(ValueError):
+        aai.TTSConfig(sample_rte=8000)  # type: ignore[call-arg]
 
 
 def test_wrong_config_type_is_a_type_error():

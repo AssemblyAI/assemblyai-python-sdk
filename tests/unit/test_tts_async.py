@@ -263,6 +263,27 @@ async def test_stream_aread_raises_the_same_error_on_a_cut(httpx_mock: HTTPXMock
     assert isinstance(exc_info.value.__cause__, httpx.ReadTimeout)
 
 
+async def test_a_refused_stream_releases_its_connection_if_its_body_fails(
+    httpx_mock: HTTPXMock,
+):
+    # GIVEN a refusal whose error body is cut while it is read
+    body = _RecordingStream(b'{"code": ', error=httpx.ReadError("reset"))
+    httpx_mock.add_callback(
+        lambda request: httpx.Response(
+            503, headers={"content-type": "application/json"}, stream=body
+        ),
+        url=SPEECH_URL,
+        method="POST",
+    )
+
+    # THEN the network error surfaces and the connection is released
+    async with aai.AsyncTextToSpeech() as tts:
+        with pytest.raises(httpx.ReadError):
+            await tts.stream("Hi.")
+
+        assert body.closed
+
+
 async def test_synthesize_and_stream_use_their_own_timeouts(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
     _mock_ok(httpx_mock)

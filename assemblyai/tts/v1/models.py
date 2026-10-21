@@ -253,8 +253,9 @@ class TTSResponseInfo(BaseModel):
     billed_characters: Optional[int] = None
     """The characters the request bills. On `stream()` the header leaves with
     the first audio, before the outcome is known: it holds once the audio is
-    read to its end, and a response cut by a failure on the API's side bills
-    `0`. Reconcile billing on `request_id`."""
+    read to its end. A response cut by a server failure bills `0`, and one
+    cut by `session_expired` (the API's 600-second limit) bills less.
+    Reconcile billing on `request_id`."""
 
     audio_duration_ms: Optional[int] = None
     """The duration of the audio in milliseconds. Sent on a complete response

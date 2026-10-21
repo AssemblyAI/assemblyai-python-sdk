@@ -55,8 +55,11 @@ def _cut_error(info: TTSResponseInfo, error: Exception) -> TTSError:
     The `TTSError` for a streamed body that ended before the audio was complete.
 
     The API commits to `200` with the first audio, so a failure after it cuts
-    the body: the request is retryable from the start, and a cut caused on the
-    API's side is not billed. Raised `from` the httpx error.
+    the body: the request is retryable from the start. A cut caused by a
+    server failure is not billed; a `session_expired` cut (the API's
+    600-second limit) bills the text before the sentence being spoken when it
+    expired, and an `audio_backlog` cut (a client reading too slowly) bills
+    every character. Raised `from` the httpx error.
     """
 
     return TTSError(
