@@ -2,7 +2,7 @@ from typing import Optional
 
 from ... import async_client as _async_client
 from . import async_api
-from ._base import check_config, request_body
+from ._base import check_config, check_text, request_body
 from .async_api import AsyncTTSStream
 from .models import TTSConfig, TTSResponse
 
@@ -96,12 +96,14 @@ class AsyncTextToSpeech:
         Raises:
             TTSError: on any API refusal.
         """
+        check_text(text)
         check_config(type(self).__name__, config)
+        body = request_body(text, config or self._config)
 
         return await async_api.synthesize(
             self._client.http_client,
             base_url=self._client.settings.tts_base_url,
-            body=request_body(text, config or self._config),
+            body=body,
             timeout=self._client.settings.tts_synthesize_http_timeout,
         )
 
@@ -120,12 +122,14 @@ class AsyncTextToSpeech:
         Raises:
             TTSError: if the API refuses the request before any audio.
         """
+        check_text(text)
         check_config(type(self).__name__, config)
+        body = request_body(text, config or self._config)
 
         return await async_api.stream_speech(
             self._client.http_client,
             base_url=self._client.settings.tts_base_url,
-            body=request_body(text, config or self._config),
+            body=body,
             timeout=self._client.settings.tts_http_timeout,
         )
 

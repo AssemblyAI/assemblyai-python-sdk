@@ -8,18 +8,14 @@ that uses them.
 from enum import Enum
 from typing import List, Optional, Union
 
-try:
-    # pydantic v2 import
+from ...types import AssemblyAIError, pydantic_v2
+
+# pydantic 1.10 also exports `ConfigDict`, so the version is taken from
+# `types.py`, which probes a v2-only name, instead of an import attempt here.
+if pydantic_v2:
     from pydantic import BaseModel, ConfigDict
-
-    pydantic_v2 = True
-except ImportError:
-    # pydantic v1 import (fallback for Python < 3.14)
+else:
     from pydantic import BaseModel
-
-    pydantic_v2 = False
-
-from ...types import AssemblyAIError
 
 __all__ = [
     "TTSConfig",
@@ -106,8 +102,9 @@ class TTSConfig(BaseModel):
     """
 
     voice: Optional[str] = None
-    """The name of an AssemblyAI voice, such as `jane` (the English default)
-    or `alba`. Case-insensitive. Not together with `voice_id`."""
+    """The name of an AssemblyAI voice: `jane` (the default), `alba`, `anna`,
+    `charles`, `eve`, `george`, `jean`, `mary`, `michael`, `paul` or `vera`,
+    each in every language. Case-insensitive. Not together with `voice_id`."""
 
     voice_id: Optional[str] = None
     """A voice by its id: a voice cloned by the account (its UUID or slug) or a

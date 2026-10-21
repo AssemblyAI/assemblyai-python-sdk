@@ -338,3 +338,13 @@ def test_wrong_config_type_is_a_type_error():
 def test_text_must_be_a_str():
     with pytest.raises(TypeError):
         aai.TextToSpeech().synthesize(b"Hi.")  # type: ignore[arg-type]
+
+
+def test_swapped_text_and_config_is_named():
+    with pytest.raises(TypeError, match="text comes first"):
+        aai.TextToSpeech().stream(aai.TTSConfig(voice="jane"), "Hi.")  # type: ignore[arg-type]
+
+
+def test_a_dict_config_is_a_type_error_not_an_attribute_error():
+    with pytest.raises(TypeError, match="TTSConfig"):
+        aai.TextToSpeech().synthesize("Hi.", {"voice": "jane"})  # type: ignore[arg-type]

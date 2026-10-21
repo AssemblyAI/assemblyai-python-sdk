@@ -892,7 +892,7 @@ except aai.DictationError as error:
 
 ### **Text-to-Speech Examples**
 
-`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. Options go in a `TTSConfig`: a preset `voice` (`jane`, `alba`, ...) or a `voice_id` (a voice cloned by your account, or a voice of the AssemblyAI voice library by its slug such as `aai-jane`), the `language`, the `sample_rate`, the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). Voices are created and managed in the AssemblyAI dashboard.
+`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: a preset `voice` (`jane` by default, `alba`, `anna`, `charles`, `eve`, `george`, `jean`, `mary`, `michael`, `paul`, `vera`) or a `voice_id` (a voice cloned by your account, or a voice of the AssemblyAI voice library by its slug such as `aai-jane`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
 
 Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone.
 
@@ -918,7 +918,7 @@ with open("hello.wav", "wb") as out:
 print(response.model, response.voice, response.audio_duration_ms, "ms")
 ```
 
-`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API failure is always a `TTSError`, never a cut response, and the WAV header carries real sizes. The response headers are on the result: `request_id`, `model`, `voice`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `model`, `voice`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
 
 </details>
 
@@ -938,7 +938,7 @@ with tts.stream("Streaming straight to the speakers.") as speech:
         play(chunk)  # raw 24 kHz 16-bit mono PCM
 ```
 
-`stream()` returns once the API has sent the first audio, usually well under a second. Chunks are not aligned to samples: for 16-bit PCM, carry an odd trailing byte over to the next chunk. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: `httpx.RemoteProtocolError` is raised from the loop, and the whole request should be retried.
+`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: `httpx.RemoteProtocolError` is raised from the loop, and the whole request should be retried.
 
 </details>
 
@@ -970,6 +970,8 @@ with aai.TextToSpeech(config=telephony).stream("Your appointment is confirmed.")
 import time
 import assemblyai as aai
 
+aai.settings.api_key = "<YOUR_API_KEY>"  # or the ASSEMBLYAI_API_KEY environment variable
+
 tts = aai.TextToSpeech()
 
 try:
@@ -980,7 +982,7 @@ except aai.TTSError as e:
         time.sleep(e.retry_after or 1)
 ```
 
-`error_code` is the API's stable code (`invalid_parameter`, `voice_not_found`, `rate_limited`, `at_capacity`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
+`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `rate_limited`, `at_capacity`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
 
 </details>
 
@@ -1001,7 +1003,7 @@ async def main():
 
         async with await tts.stream("And streamed.") as speech:
             async for chunk in speech:
-                await play(chunk)
+                await play(chunk)  # your own coroutine
 
 
 asyncio.run(main())
@@ -1958,7 +1960,14 @@ aai.settings.sync_live_http_timeout = 180.0
 # to outlast the final segment's inference plus the LLM pass.
 aai.settings.dictation_base_url = "https://dictation.assemblyai.com"
 aai.settings.dictation_http_timeout = 300.0
+
+# Text-to-Speech: the host (US by default, EU below) and the timeouts
+aai.settings.tts_base_url = "https://tts.eu.assemblyai.com"
+aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation
+aai.settings.tts_synthesize_http_timeout = 120.0  # synthesize(): the wait for the whole clip
 ```
+
+Set these before creating a client: `aai.TextToSpeech()` (like every client) copies the settings when it is built, so a later change applies to the next instance, not to an existing one. Every setting can also come from the environment with the `ASSEMBLYAI_` prefix, such as `ASSEMBLYAI_TTS_BASE_URL`.
 
 </details>
 
