@@ -890,6 +890,127 @@ except aai.DictationError as error:
 
 ---
 
+### **Text-to-Speech Examples**
+
+`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. Options go in a `TTSConfig`: a preset `voice` (`jane`, `alba`, ...) or a `voice_id` (a voice cloned by your account, or a voice of the AssemblyAI voice library by its slug such as `aai-jane`), the `language`, the `sample_rate`, the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). Voices are created and managed in the AssemblyAI dashboard.
+
+Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone.
+
+<details>
+  <summary>Synthesize a WAV file</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+tts = aai.TextToSpeech()
+
+response = tts.synthesize(
+    "Hello from AssemblyAI.",
+    aai.TTSConfig(voice="jane", container=aai.TTSContainer.wav),
+)
+# A config given per call replaces the client's default config whole.
+
+with open("hello.wav", "wb") as out:
+    out.write(response.audio)
+
+print(response.model, response.voice, response.audio_duration_ms, "ms")
+```
+
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API failure is always a `TTSError`, never a cut response, and the WAV header carries real sizes. The response headers are on the result: `request_id`, `model`, `voice`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
+
+</details>
+
+<details>
+  <summary>Stream audio as it is generated</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+tts = aai.TextToSpeech(config=aai.TTSConfig(voice="alba"))
+
+with tts.stream("Streaming straight to the speakers.") as speech:
+    print("speaking with", speech.info.model, "at", speech.info.sample_rate, "Hz")
+    for chunk in speech:
+        play(chunk)  # raw 24 kHz 16-bit mono PCM
+```
+
+`stream()` returns once the API has sent the first audio, usually well under a second. Chunks are not aligned to samples: for 16-bit PCM, carry an odd trailing byte over to the next chunk. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: `httpx.RemoteProtocolError` is raised from the loop, and the whole request should be retried.
+
+</details>
+
+<details>
+  <summary>Telephony audio and a cloned voice</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+telephony = aai.TTSConfig(
+    voice_id="01a0da61-138c-77c7-ab98-421431ed74e8",  # a voice cloned in the dashboard
+    encoding=aai.TTSEncoding.pcm_mulaw,
+    sample_rate=8000,
+)
+
+with aai.TextToSpeech(config=telephony).stream("Your appointment is confirmed.") as speech:
+    for chunk in speech:
+        send_to_call(chunk)
+```
+
+</details>
+
+<details>
+  <summary>Handle errors and retries</summary>
+
+```python
+import time
+import assemblyai as aai
+
+tts = aai.TextToSpeech()
+
+try:
+    response = tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-nobody"))
+except aai.TTSError as e:
+    print(e.status_code, e.error_code, e.param, e.request_id)  # 422 voice_not_found voice_id ...
+    if e.retryable:
+        time.sleep(e.retry_after or 1)
+```
+
+`error_code` is the API's stable code (`invalid_parameter`, `voice_not_found`, `rate_limited`, `at_capacity`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
+
+</details>
+
+<details>
+  <summary>Asyncio</summary>
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTextToSpeech() as tts:
+        response = await tts.synthesize("Hello from AssemblyAI.")
+        print(len(response.audio), "bytes")
+
+        async with await tts.stream("And streamed.") as speech:
+            async for chunk in speech:
+                await play(chunk)
+
+
+asyncio.run(main())
+```
+
+`AsyncTextToSpeech` owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one.
+
+</details>
+
 ### **Asyncio Examples**
 
 `aai.AsyncTranscriber` is the asyncio counterpart of `aai.Transcriber`. Every method
@@ -1957,6 +2078,7 @@ All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streami
 | `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
 | `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
+| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[dict]]` |
 | `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
