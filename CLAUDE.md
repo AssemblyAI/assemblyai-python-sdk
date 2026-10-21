@@ -54,6 +54,8 @@ aai.settings.api_key = "your-key"
 - `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
 - `aai.TextToSpeech` — Text-to-Speech HTTP API: one text per request, audio out. Methods: `synthesize()` (complete audio as a `TTSResponse`), `stream()` (a `TTSStream` context manager yielding bytes as the API generates them), `close()` / `with` for a client built from `api_key=`. Host from `aai.settings.tts_base_url` (`https://tts.us.assemblyai.com`; set `https://tts.eu.assemblyai.com` for the EU zone)
 - `aai.AsyncTextToSpeech` — Asyncio counterpart of `TextToSpeech`; `synthesize()` is a coroutine and `stream()` returns an `AsyncTTSStream`. Owns an HTTP pool: use `async with` or `await aclose()`
+- `aai.TTSSession` — Text-to-Speech WebSocket session: one connection, text in as it is written, audio out. `with` connects and waits for `Begin`; `speak(text)` yields one request's audio; `generate(text)` / `flush()` -> flush_id / `audio(flush_id)` for streamed-in text and pipelining; `cancel()` for barge-in; `keep_alive()`; `on(TTSEvents.X, handler)` for `Audio`, `FlushDone`, `WordBoundaries`, `Cancelled`, `Termination`, `Error`. Exit sends `Terminate` and sets `session.termination`. Refusals raise `TTSError`. `token=` for temporary tokens
+- `aai.AsyncTTSSession` — Asyncio counterpart: `async with`, coroutine sends, `async for chunk in session.speak(text)`
 - `aai.TTSConfig` — Text-to-Speech options: `voice_id` (a library voice such as `aai-jane`, or a cloned voice by UUID or slug), `model_id` (`assemblyai-tts-1`), `language`, `sample_rate`, `encoding` (`aai.TTSEncoding`: `pcm_s16le` default | `pcm_mulaw` | `pcm_alaw` | `mp3`), `container` (`aai.TTSContainer`: `raw` default | `wav`), `bit_rate`, `extend_biometric_consent` (owner-only consent renewal of a cloned voice). Rejects unknown fields
 - `aai.TTSResponse` — Text-to-Speech result: `.audio` (bytes) plus the response headers: `.request_id`, `.region`, `.model`, `.voice_id`, `.language`, `.encoding`, `.sample_rate`, `.container`, `.bit_rate`, `.content_type`, `.voice_expires_at`, `.billed_characters`, `.audio_duration_ms`. `TTSStream.info` carries the same fields without `audio`; `audio_duration_ms` is `None` on a stream with audio (`0` when the text had nothing to speak)
 - `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code; `biometric_terms_not_accepted` 403 until the account accepts the biometric data terms in the dashboard, `auth_unavailable` 503 retryable), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`, `.body` (the whole envelope)
@@ -479,6 +481,12 @@ with tts.stream("Hello.", telephony) as speech:
 
 # A cloned or library voice by id
 tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-alba"))
+
+# A WebSocket session for a voice agent: no handshake per sentence, barge-in with cancel()
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for sentence in reply_sentences():
+        for chunk in session.speak(sentence):
+            play(chunk)
 ```
 
 ## LLM Gateway

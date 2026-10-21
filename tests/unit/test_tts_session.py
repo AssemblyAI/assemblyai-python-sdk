@@ -1,0 +1,425 @@
+"""Tests for the threaded Text-to-Speech WebSocket session.
+
+`_FakeServer` plays the API: it answers `Generate`/`Flush` with the text's
+bytes as one `Audio` frame and a `FlushDone`, `Cancel` with `Cancelled`, and
+`Terminate` with `Termination` and a clean close.
+"""
+
+import base64
+import json
+import queue
+import time
+from typing import Any, List, Optional
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+from websockets.frames import Close
+
+import assemblyai as aai
+
+aai.settings.api_key = "test"
+
+_BEGIN = {
+    "type": "Begin",
+    "id": "sess-1",
+    "expires_at": 1789556741,
+    "configuration": {
+        "voice_id": "aai-jane",
+        "model": "assemblyai-tts-1",
+        "sample_rate": 24000,
+    },
+}
+_TERMINATION = {
+    "type": "Termination",
+    "session_duration_seconds": 3,
+    "total_input_char_length": 20,
+    "audio_duration_seconds": 1.5,
+}
+
+
+def _closed_ok() -> ConnectionClosedOK:
+    return ConnectionClosedOK(Close(1000, "Session ended"), None)
+
+
+class _FakeServer:
+    def __init__(self, begin: Optional[dict] = _BEGIN, answer_flush: bool = True):
+        self.sent: List[dict] = []
+        self.inbox: "queue.Queue[Any]" = queue.Queue()
+        self.closed = False
+        self.text = ""
+        self.flush_id = 0
+        self.answer_flush = answer_flush
+        if begin is not None:
+            self.push(begin)
+
+    def push(self, item: Any) -> None:
+        self.inbox.put(json.dumps(item) if isinstance(item, dict) else item)
+
+    def send(self, raw: str) -> None:
+        frame = json.loads(raw)
+        self.sent.append(frame)
+        kind = frame["type"]
+        if kind == "Generate":
+            self.text += frame["text"]
+        elif kind == "Flush":
+            if self.answer_flush:
+                audio = base64.b64encode(self.text.encode()).decode()
+                self.push({"type": "Audio", "audio": audio, "flush_id": self.flush_id})
+                self.push(
+                    {
+                        "type": "FlushDone",
+                        "flush_id": self.flush_id,
+                        "audio_duration_ms": 80,
+                    }
+                )
+            self.flush_id += 1
+            self.text = ""
+        elif kind == "Cancel":
+            self.flush_id += 1
+            self.text = ""
+            self.push({"type": "Cancelled", "audio_duration_seconds": 0.1})
+        elif kind == "Terminate":
+            self.push(_TERMINATION)
+            self.push(_closed_ok())
+
+    def recv(self, timeout: Optional[float] = None) -> str:
+        try:
+            item = self.inbox.get(timeout=0.02)
+        except queue.Empty:
+            raise TimeoutError()
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def server(mocker):
+    fake = _FakeServer()
+    connect = mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect", return_value=fake
+    )
+    fake.connect = connect
+    return fake
+
+
+def _frames(server: _FakeServer, kind: str) -> List[dict]:
+    return [f for f in server.sent if f["type"] == kind]
+
+
+def test_with_connects_waits_for_begin_and_terminates_on_exit(server):
+    with aai.TTSSession(
+        config=aai.TTSConfig(voice_id="aai-alba", sample_rate=8000)
+    ) as session:
+        assert session.begin is not None
+        assert session.begin.id == "sess-1"
+        assert session.begin.configuration["model"] == "assemblyai-tts-1"
+
+    uri = server.connect.call_args.args[0]
+    headers = server.connect.call_args.kwargs["additional_headers"]
+    parts = urlsplit(uri)
+    assert parts.scheme == "wss" and parts.netloc == "tts.us.assemblyai.com"
+    assert parts.path == "/v1/ws"
+    assert parse_qs(parts.query) == {
+        "voice_id": ["aai-alba"],
+        "sample_rate": ["8000"],
+        "word_boundaries": ["false"],
+    }
+    assert headers["Authorization"] == "test"
+    assert "AssemblyAI" in headers["User-Agent"]
+    assert [f["type"] for f in server.sent] == ["Terminate"]
+    assert session.termination is not None
+    assert session.termination.total_input_char_length == 20
+    assert server.closed
+
+
+def test_speak_sends_generate_and_flush_and_yields_the_audio(server):
+    with aai.TTSSession() as session:
+        chunks = list(session.speak("Hello there."))
+
+    assert b"".join(chunks) == b"Hello there."
+    assert server.sent[:2] == [
+        {"type": "Generate", "text": "Hello there."},
+        {"type": "Flush"},
+    ]
+
+
+def test_requests_are_pipelined_and_read_in_flush_id_order(server):
+    with aai.TTSSession() as session:
+        session.generate("One. ")
+        first = session.flush()
+        session.generate("Two.")
+        second = session.flush()
+        assert (first, second) == (0, 1)
+        assert b"".join(session.audio(first)) == b"One. "
+        assert b"".join(session.audio(second)) == b"Two."
+
+
+def test_cancel_ends_the_current_request_but_not_a_later_one(server):
+    server.answer_flush = False  # the request stays in flight
+    with aai.TTSSession() as session:
+        session.generate("A long reply that gets interrupted.")
+        flush_id = session.flush()
+        stream = session.audio(flush_id)
+        session.cancel()  # barge-in
+        assert list(stream) == []
+        assert session._next_flush_id == 2
+
+        server.answer_flush = True
+        assert b"".join(session.speak("Next.")) == b"Next."
+    assert [f["type"] for f in server.sent] == [
+        "Generate",
+        "Flush",
+        "Cancel",
+        "Generate",
+        "Flush",
+        "Terminate",
+    ]
+
+
+def test_a_cancel_before_a_request_does_not_end_it(server):
+    with aai.TTSSession() as session:
+        session.cancel()  # nothing in flight; Cancelled arrives later
+        assert b"".join(session.speak("Hi.")) == b"Hi."
+
+
+def test_an_error_before_begin_raises_from_with(mocker):
+    fake = _FakeServer(begin=None)
+    fake.push(
+        {
+            "type": "Error",
+            "error_code": 3012,
+            "error": "The requested voice was not found.",
+            "error_type": "voice_not_found",
+            "retryable": False,
+            "param": "voice_id",
+            "retry_after_seconds": None,
+        }
+    )
+    fake.push(ConnectionClosedError(Close(3012, "See Error message for details"), None))
+    mocker.patch("assemblyai.tts.v1.session.websocket_connect", return_value=fake)
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-nobody")):
+            pass
+
+    err = exc_info.value
+    assert err.error_code == "voice_not_found"
+    assert err.param == "voice_id"
+    assert err.retryable is False
+    assert err.body["error_code"] == 3012
+    assert fake.closed
+
+
+def test_an_error_mid_session_raises_from_the_audio_and_reaches_the_handler(server):
+    errors = []
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.Error, errors.append)
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(
+                {
+                    "type": "Error",
+                    "error_code": 3005,
+                    "error": "No room",
+                    "error_type": "at_capacity",
+                    "retryable": True,
+                    "param": None,
+                    "retry_after_seconds": 2,
+                }
+            )
+            list(session.audio(flush_id))
+
+    assert exc_info.value.error_code == "at_capacity"
+    assert exc_info.value.retry_after == 2
+    assert errors == [exc_info.value]
+    assert session.error is exc_info.value
+
+
+def test_a_lost_connection_is_a_retryable_error(server):
+    errors = []
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.Error, errors.append)
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(ConnectionClosedError(None, None))  # abnormal: no close frame
+            list(session.audio(flush_id))
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.body == {"close_code": 1006, "reason": ""}
+    assert len(errors) == 1
+
+
+def test_a_send_after_a_failure_raises_the_stored_error(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            server.push(ConnectionClosedError(None, None))
+            session._stopped.wait(2)
+            session.generate("too late")
+    assert exc_info.value.body["close_code"] == 1006
+
+
+def test_a_cancel_drops_every_pipelined_request(server):
+    server.answer_flush = False
+    with aai.TTSSession() as session:
+        first = session.flush()
+        second = session.flush()
+        session.cancel()
+        assert list(session.audio(first)) == []
+        assert list(session.audio(second)) == []  # also dropped, must not hang
+
+
+def test_an_unreadable_frame_ends_the_session_with_an_error(server):
+    with pytest.raises(aai.TTSError, match="Unreadable frame"):
+        with aai.TTSSession() as session:
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push({"type": "Audio", "flush_id": "zero"})  # no audio, wrong type
+            list(session.audio(flush_id))
+
+
+def test_a_session_object_can_be_reused(mocker):
+    fakes = [_FakeServer(), _FakeServer()]
+    mocker.patch("assemblyai.tts.v1.session.websocket_connect", side_effect=fakes)
+    session = aai.TTSSession()
+    with session:
+        assert b"".join(session.speak("One.")) == b"One."
+    with session:
+        assert b"".join(session.speak("Two.")) == b"Two."
+    assert [f["type"] for f in fakes[1].sent] == ["Generate", "Flush", "Terminate"]
+
+
+def test_unread_audio_is_bounded_and_dropped_oldest_first(server, caplog):
+    from assemblyai.tts._base_ws import PULL_QUEUE_FRAMES
+
+    with aai.TTSSession() as session:
+        # audio of a request nobody reads floods the pull queue
+        for _ in range(PULL_QUEUE_FRAMES + 5):
+            server.push({"type": "Audio", "audio": "AA==", "flush_id": 7})
+        deadline = time.monotonic() + 5
+        while not server.inbox.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)  # let the reader queue the flood before anyone reads
+        assert session._queue.full()
+        session.generate("y")
+        flush_id = session.flush()
+        assert b"".join(session.audio(flush_id)) == b"y"  # still served after the flood
+    assert session._queue.maxsize == PULL_QUEUE_FRAMES
+    assert "dropping audio" in caplog.text
+
+
+def test_an_audio_handler_receives_the_frames_instead_of_the_queue(server):
+    received = []
+    done = []
+    with aai.TTSSession() as session:
+        session.on(aai.TTSEvents.Audio, received.append)
+        session.on(aai.TTSEvents.FlushDone, done.append)
+        session.generate("Pushed.")
+        flush_id = session.flush()
+        assert list(session.audio(flush_id)) == []  # nothing queued for pulling
+
+    assert [e.audio for e in received] == [b"Pushed."]
+    assert received[0].flush_id == 0
+    assert done[0].audio_duration_ms == 80
+
+
+def test_word_boundaries_and_cancelled_reach_their_handlers(server):
+    words = []
+    cancelled = []
+    with aai.TTSSession(word_boundaries=True) as session:
+        session.on(aai.TTSEvents.WordBoundaries, words.append)
+        session.on(aai.TTSEvents.Cancelled, cancelled.append)
+        list(session.speak("Hello there."))
+        server.push(
+            {
+                "type": "WordBoundaries",
+                "flush_id": 0,
+                "audio_start_ms": 0,
+                "words": [
+                    {"word": "Hello", "start": 265, "end": 530, "confidence": 0.9}
+                ],
+            }
+        )
+        session.cancel()
+        session.keep_alive()
+        list(session.speak("Again."))
+
+    assert parse_qs(urlsplit(server.connect.call_args.args[0]).query)[
+        "word_boundaries"
+    ] == ["true"]
+    assert words[0].words[0].word == "Hello"
+    assert cancelled[0].audio_duration_seconds == 0.1
+    assert [f["type"] for f in server.sent].count("KeepAlive") == 1
+
+
+def test_a_temporary_token_goes_in_the_query_and_not_the_header(server, monkeypatch):
+    monkeypatch.setattr(aai.settings, "api_key", None)  # a token needs no key
+    with aai.TTSSession(token="tmp-token", inactivity_timeout=30):
+        pass
+
+    uri = server.connect.call_args.args[0]
+    headers = server.connect.call_args.kwargs["additional_headers"]
+    query = parse_qs(urlsplit(uri).query)
+    assert query["token"] == ["tmp-token"]
+    assert query["inactivity_timeout"] == ["30"]
+    assert "Authorization" not in headers
+
+
+def test_generate_refuses_text_over_one_frame(server):
+    with aai.TTSSession() as session:
+        with pytest.raises(ValueError, match="2000"):
+            session.generate("x" * 2001)
+        with pytest.raises(TypeError):
+            session.generate(b"bytes")  # type: ignore[arg-type]
+
+
+def test_the_eu_host_comes_from_the_settings(server):
+    client = aai.Client(api_key="test")
+    client.settings.tts_base_url = "https://tts.eu.assemblyai.com"
+    with aai.TTSSession(client=client):
+        pass
+    assert urlsplit(server.connect.call_args.args[0]).netloc == "tts.eu.assemblyai.com"
+
+
+def test_a_plain_http_host_opens_a_plain_websocket(server):
+    client = aai.Client(api_key="test")
+    client.settings.tts_base_url = "http://localhost:8080"
+    with aai.TTSSession(client=client):
+        pass
+    assert server.connect.call_args.args[0].startswith("ws://localhost:8080/v1/ws?")
+
+
+def test_api_key_argument_is_used_without_touching_the_shared_settings(server):
+    with aai.TTSSession(
+        api_key="other", config=aai.TTSConfig(extend_biometric_consent=True)
+    ):
+        pass
+    headers = server.connect.call_args.kwargs["additional_headers"]
+    query = parse_qs(urlsplit(server.connect.call_args.args[0]).query)
+    assert headers["Authorization"] == "other"
+    assert query["extend_biometric_consent"] == ["true"]
+    assert aai.settings.api_key == "test"
+
+
+def test_missing_key_is_a_clear_error(monkeypatch):
+    monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
+    monkeypatch.setattr(aai.settings, "api_key", None)
+    with pytest.raises(ValueError, match="api_key= or token="):
+        aai.TTSSession()
+
+
+def test_an_exception_inside_with_closes_without_terminate(server):
+    with pytest.raises(RuntimeError):
+        with aai.TTSSession():
+            raise RuntimeError("boom")
+    assert server.sent == []
+    assert server.closed
+
+
+def test_wrong_config_type_is_a_type_error():
+    with pytest.raises(TypeError):
+        aai.TTSSession(config=aai.DictationConfig())  # type: ignore[arg-type]

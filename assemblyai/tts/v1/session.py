@@ -1,0 +1,444 @@
+import json
+import logging
+import queue
+import threading
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+
+from ... import _audio
+from ... import client as _client
+from .._base_ws import PULL_QUEUE_FRAMES, build_uri, check_text_frame, resolve_settings
+from .models import TTSConfig, TTSError
+from .ws_models import (
+    TTSBeginEvent,
+    TTSEvents,
+    TTSTerminationEvent,
+    error_from_close,
+    error_from_frame,
+    parse_event,
+)
+
+__all__ = ["TTSSession"]
+
+logger = logging.getLogger(__name__)
+
+_Handler = Callable[[Any], None]
+_Item = Tuple[str, Any, Any]  # (kind, flush_id or cancel id, payload)
+
+
+def websocket_connect(uri: str, **kwargs: Any) -> Any:
+    """Opens a sync websocket; the streaming client's seam, imported lazily so
+    `import assemblyai` does not load websockets. Tests patch this name."""
+
+    from ...streaming.v3.client import websocket_connect as _connect
+
+    return _connect(uri, **kwargs)
+
+
+class TTSSession:
+    """
+    A Text-to-Speech WebSocket session: text in as it is written, audio out.
+
+    Open it with `with`, which connects and waits for `Begin`. Send text with
+    `generate()` as it is produced, conclude each request with `flush()`, and
+    read its audio with `audio()`; `speak()` does all three for one text.
+    `cancel()` is the barge-in: it stops the request in flight and drops
+    whatever is queued. Leaving the `with` block sends `Terminate` and waits
+    for the session's `Termination` summary.
+
+    Audio is delivered one of two ways: pulled with `speak()` / `audio()`, or
+    pushed to a handler registered with `on(TTSEvents.Audio, ...)`. Register
+    handlers for the other events (`FlushDone`, `WordBoundaries`,
+    `Cancelled`, `Termination`, `Error`) as needed; a handler takes the event
+    and runs on the session's reader thread.
+
+    Example:
+        ```python
+        import assemblyai as aai
+
+        aai.settings.api_key = "your-key"
+
+        with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+            for sentence in reply_sentences():
+                for chunk in session.speak(sentence):
+                    play(chunk)  # 24 kHz s16le mono
+        ```
+    """
+
+    def __init__(
+        self,
+        config: Optional[TTSConfig] = None,
+        *,
+        client: Optional[_client.Client] = None,
+        api_key: Optional[str] = None,
+        token: Optional[str] = None,
+        word_boundaries: bool = False,
+        inactivity_timeout: Optional[int] = None,
+        connect_timeout: float = 10.0,
+        terminate_timeout: float = 10.0,
+    ) -> None:
+        """
+        Creates a session; nothing connects until `with` or `connect()`.
+
+        Args:
+            config: The voice and audio options (`voice_id`, `model_id`,
+                `language`, `sample_rate`, `encoding`). `container` and
+                `bit_rate` do not apply: a session streams raw PCM or G.711.
+            client: A `Client` whose settings (API key, `tts_base_url`) to
+                use. Defaults to the shared default client.
+            api_key: The API key to authenticate with; takes precedence over
+                `client` and the global settings.
+            token: A temporary token instead of an API key, for a session
+                opened on a user's device.
+            word_boundaries: Whether the server sends `WordBoundaries` frames.
+            inactivity_timeout: Seconds (5 to 120) after which an idle session
+                is closed; `None` for the account's default.
+            connect_timeout: Seconds to wait for the handshake and `Begin`.
+            terminate_timeout: Seconds to wait for `Termination` on exit.
+
+        Raises:
+            TypeError: if `config` is not a `TTSConfig`.
+        """
+        _audio.check_config(type(self).__name__, config, TTSConfig)
+        self.config = config or TTSConfig()
+        self._settings = resolve_settings(
+            type(self).__name__, client.settings if client else None, api_key, token
+        )
+        self._token = token
+        self._word_boundaries = word_boundaries
+        self._inactivity_timeout = inactivity_timeout
+        self._connect_timeout = connect_timeout
+        self._terminate_timeout = terminate_timeout
+
+        self._handlers: Dict[str, List[_Handler]] = {}
+        self._ws: Any = None
+        self._reader: Optional[threading.Thread] = None
+        self._send_lock = threading.Lock()
+        self.begin: Optional[TTSBeginEvent] = None
+        "The `Begin` frame, once connected."
+        self.termination: Optional[TTSTerminationEvent] = None
+        "The `Termination` frame, once the session ended cleanly."
+        self.error: Optional[TTSError] = None
+        "The error that ended the session, if one did."
+        self._reset()
+
+    def _reset(self) -> None:
+        """Fresh per-connection state, so a session object can be reused."""
+
+        self._begun = threading.Event()
+        self._stopped = threading.Event()
+        self._queue: "queue.Queue[_Item]" = queue.Queue(maxsize=PULL_QUEUE_FRAMES)
+        self._next_flush_id = 0
+        self._cancel_ids: List[int] = []
+        # Requests with a lower flush_id than this were dropped by a Cancel.
+        self._cancelled_before = 0
+        self._drop_warned = False
+        self.begin = None
+        self.termination = None
+        self.error = None
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def on(self, event: Union[TTSEvents, str], handler: _Handler) -> None:
+        """Registers `handler(event)` for a server frame type."""
+
+        self._handlers.setdefault(str(event), []).append(handler)
+
+    def connect(self) -> TTSBeginEvent:
+        """
+        Opens the socket and waits for `Begin`.
+
+        Raises:
+            TTSError: if the API refuses the session (its `Error` frame), the
+                handshake is rejected, or `Begin` does not arrive in time.
+        """
+        if self._ws is not None:
+            raise RuntimeError("the session is already connected")
+        self._reset()
+
+        uri, headers = build_uri(
+            self._settings.tts_base_url,
+            self.config,
+            token=self._token,
+            api_key=self._settings.api_key,
+            word_boundaries=self._word_boundaries,
+            inactivity_timeout=self._inactivity_timeout,
+        )
+        try:
+            self._ws = websocket_connect(
+                uri, additional_headers=headers, open_timeout=self._connect_timeout
+            )
+        except Exception as exc:  # the handshake failed
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            raise TTSError(
+                f"WebSocket handshake failed: {exc}", status_code=status
+            ) from exc
+
+        self._reader = threading.Thread(
+            target=self._read_loop, name="assemblyai-tts-session", daemon=True
+        )
+        self._reader.start()
+
+        if not self._begun.wait(self._connect_timeout):
+            self.close()
+            raise TTSError("The session did not begin in time")
+        if self.error is not None:
+            self.close()
+            raise self.error
+        if self.begin is None:
+            self.close()
+            raise TTSError("The session closed before it began")
+        return self.begin
+
+    def terminate(self) -> Optional[TTSTerminationEvent]:
+        """
+        Ends the session cleanly: `Terminate`, then wait for `Termination`.
+
+        Text sent and not flushed is spoken first. Returns the summary, or
+        `None` if the session had already ended or the wait timed out.
+        """
+        if self._ws is None:
+            return None
+        if not self._stopped.is_set():
+            try:
+                self._send({"type": "Terminate"})
+            except Exception:  # already closed
+                pass
+            self._stopped.wait(self._terminate_timeout)
+        self.close()
+        return self.termination
+
+    def close(self) -> None:
+        """Closes the socket without `Terminate`; in-flight audio is dropped."""
+
+        ws, self._ws = self._ws, None
+        self._stopped.set()
+        self._begun.set()
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:  # already closed
+                pass
+        self._put(("closed", None, None))
+        if self._reader is not None and self._reader is not threading.current_thread():
+            self._reader.join(timeout=self._terminate_timeout)
+
+    def __enter__(self) -> "TTSSession":
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type: Any, *exc: object) -> None:
+        if exc_type is None:
+            self.terminate()
+        else:
+            self.close()
+
+    # -- sending ---------------------------------------------------------------
+
+    def generate(self, text: str) -> None:
+        """
+        Appends `text` to the current request.
+
+        Consecutive texts are joined exactly as sent, so include the spaces.
+        Audio may start before `flush()` once enough complete sentences have
+        arrived; `flush()` is what concludes the request.
+
+        Raises:
+            ValueError: for a text over 2,000 characters (split it).
+        """
+        check_text_frame(text)
+        self._send({"type": "Generate", "text": text})
+
+    def flush(self) -> int:
+        """
+        Concludes the current request and returns its `flush_id`.
+
+        Everything sent so far is spoken, then `FlushDone` arrives for this
+        id. Flushes can be pipelined; the audio comes in order.
+        """
+        flush_id = self._next_flush_id
+        self._next_flush_id += 1
+        self._send({"type": "Flush"})
+        return flush_id
+
+    def cancel(self) -> None:
+        """
+        Barge-in: stops the request in flight and drops queued requests.
+
+        The server answers `Cancelled`; audio already in transit may still
+        arrive before it. Text sent and not flushed is discarded. An
+        `audio()` iteration of a cancelled request ends.
+        """
+        self._cancel_ids.append(self._next_flush_id)
+        self._next_flush_id += 1
+        self._send({"type": "Cancel"})
+
+    def keep_alive(self) -> None:
+        """Resets the inactivity timer between sparse requests."""
+
+        self._send({"type": "KeepAlive"})
+
+    def speak(self, text: str) -> Iterator[bytes]:
+        """
+        Speaks one text: `generate()`, `flush()`, then its audio.
+
+        Returns an iterator of the request's audio bytes that ends at its
+        `FlushDone`, or early if the request is cancelled.
+
+        Raises:
+            TTSError: from the iteration, if the session fails.
+        """
+        self.generate(text)
+        return self.audio(self.flush())
+
+    def audio(self, flush_id: int) -> Iterator[bytes]:
+        """
+        Yields the audio of request `flush_id` until its `FlushDone`.
+
+        Requests are served in order, so read them in order. Audio is queued
+        for pulling only while no `TTSEvents.Audio` handler is registered.
+
+        Raises:
+            TTSError: if the session fails before the request completes.
+        """
+        while True:
+            if flush_id < self._cancelled_before:  # dropped by a Cancel
+                return
+            try:
+                kind, ident, payload = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                if self._stopped.is_set():
+                    if self.error is not None:
+                        raise self.error
+                    return
+                continue
+            if kind == "audio":
+                if ident == flush_id:
+                    yield payload
+            elif kind == "done":
+                if ident == flush_id:
+                    return
+            elif kind == "cancelled":
+                if ident > flush_id:  # a Cancel sent after this request
+                    return
+            elif kind == "error":
+                raise payload
+            elif kind == "closed":
+                if self.error is not None:
+                    raise self.error
+                return
+
+    # -- internals ---------------------------------------------------------------
+
+    def _put(self, item: _Item) -> None:
+        """Queues an item for `audio()`, dropping the oldest audio when full."""
+
+        while True:
+            try:
+                self._queue.put_nowait(item)
+                return
+            except queue.Full:
+                try:
+                    dropped = self._queue.get_nowait()
+                except queue.Empty:
+                    continue
+                if dropped[0] == "audio" and not self._drop_warned:
+                    self._drop_warned = True
+                    logger.warning(
+                        "TTSSession: dropping audio nobody reads; iterate audio() "
+                        "or register an Audio handler"
+                    )
+
+    def _send(self, frame: Dict[str, Any]) -> None:
+        if self._ws is None or self._stopped.is_set():
+            if self.error is not None:
+                raise self.error
+            raise RuntimeError("the session is not open")
+        with self._send_lock:
+            self._ws.send(json.dumps(frame))
+
+    def _read_loop(self) -> None:
+        from websockets.exceptions import ConnectionClosed
+
+        ws = self._ws
+        while not self._stopped.is_set() and ws is not None:
+            try:
+                raw = ws.recv(timeout=1)
+            except TimeoutError:
+                continue
+            except ConnectionClosed as exc:
+                self._on_closed(exc)
+                return
+            except Exception as exc:  # the socket was closed under us
+                if not self._stopped.is_set():
+                    self._on_closed(exc)
+                return
+            if isinstance(raw, bytes):
+                continue
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                logger.warning("ignoring a non-JSON frame")
+                continue
+            if isinstance(data, dict):
+                try:
+                    self._dispatch(data)
+                except Exception as exc:  # a frame this SDK cannot read
+                    self._fail(TTSError(f"Unreadable frame from the API: {exc}"))
+                    return
+
+    def _fail(self, error: TTSError) -> None:
+        """Ends the session on an error: handlers, waiters, state."""
+
+        if self.error is None:
+            self.error = error
+            self._emit(TTSEvents.Error, error)
+        self._put(("error", None, self.error))
+        self._stopped.set()
+        self._begun.set()
+
+    def _dispatch(self, data: Dict[str, Any]) -> None:
+        kind = data.get("type")
+        if kind == "Error":
+            self._fail(error_from_frame(data))
+            return
+        event = parse_event(data)
+        if event is None:
+            return
+        if kind == "Begin":
+            self.begin = event
+            self._begun.set()
+        elif kind == "Audio":
+            if TTSEvents.Audio.value not in self._handlers:
+                self._put(("audio", event.flush_id, event.audio))
+        elif kind == "FlushDone":
+            self._put(("done", event.flush_id, None))
+        elif kind == "Cancelled":
+            cancel_id = self._cancel_ids.pop(0) if self._cancel_ids else -1
+            self._cancelled_before = max(self._cancelled_before, cancel_id)
+            self._put(("cancelled", cancel_id, None))
+        elif kind == "Termination":
+            self.termination = event
+        self._emit(str(kind), event)
+        if kind == "Termination":
+            self._stopped.set()
+            self._put(("closed", None, None))
+
+    def _on_closed(self, exc: Exception) -> None:
+        if self._stopped.is_set():
+            return
+        # `.code` is 1006 for an abnormal close, where `.rcvd` is None.
+        code = getattr(exc, "code", None)
+        reason = getattr(exc, "reason", "") or ""
+        if code != 1000 and self.error is None:
+            self.error = error_from_close(code, reason)
+            self._emit(TTSEvents.Error, self.error)
+        self._stopped.set()
+        self._begun.set()
+        self._put(("closed", None, None))
+
+    def _emit(self, event: Union[TTSEvents, str], payload: Any) -> None:
+        for handler in self._handlers.get(str(event), ()):
+            try:
+                handler(payload)
+            except Exception:
+                logger.exception("TTSSession handler for %s raised", event)

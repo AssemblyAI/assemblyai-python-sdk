@@ -1,0 +1,175 @@
+"""Models of the Text-to-Speech WebSocket API: the frames a session receives.
+
+The client frames (`Generate`, `Flush`, `Cancel`, `KeepAlive`, `Terminate`) are
+plain dicts; the server frames are the events below, dispatched to handlers
+registered with `TTSSession.on()`.
+"""
+
+import base64
+from enum import Enum
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+try:
+    # pydantic v2 import (`model_validator` exists only in v2)
+    from pydantic import BaseModel, Field, model_validator  # noqa: F401
+
+    pydantic_v2 = True
+except ImportError:
+    # pydantic v1 import (fallback for Python < 3.14)
+    from pydantic import BaseModel, Field
+
+    pydantic_v2 = False
+
+from .models import TTSError
+
+__all__ = [
+    "TTSAudioEvent",
+    "TTSBeginEvent",
+    "TTSCancelledEvent",
+    "TTSEvents",
+    "TTSFlushDoneEvent",
+    "TTSTerminationEvent",
+    "TTSWord",
+    "TTSWordBoundariesEvent",
+]
+
+# Close codes after which the same session parameters can succeed on a new
+# connection: lost connection, a transient check failure, a server restart.
+_RETRYABLE_CLOSE_CODES = frozenset({1006, 1011, 1012})
+
+_M = TypeVar("_M", bound=BaseModel)
+
+
+def _parse(model: Type[_M], data: Dict[str, Any]) -> _M:
+    if hasattr(model, "model_validate"):
+        return model.model_validate(data)
+    return model.parse_obj(data)
+
+
+class TTSEvents(str, Enum):
+    """The server frames of a session, as `TTSSession.on()` names them."""
+
+    Begin = "Begin"
+    Audio = "Audio"
+    FlushDone = "FlushDone"
+    WordBoundaries = "WordBoundaries"
+    Cancelled = "Cancelled"
+    Termination = "Termination"
+    Error = "Error"
+
+    def __str__(self):
+        return self.value
+
+
+class TTSBeginEvent(BaseModel):
+    """The first frame of a session: it is open and configured."""
+
+    id: str
+    "The session id. Quote it in support requests."
+
+    expires_at: int
+    "Unix time in seconds at which the session's maximum duration ends."
+
+    configuration: Dict[str, Any]
+    """The session as created: the effective connect parameters, `model`,
+    `voice_id`, `session_ttl_sec`, `limits` and more. An open set."""
+
+
+class TTSAudioEvent(BaseModel):
+    """A piece of a request's audio."""
+
+    flush_id: int
+    "The request the audio belongs to."
+
+    audio: bytes = Field(..., repr=False)
+    "Raw codec bytes (no header), decoded from the frame's base64."
+
+
+class TTSFlushDoneEvent(BaseModel):
+    """A request's audio has all been delivered."""
+
+    flush_id: int
+    audio_duration_ms: int
+    "The playback duration of the request's audio; `0` for nothing to speak."
+
+
+class TTSWord(BaseModel):
+    word: str
+    start: int
+    "Milliseconds on the session's audio timeline (not the request's)."
+    end: int
+    confidence: float
+
+
+class TTSWordBoundariesEvent(BaseModel):
+    """Word timings of a request, best effort, after its `FlushDone`."""
+
+    flush_id: int
+    audio_start_ms: int
+    "Where the request's audio starts on the session's timeline."
+    words: List[TTSWord]
+
+
+class TTSCancelledEvent(BaseModel):
+    """The answer to a `Cancel`."""
+
+    audio_duration_seconds: float
+    "Audio streamed for the cancelled request before it stopped."
+
+
+class TTSTerminationEvent(BaseModel):
+    """The session's summary, after `Terminate`."""
+
+    session_duration_seconds: int
+    total_input_char_length: int
+    "The billed characters."
+    audio_duration_seconds: float
+    voice_expires_at: Optional[int] = None
+
+
+def parse_event(data: Dict[str, Any]) -> Any:
+    """The event model for a server frame, or `None` for an unknown type."""
+
+    kind = data.get("type")
+    if kind == "Audio":
+        return TTSAudioEvent(
+            flush_id=data["flush_id"], audio=base64.b64decode(data["audio"])
+        )
+    if kind == "Begin":
+        return _parse(TTSBeginEvent, data)
+    if kind == "FlushDone":
+        return _parse(TTSFlushDoneEvent, data)
+    if kind == "WordBoundaries":
+        return _parse(TTSWordBoundariesEvent, data)
+    if kind == "Cancelled":
+        return _parse(TTSCancelledEvent, data)
+    if kind == "Termination":
+        return _parse(TTSTerminationEvent, data)
+    return None
+
+
+def error_from_frame(data: Dict[str, Any]) -> TTSError:
+    """The `TTSError` for an `Error` frame; `body` keeps the frame."""
+
+    retry_after = data.get("retry_after_seconds")
+    return TTSError(
+        data.get("error") or "text-to-speech session failed",
+        error_code=data.get("error_type"),
+        param=data.get("param"),
+        retryable=data.get("retryable"),
+        retry_after=int(retry_after) if isinstance(retry_after, (int, float)) else None,
+        body=data,
+    )
+
+
+def error_from_close(code: Optional[int], reason: str) -> TTSError:
+    """The `TTSError` for a connection closed without a clean `Termination`."""
+
+    text = f"Connection closed (code={code})"
+    if reason:
+        text = f"{text}: {reason}"
+    return TTSError(
+        text,
+        retryable=code in _RETRYABLE_CLOSE_CODES,
+        body={"close_code": code, "reason": reason},
+    )

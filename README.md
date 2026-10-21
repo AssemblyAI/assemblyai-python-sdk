@@ -1014,6 +1014,48 @@ asyncio.run(main())
 </details>
 
 <details>
+  <summary>Stream text in and audio out over a WebSocket session (voice agents)</summary>
+
+`aai.TTSSession` keeps one connection open and speaks text as it is written, so an LLM's reply can be voiced sentence by sentence with no per-request handshake. `speak()` sends one text and yields its audio; `generate()` / `flush()` do the same in two steps, so tokens can be sent as they arrive; `cancel()` is the barge-in. Leaving the `with` block ends the session cleanly and `session.termination` holds the summary.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for sentence in llm_reply_sentences():
+        for chunk in session.speak(sentence):  # raw 24 kHz 16-bit mono PCM
+            play(chunk)
+
+print(session.termination.audio_duration_seconds, "s spoken")
+```
+
+Streaming the text in as it is generated, with a barge-in:
+
+```python
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for token in llm_tokens():
+        session.generate(token)  # joined exactly as sent: include the spaces
+    request = session.flush()  # the request's flush_id; audio may start before this
+
+    for chunk in session.audio(request):
+        if user_started_talking():
+            session.cancel()  # stops this request; the iteration ends
+        play(chunk)
+```
+
+Requests can be pipelined: call `flush()` again before reading the previous request's audio, then read each `audio(flush_id)` in order. A `Generate` frame takes at most 2,000 characters; split longer text across calls. The session ends after an hour, or after `inactivity_timeout` seconds without a frame; send `keep_alive()` between sparse requests.
+
+Register handlers for the other frames with `session.on(event, handler)`, where `handler(event)` runs on the session's reader thread: `TTSEvents.FlushDone`, `TTSEvents.WordBoundaries` (word timings per request, with `word_boundaries=True`), `TTSEvents.Cancelled`, `TTSEvents.Termination`, `TTSEvents.Error`. An `Audio` handler receives the audio frames instead of the pull iterators. A refusal of the session raises `TTSError` from the `with`; a failure mid-session raises it from the audio iteration and reaches the `Error` handler.
+
+For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`).
+
+The asyncio twin is `aai.AsyncTTSSession`: `async with`, coroutine `generate()`/`flush()`/`cancel()`, and `async for chunk in session.speak(text)`.
+
+</details>
+
+<details>
   <summary>Renew a cloned voice's consent</summary>
 
 A voice cloned by your account expires 60 days after its biometric consent was last given. Its owner renews it by sending `extend_biometric_consent=True` with a request that uses the voice; `voice_expires_at` on the response shows the new expiry. The account must have accepted the biometric data terms in the dashboard, or the request is refused with `biometric_terms_not_accepted`.
