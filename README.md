@@ -938,7 +938,7 @@ with tts.stream("Streaming straight to the speakers.") as speech:
         play(chunk)  # raw 24 kHz 16-bit mono PCM
 ```
 
-`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: `httpx.RemoteProtocolError` is raised from the loop, and the whole request should be retried.
+`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop then raises a `TTSError` with `retryable=True`, and the whole request should be retried.
 
 </details>
 
@@ -1001,7 +1001,7 @@ async def main():
         response = await tts.synthesize("Hello from AssemblyAI.")
         print(len(response.audio), "bytes")
 
-        async with await tts.stream("And streamed.") as speech:
+        async with tts.stream("And streamed.") as speech:
             async for chunk in speech:
                 await play(chunk)  # your own coroutine
 

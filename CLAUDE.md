@@ -459,7 +459,7 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 
 ## Text-to-Speech
 
-One text per HTTP request. `synthesize()` returns the whole audio; `stream()` yields it as it is generated. An API refusal is always `aai.TTSError`; network failures are httpx exceptions, and `httpx.RemoteProtocolError` from a stream loop means the body was cut after the first audio, so retry the request. Settings are copied when a client is built: set `tts_base_url` before creating `TextToSpeech`. `synthesize()` waits for the whole clip under `settings.tts_synthesize_http_timeout` (120 s); `stream()` uses `settings.tts_http_timeout` (30 s) per socket operation.
+One text per HTTP request. `synthesize()` returns the whole audio; `stream()` yields it as it is generated. An API refusal is always `aai.TTSError`; network failures are httpx exceptions; a body cut after the first audio raises `TTSError` (`retryable=True`) from the stream loop, so retry the request. Settings are copied when a client is built: set `tts_base_url` before creating `TextToSpeech`. `synthesize()` waits for the whole clip under `settings.tts_synthesize_http_timeout` (120 s); `stream()` uses `settings.tts_http_timeout` (30 s) per socket operation.
 
 ```python
 tts = aai.TextToSpeech(config=aai.TTSConfig(voice="jane"))

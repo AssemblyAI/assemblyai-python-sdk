@@ -13,9 +13,9 @@ from ...types import AssemblyAIError, pydantic_v2
 # pydantic 1.10 also exports `ConfigDict`, so the version is taken from
 # `types.py`, which probes a v2-only name, instead of an import attempt here.
 if pydantic_v2:
-    from pydantic import BaseModel, ConfigDict
+    from pydantic import BaseModel, ConfigDict, Field
 else:
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 
 __all__ = [
     "TTSConfig",
@@ -198,6 +198,7 @@ class TTSResponseInfo(BaseModel):
 class TTSResponse(TTSResponseInfo):
     """The result of `TextToSpeech.synthesize()`: the whole audio, with its headers."""
 
-    audio: bytes
+    audio: bytes = Field(..., repr=False)
     """The audio in the requested encoding and container, complete. Its
-    duration is `audio_duration_ms`."""
+    duration is `audio_duration_ms`. Left out of `repr()`, so a logged
+    response does not carry the clip."""

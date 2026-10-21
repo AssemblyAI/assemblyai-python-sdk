@@ -6,12 +6,14 @@ plus pool ownership.
 """
 
 import json
+from typing import AsyncIterator
 
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.tts.v1 import async_api
 
 pytestmark = pytest.mark.asyncio
 
@@ -74,7 +76,7 @@ async def test_stream_yields_audio_and_reports_the_headers(httpx_mock: HTTPXMock
     _mock_ok(httpx_mock)
 
     async with aai.AsyncTextToSpeech() as tts:
-        async with await tts.stream("Hello there.") as speech:
+        async with tts.stream("Hello there.") as speech:
             chunks = [chunk async for chunk in speech]
 
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
@@ -86,7 +88,7 @@ async def test_stream_aread_collects_the_whole_audio(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
 
     async with aai.AsyncTextToSpeech() as tts:
-        speech = await tts.stream("Hello there.")
+        speech = tts.stream("Hello there.")
         try:
             assert await speech.aread() == _AUDIO
         finally:
@@ -124,9 +126,32 @@ async def test_errors_are_tts_errors(httpx_mock: HTTPXMock):
         assert exc_info.value.request_id == "req-2"
 
         with pytest.raises(aai.TTSError) as exc_info:
-            await tts.stream("Hi.")
+            async with tts.stream("Hi."):
+                pass
         assert exc_info.value.error_code == "at_capacity"
         assert exc_info.value.retry_after == 3
+
+
+class _CutStream(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _AUDIO[:100]
+        raise httpx.RemoteProtocolError("peer closed connection")
+
+
+async def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error():
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, headers=_OK_HEADERS, stream=_CutStream())
+    )
+    async with httpx.AsyncClient(transport=transport) as http:
+        speech = async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        async with speech:
+            with pytest.raises(aai.TTSError) as exc_info:
+                await speech.aread()
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.request_id == "req-async"
 
 
 async def test_a_shared_client_is_left_open_on_aclose(httpx_mock: HTTPXMock):

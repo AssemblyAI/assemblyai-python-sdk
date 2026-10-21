@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, Iterator, Optional
 
 import httpx
@@ -12,12 +13,23 @@ ENDPOINT_SPEECH = "/v1/speech"
 # answers have no JSON body, so `retryable` is decided from the status alone.
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
+_CUT_MESSAGE = "The response was cut before the audio was complete. Retry the request."
+
+
+def _seconds(value: Any) -> Optional[int]:
+    """A retry hint as whole seconds, rounded up; `None` for anything else."""
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(math.ceil(value))
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
 
 def _int_header(headers: httpx.Headers, name: str) -> Optional[int]:
-    value = headers.get(name)
-    if value is None or not value.strip().isdigit():
-        return None
-    return int(value)
+    return _seconds(headers.get(name))
 
 
 def _header_fields(headers: httpx.Headers) -> Dict[str, Any]:
@@ -70,7 +82,7 @@ def _error_from_response(response: httpx.Response) -> TTSError:
         if not message:
             message = f"text-to-speech request failed with status {status}"
         if body.get("retry_after_seconds") is not None:
-            retry_after = body["retry_after_seconds"]
+            retry_after = _seconds(body["retry_after_seconds"])
         retryable = body.get("retryable")
         if retryable is None:
             retryable = status in _RETRYABLE_STATUSES
@@ -98,29 +110,67 @@ def _error_from_response(response: httpx.Response) -> TTSError:
     )
 
 
+def _cut_error(info: Optional[TTSResponseInfo]) -> TTSError:
+    """The error for a body cut after the first audio: retry the request."""
+
+    return TTSError(
+        _CUT_MESSAGE,
+        status_code=200,
+        request_id=info.request_id if info else None,
+        retryable=True,
+    )
+
+
 class TTSStream:
     """
     The audio of one request, read as the API generates it.
 
-    Returned by `TextToSpeech.stream()`. Use it as a context manager, or call
-    `close()`, so the connection is released: a fully read stream's connection
-    returns to the pool, a partially read one is dropped. `info` holds what
-    the response headers say (model, voice, encoding, sample rate, request
-    id); `iter_bytes()` yields the audio as it arrives and `read()` collects
-    all of it.
+    Returned by `TextToSpeech.stream()`. The request is sent when the stream
+    is entered as a context manager or first read, and `TTSError` is raised
+    there if the API refuses it. Use `with`, or call `close()`, so the
+    connection is released: a fully read stream's connection returns to the
+    pool, a partially read one is dropped. `info` holds what the response
+    headers say (model, voice, encoding, sample rate, request id) once the
+    request has been sent; `iter_bytes()` yields the audio as it arrives and
+    `read()` collects all of it.
 
     The API commits to `200` with the first audio, so a failure after that
-    cuts the body instead of changing the status: httpx raises
-    `RemoteProtocolError` from the iteration. Retry the whole request.
-    Chunks are not aligned to samples: for 16-bit PCM, carry an odd trailing
-    byte over to the next chunk.
+    cuts the body instead of changing the status: the iteration then raises
+    `TTSError` with `retryable=True`. Retry the whole request. Chunks are
+    not aligned to samples: for 16-bit PCM, carry an odd trailing byte over
+    to the next chunk.
     """
 
-    def __init__(self, response: httpx.Response, info: TTSResponseInfo) -> None:
+    def __init__(self, client: httpx.Client, request: httpx.Request) -> None:
+        self._client = client
+        self._request = request
+        self._response: Optional[httpx.Response] = None
+        self._info: Optional[TTSResponseInfo] = None
+
+    @property
+    def info(self) -> Optional[TTSResponseInfo]:
+        """The response headers; `None` until the request has been sent."""
+
+        return self._info
+
+    def _open(self) -> httpx.Response:
+        if self._response is not None:
+            return self._response
+
+        response = self._client.send(self._request, stream=True)
+        if response.status_code != httpx.codes.OK:
+            try:
+                response.read()
+                raise _error_from_response(response)
+            finally:
+                response.close()
+
         self._response = response
-        self.info = info
+        self._info = _info_from_headers(response.headers)
+        return response
 
     def __enter__(self) -> "TTSStream":
+        self._open()
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -132,9 +182,13 @@ class TTSStream:
     def iter_bytes(self) -> Iterator[bytes]:
         """Yields the audio bytes as they arrive."""
 
-        for chunk in self._response.iter_bytes():
-            if chunk:
-                yield chunk
+        response = self._open()
+        try:
+            for chunk in response.iter_bytes():
+                if chunk:
+                    yield chunk
+        except httpx.RemoteProtocolError as exc:
+            raise _cut_error(self._info) from exc
 
     def read(self) -> bytes:
         """Reads the rest of the audio and returns it."""
@@ -144,7 +198,8 @@ class TTSStream:
     def close(self) -> None:
         """Releases the connection. Audio not yet read is discarded."""
 
-        self._response.close()
+        if self._response is not None:
+            self._response.close()
 
 
 def synthesize(
@@ -158,7 +213,7 @@ def synthesize(
     Posts a buffered speech request and returns the complete audio.
 
     Asks for `"stream": false`, so nothing arrives until the audio is
-    complete and a failure is always an error status, never a cut body.
+    complete and an API failure is always an error status, never a cut body.
 
     Args:
         client: the HTTP client (carries the `Authorization` header).
@@ -189,13 +244,10 @@ def stream_speech(
     timeout: float,
 ) -> TTSStream:
     """
-    Posts a streamed speech request and returns the open response.
+    Prepares a streamed speech request and returns it as a `TTSStream`.
 
-    The status and headers arrive with the first audio, so this returns once
-    the API has started speaking. The caller reads the audio from the
-    returned `TTSStream` and closes it.
-
-    Raises: `TTSError` if the request fails before any audio is sent.
+    Nothing is sent here: the stream sends the request when it is entered or
+    first read, and raises `TTSError` then if the API refuses it.
     """
 
     request = client.build_request(
@@ -204,13 +256,4 @@ def stream_speech(
         json={**body, "stream": True},
         timeout=timeout,
     )
-    response = client.send(request, stream=True)
-
-    if response.status_code != httpx.codes.OK:
-        try:
-            response.read()
-            raise _error_from_response(response)
-        finally:
-            response.close()
-
-    return TTSStream(response, _info_from_headers(response.headers))
+    return TTSStream(client, request)
