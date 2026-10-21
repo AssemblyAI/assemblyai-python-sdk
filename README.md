@@ -892,9 +892,7 @@ except aai.DictationError as error:
 
 ### **Text-to-Speech Examples**
 
-`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: the `voice_id`, the `model_id` (`assemblyai-tts-1`, or the language's default model when left out), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`), the `container` (`raw` or `wav`), the MP3 `bit_rate` and `extend_biometric_consent`. A per-call `TTSConfig` replaces the client's default config whole.
-
-Every voice is named by `voice_id`: a voice of the AssemblyAI voice library by its slug (`aai-jane` by default, `aai-alba`, `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera`, and the rest of the library), a voice's ID (a UUID), or the slug of one of your own voices. `TTSConfig` has no `voice` field. Without `language` a request speaks the voice's own language; the eleven built-in voices listed above speak all six. Voices are created and managed in the AssemblyAI dashboard, which shows the value that names each one. A cloned voice of your account needs the account to have accepted the biometric data terms (the data controls page of the dashboard), and `extend_biometric_consent=True` renews its consent for another 60 days.
+`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: the `voice_id` (a voice of the AssemblyAI voice library by its slug: `aai-jane` by default, `aai-alba`, `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera` and hundreds more; or a voice cloned by your account, by its UUID or slug), the `model_id` (`assemblyai-tts-1`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
 
 Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone.
 
@@ -920,7 +918,7 @@ with open("hello.wav", "wb") as out:
 print(response.model, response.voice_id, response.audio_duration_ms, "ms")
 ```
 
-`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 610 s by default, a little over the API's own 600-second limit on a request), so an API failure is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures and client timeouts raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id` (the voice used, `aai-jane` when the request named none), `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `voice_expires_at`, `billed_characters` and `audio_duration_ms`. A text with nothing to speak (only emoji, for example) returns empty audio and bills nothing.
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
 
 </details>
 
@@ -940,7 +938,7 @@ with tts.stream("Streaming straight to the speakers.") as speech:
         play(chunk)  # raw 24 kHz 16-bit mono PCM
 ```
 
-`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop raises a `TTSError` with `status_code` 200, `retryable` `True` and the request's `request_id` (the httpx error is its `__cause__`), and the whole request should be retried. Other network failures and client timeouts while reading (`httpx.ReadError`, `httpx.ReadTimeout`) stay httpx exceptions. On a stream, `info.billed_characters` holds once the audio is read to its end. A cut bills nothing when a server failure caused it, the text before the sentence being spoken when the request reached the API's 600-second limit (`session_expired`), and every character when the client read too slowly (`audio_backlog`). `info.voice_expires_at` is the expiry as the request started.
+`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop then raises a `TTSError` with `retryable=True`, and the whole request should be retried.
 
 </details>
 
@@ -963,8 +961,6 @@ with aai.TextToSpeech(config=telephony).stream("Your appointment is confirmed.")
         send_to_call(chunk)
 ```
 
-A cloned voice works on the host of the data zone it was created in, and only once the account has accepted the biometric data terms on the data controls page of the dashboard: until then requests with it are refused `403 biometric_terms_not_accepted`.
-
 </details>
 
 <details>
@@ -986,7 +982,7 @@ except aai.TTSError as e:
         time.sleep(e.retry_after or 1)
 ```
 
-`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `biometric_terms_not_accepted`, `rate_limited`, `at_capacity`, `auth_unavailable`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again. `biometric_terms_not_accepted` (403) refuses one of your own cloned voices, or `extend_biometric_consent`, until the account accepts the biometric data terms on the data controls page of the dashboard; `auth_unavailable` (503) means the credential or those terms could not be checked just now, and is retryable. A `TTSError` with `status_code` 200 is a streamed response cut after its first audio.
+`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `rate_limited`, `at_capacity`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
 
 </details>
 
@@ -1014,6 +1010,21 @@ asyncio.run(main())
 ```
 
 `AsyncTextToSpeech` owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one.
+
+</details>
+
+<details>
+  <summary>Renew a cloned voice's consent</summary>
+
+A voice cloned by your account expires 60 days after its biometric consent was last given. Its owner renews it by sending `extend_biometric_consent=True` with a request that uses the voice; `voice_expires_at` on the response shows the new expiry. The account must have accepted the biometric data terms in the dashboard, or the request is refused with `biometric_terms_not_accepted`.
+
+```python
+response = tts.synthesize(
+    "Consent renewed.",
+    aai.TTSConfig(voice_id="<your cloned voice's UUID>", extend_biometric_consent=True),
+)
+print(response.voice_expires_at)  # Unix seconds
+```
 
 </details>
 
@@ -1967,8 +1978,8 @@ aai.settings.dictation_http_timeout = 300.0
 
 # Text-to-Speech: the host (US by default, EU below) and the timeouts
 aai.settings.tts_base_url = "https://tts.eu.assemblyai.com"
-aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation; synthesize(): connect and send
-aai.settings.tts_synthesize_http_timeout = 610.0  # synthesize(): the wait for the whole clip
+aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation
+aai.settings.tts_synthesize_http_timeout = 120.0  # synthesize(): the wait for the whole clip
 ```
 
 Set these before creating a client: `aai.TextToSpeech()` (like every client) copies the settings when it is built, so a later change applies to the next instance, not to an existing one. Every setting can also come from the environment with the `ASSEMBLYAI_` prefix, such as `ASSEMBLYAI_TTS_BASE_URL`.

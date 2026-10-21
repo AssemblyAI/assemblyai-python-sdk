@@ -46,9 +46,9 @@ class TTSError(AssemblyAIError):
 
     `biometric_terms_not_accepted` (`403`, not retryable) refuses one of the
     account's own cloned voices, or `extend_biometric_consent`, until the
-    account accepts the biometric data terms on the data controls page of the
-    AssemblyAI dashboard. `auth_unavailable` (`503`, retryable) means the
-    credential, or those terms, could not be checked just now.
+    account accepts the biometric data terms in the AssemblyAI dashboard.
+    `auth_unavailable` (`503`, retryable) means the credential, or those
+    terms, could not be checked just now.
 
     A streamed response cut after its first audio raises a `TTSError` with
     `status_code` `200`, no `error_code`, `retryable` `True` and the
@@ -109,11 +109,7 @@ class TTSContainer(str, Enum):
 
 
 def _refuse_voice_field(data: Any) -> Any:
-    """
-    Refuses a `voice` key with a message that points to `voice_id`, the field
-    that names every voice. Other unknown fields are refused by
-    `extra="forbid"`.
-    """
+    """A `voice` key is refused with a message that points to `voice_id`."""
 
     if isinstance(data, dict) and "voice" in data:
         raise ValueError(
@@ -128,20 +124,18 @@ class TTSConfig(BaseModel):
     Options for a Text-to-Speech request.
 
     Every field is optional: the API speaks English with its default voice
-    (`aai-jane`) at 24 kHz as raw 16-bit PCM when nothing is set. Unknown
-    fields are rejected rather than silently dropped, so a typo surfaces as a
-    validation error. Every voice is named by `voice_id`: there is no `voice`
-    field. The API's `speed` (only 1) and `word_boundaries` (served by
-    `/v1/speech/events`, which this client does not call) are left out.
+    (`aai-jane`) at 24 kHz as raw 16-bit PCM when nothing is set. Every voice
+    is named by `voice_id`. Unknown fields are rejected rather than silently
+    dropped, so a typo surfaces as a validation error.
     """
 
     voice_id: Optional[str] = None
     """The voice: a voice of the AssemblyAI voice library by its slug, such as
     `aai-jane` (the default), `aai-alba` or `aai-michael`; a voice's ID (a
-    UUID, in any letter case); or the slug of one of the account's own voices,
-    in lowercase. The AssemblyAI dashboard shows the value that names each
-    voice. A voice belongs to the data zone it was created in: on the other
-    zone's host it is `voice_not_found`."""
+    UUID); or the slug of one of the account's own cloned voices. The
+    dashboard shows the value that names each voice. A voice belongs to the
+    data zone it was created in: on the other zone's host it is
+    `voice_not_found`."""
 
     model_id: Optional[str] = None
     """The model to run the request on, such as `assemblyai-tts-1`. Defaults to
@@ -151,12 +145,10 @@ class TTSConfig(BaseModel):
     language: Optional[str] = None
     """The language, by its English name: `english`, `spanish`, `german`,
     `french`, `italian` or `portuguese`. Case-insensitive. Defaults to the
-    voice's own language (English for the default `aai-jane`). The eleven
-    built-in voices (`aai-jane`, `aai-alba`, `aai-anna`, `aai-charles`,
-    `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`,
-    `aai-paul`, `aai-vera`) speak all six; another voice speaks a language
-    other than its own only where its model can, and is refused
-    `invalid_parameter` on `language` otherwise."""
+    voice's own language. The eleven built-in voices (`aai-jane`, `aai-alba`,
+    `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`,
+    `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera`) speak all six; another
+    voice speaks a language other than its own only where its model can."""
 
     sample_rate: Optional[int] = None
     "Output sample rate in Hz: 8000, 16000, 22050, 24000 (the default), 44100 or 48000."
@@ -167,21 +159,19 @@ class TTSConfig(BaseModel):
 
     container: Optional[Union[TTSContainer, str]] = None
     """`raw` (the default) or `wav`, with a PCM or G.711 encoding only: a
-    `TTSContainer`, or its name as a string (case-insensitive)."""
+    `TTSContainer`, or its name as a string."""
 
     bit_rate: Optional[int] = None
     """MP3 bit rate in bits per second: 32000, 48000, 64000 (the default),
     96000 or 128000; at most 64000 at 8 kHz. With `encoding=mp3` only."""
 
     extend_biometric_consent: Optional[bool] = None
-    """`True` attests renewed biometric consent for the cloned voice in
-    `voice_id` on behalf of the account that owns it, and the API then moves
-    the voice's expiry to 60 days after the request started (best effort;
-    `voice_expires_at` shows the result). A cloned voice expires 60 days after
-    its consent was last given. Refused `invalid_parameter` without
-    `voice_id`, `not_owner` on a voice the account does not own (a library
-    voice included), and `403 biometric_terms_not_accepted` until the account
-    accepts the biometric data terms in the dashboard."""
+    """`True` renews the biometric consent of the cloned voice in `voice_id`,
+    which only the voice's owner may do; `voice_expires_at` on the response
+    shows the new expiry. A cloned voice expires 60 days after its consent
+    was last given. Refused `not_owner` on a voice the account does not own
+    and `403 biometric_terms_not_accepted` until the account has accepted the
+    biometric data terms in the dashboard."""
 
     if pydantic_v2:
         # `model_id` is the API's field name: `protected_namespaces=()` keeps
@@ -214,15 +204,14 @@ class TTSResponseInfo(BaseModel):
     "The request's id, from `X-Request-Id`. Quote it in support requests."
 
     region: Optional[str] = None
-    "The region that served the request, such as `us-east-1`, from `X-TTS-Region`."
+    "The region that served the request, such as `us-east-1`."
 
     model: Optional[str] = None
     "The model that spoke, such as `assemblyai-tts-1`."
 
     voice_id: Optional[str] = None
-    """The voice that spoke, from `X-TTS-Voice-Id`: the request's `voice_id`,
-    or the default voice's slug (such as `aai-jane`) when the request named
-    none. `None` from a server that does not send the header yet."""
+    """The voice that spoke: the request's `voice_id`, or the default voice's
+    slug (`aai-jane`) when the request named none."""
 
     language: Optional[str] = None
     "The language used, lowercase."
@@ -244,23 +233,20 @@ class TTSResponseInfo(BaseModel):
 
     voice_expires_at: Optional[int] = None
     """For a cloned voice of the account that expires: its expiry as a Unix
-    time in seconds. On `synthesize()` it is the expiry after the request's
-    consent renewal, if it asked for one; on `stream()` it is the expiry as
-    the request started, before any renewal (a later request shows the
-    renewed one). `None` for a library voice, another account's voice and a
-    voice that does not expire."""
+    time in seconds, after the request's consent renewal if it asked for one.
+    `None` for a library voice. On a stream, the value as the stream started."""
 
     billed_characters: Optional[int] = None
-    """The characters the request bills. On `stream()` the header leaves with
-    the first audio, before the outcome is known: it holds once the audio is
-    read to its end. A response cut by a server failure bills `0`, and one
-    cut by `session_expired` (the API's 600-second limit) bills less.
-    Reconcile billing on `request_id`."""
+    """The characters the request bills. On a stream, the value as the stream
+    started: a body cut by a server failure bills nothing, one cut by
+    `session_expired` (the API's 600-second limit) bills the text before the
+    sentence being spoken, and one cut by `audio_backlog` (a client reading
+    too slowly) bills every character."""
 
     audio_duration_ms: Optional[int] = None
-    """The duration of the audio in milliseconds. Sent on a complete response
-    only: every `synthesize()`, and a response without audio. A streamed
-    response with audio does not know it up front."""
+    """The duration of the audio in milliseconds, on a complete response:
+    `synthesize()`, and a streamed request with nothing to speak (`0`). A
+    stream with audio does not know it up front."""
 
 
 class TTSResponse(TTSResponseInfo):
@@ -268,7 +254,5 @@ class TTSResponse(TTSResponseInfo):
 
     audio: bytes = Field(..., repr=False)
     """The audio in the requested encoding and container, complete. Its
-    duration is `audio_duration_ms`. A text with nothing to speak (only emoji,
-    for example) gives no audio: empty bytes, or a WAV header without samples,
-    with `billed_characters` `0`. Left out of `repr()`, so a logged response
-    does not carry the clip."""
+    duration is `audio_duration_ms`. Left out of `repr()`, so a logged
+    response does not carry the clip."""

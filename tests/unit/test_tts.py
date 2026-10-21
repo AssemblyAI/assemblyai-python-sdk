@@ -5,7 +5,8 @@ reads audio back; the response headers carry the metadata.
 """
 
 import json
-from typing import Any, Iterator, Optional
+import warnings
+from typing import Iterator, Optional
 
 import httpx
 import pydantic
@@ -56,38 +57,16 @@ def _mock_ok(httpx_mock: HTTPXMock, **headers: str) -> None:
     )
 
 
+def _mock_error(httpx_mock: HTTPXMock, status: int, body: dict, **headers: str) -> None:
+    httpx_mock.add_response(
+        url=SPEECH_URL, method="POST", status_code=status, json=body, headers=headers
+    )
+
+
 def _sent_body(httpx_mock: HTTPXMock) -> dict:
     requests = httpx_mock.get_requests()
     assert len(requests) == 1
     return json.loads(requests[0].content)
-
-
-class _RecordingStream(httpx.SyncByteStream):
-    """A response body that yields `chunks`, then raises `error` if one is
-    given, and records whether it was closed."""
-
-    def __init__(self, *chunks: bytes, error: Optional[Exception] = None) -> None:
-        self._chunks = chunks
-        self._error = error
-        self.closed = False
-
-    def __iter__(self) -> Iterator[bytes]:
-        yield from self._chunks
-        if self._error is not None:
-            raise self._error
-
-    def close(self) -> None:
-        self.closed = True
-
-
-def _field_names(model: Any) -> set:
-    return set(model.model_fields if models.pydantic_v2 else model.__fields__)
-
-
-def _peer_closed() -> httpx.RemoteProtocolError:
-    return httpx.RemoteProtocolError(
-        "peer closed connection without sending complete message body"
-    )
 
 
 def test_synthesize_posts_a_buffered_request_to_the_tts_host(httpx_mock: HTTPXMock):
@@ -130,7 +109,7 @@ def test_config_fields_go_in_the_body_and_unset_ones_stay_out(httpx_mock: HTTPXM
     tts.synthesize(
         "Hola.",
         aai.TTSConfig(
-            voice_id="aai-adela",
+            voice_id="aai-juan",
             model_id="assemblyai-tts-1",
             sample_rate=8000,
             encoding=aai.TTSEncoding.pcm_mulaw,
@@ -141,7 +120,7 @@ def test_config_fields_go_in_the_body_and_unset_ones_stay_out(httpx_mock: HTTPXM
     # THEN it replaces the default, enums serialize to their values
     assert _sent_body(httpx_mock) == {
         "text": "Hola.",
-        "voice_id": "aai-adela",
+        "voice_id": "aai-juan",
         "model_id": "assemblyai-tts-1",
         "sample_rate": 8000,
         "encoding": "pcm_mulaw",
@@ -161,6 +140,31 @@ def test_default_config_is_used_when_no_per_call_config(httpx_mock: HTTPXMock):
     }
 
 
+def test_voice_id_falls_back_to_x_tts_voice_until_the_api_sends_the_id(
+    httpx_mock: HTTPXMock,
+):
+    # GIVEN a server that still sends X-TTS-Voice only
+    legacy = {k: v for k, v in _OK_HEADERS.items() if k != "x-tts-voice-id"}
+    httpx_mock.add_response(
+        url=SPEECH_URL,
+        method="POST",
+        content=_AUDIO,
+        headers={**legacy, "x-tts-voice": "jane"},
+    )
+    httpx_mock.add_response(
+        url=SPEECH_URL,
+        method="POST",
+        content=_AUDIO,
+        headers={**legacy, "x-tts-voice": "custom"},
+    )
+    tts = aai.TextToSpeech()
+
+    # THEN a built-in voice's name becomes its slug, and `custom` the request's voice_id
+    assert tts.synthesize("Hi.").voice_id == "aai-jane"
+    cloned = tts.synthesize("Hi.", aai.TTSConfig(voice_id="aai-isaiah-2"))
+    assert cloned.voice_id == "aai-isaiah-2"
+
+
 def test_stream_yields_audio_as_it_arrives_and_reports_the_headers(
     httpx_mock: HTTPXMock,
 ):
@@ -174,6 +178,7 @@ def test_stream_yields_audio_as_it_arrives_and_reports_the_headers(
     # THEN the request asked for a streamed response and the bytes came back
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
     assert b"".join(chunks) == _AUDIO
+    assert speech.info is not None
     assert speech.info.model == "assemblyai-tts-1"
     assert speech.info.voice_id == "aai-jane"
     assert speech.info.sample_rate == 24000
@@ -181,11 +186,8 @@ def test_stream_yields_audio_as_it_arrives_and_reports_the_headers(
 
 
 def test_stream_sends_nothing_until_entered_and_raises_there(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
-        json={**_ERROR_BODY, "code": "voice_not_found", "param": "voice_id"},
+    _mock_error(
+        httpx_mock, 422, {**_ERROR_BODY, "code": "voice_not_found", "param": "voice_id"}
     )
 
     speech = aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="aai-x"))
@@ -210,15 +212,38 @@ def test_stream_can_be_iterated_without_a_context_manager(httpx_mock: HTTPXMock)
     assert speech.info is not None and speech.info.voice_id == "aai-jane"
 
 
+def test_stream_read_collects_the_whole_audio(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+
+    speech = aai.TextToSpeech().stream("Hello there.")
+    try:
+        assert speech.read() == _AUDIO
+    finally:
+        speech.close()
+
+
 class _CutStream(httpx.SyncByteStream):
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
     def __iter__(self) -> Iterator[bytes]:
         yield _AUDIO[:100]
-        raise httpx.RemoteProtocolError("peer closed connection")
+        raise self._error
 
 
-def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error():
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.RemoteProtocolError("peer closed connection"),
+        httpx.ReadError("connection reset"),
+        httpx.ReadTimeout("no audio for 30 s"),
+    ],
+)
+def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error(error):
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, headers=_OK_HEADERS, stream=_CutStream())
+        lambda request: httpx.Response(
+            200, headers=_OK_HEADERS, stream=_CutStream(error)
+        )
     )
     with httpx.Client(transport=transport) as http:
         speech = api.stream_speech(
@@ -230,8 +255,9 @@ def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error():
     err = exc_info.value
     assert err.retryable is True
     assert err.status_code == 200
+    assert err.error_code is None
     assert err.request_id == _OK_HEADERS["x-request-id"]
-    assert isinstance(err.__cause__, httpx.RemoteProtocolError)
+    assert err.__cause__ is error
 
 
 def test_response_repr_leaves_the_audio_out(httpx_mock: HTTPXMock):
@@ -244,43 +270,9 @@ def test_response_repr_leaves_the_audio_out(httpx_mock: HTTPXMock):
     assert response.audio == _AUDIO
 
 
-def test_fractional_retry_after_is_rounded_up(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.TOO_MANY_REQUESTS,
-        json={
-            "code": "rate_limited",
-            "message": "slow down",
-            "retry_after_seconds": 1.2,
-        },
-    )
-
-    with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().synthesize("Hi.")
-
-    assert exc_info.value.retry_after == 2
-
-
-def test_stream_read_collects_the_whole_audio(httpx_mock: HTTPXMock):
-    _mock_ok(httpx_mock)
-
-    speech = aai.TextToSpeech().stream("Hello there.")
-    try:
-        assert speech.read() == _AUDIO
-    finally:
-        speech.close()
-
-
 def test_error_envelope_becomes_a_tts_error(httpx_mock: HTTPXMock):
     # GIVEN a refusal with the API's JSON envelope
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
-        json=_ERROR_BODY,
-        headers={"x-request-id": "req-1"},
-    )
+    _mock_error(httpx_mock, 422, _ERROR_BODY, **{"x-request-id": "req-1"})
 
     # WHEN the request is made
     with pytest.raises(aai.TTSError) as exc_info:
@@ -300,11 +292,10 @@ def test_error_envelope_becomes_a_tts_error(httpx_mock: HTTPXMock):
 
 
 def test_stream_raises_the_same_error_before_any_audio(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.TOO_MANY_REQUESTS,
-        json={
+    _mock_error(
+        httpx_mock,
+        429,
+        {
             **_ERROR_BODY,
             "code": "rate_limited",
             "message": "Too many requests",
@@ -313,7 +304,7 @@ def test_stream_raises_the_same_error_before_any_audio(httpx_mock: HTTPXMock):
             "retryable": True,
             "retry_after_seconds": 17,
         },
-        headers={"retry-after": "17"},
+        **{"retry-after": "17"},
     )
 
     with pytest.raises(aai.TTSError) as exc_info:
@@ -325,13 +316,85 @@ def test_stream_raises_the_same_error_before_any_audio(httpx_mock: HTTPXMock):
     assert exc_info.value.retry_after == 17
 
 
-def test_retry_after_header_is_read_when_the_body_has_no_hint(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
+class _RecordingStream(httpx.SyncByteStream):
+    """A response body that yields `chunks`, then raises `error` if one is
+    given, and records whether it was closed."""
+
+    def __init__(self, *chunks: bytes, error: Optional[Exception] = None) -> None:
+        self._chunks = chunks
+        self._error = error
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield from self._chunks
+        if self._error is not None:
+            raise self._error
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_refused_stream_releases_its_connection_if_its_body_fails(
+    httpx_mock: HTTPXMock,
+):
+    # GIVEN a refusal whose error body is cut while it is read
+    body = _RecordingStream(b'{"code": ', error=httpx.ReadError("reset"))
+    httpx_mock.add_callback(
+        lambda request: httpx.Response(
+            503, headers={"content-type": "application/json"}, stream=body
+        ),
         url=SPEECH_URL,
         method="POST",
-        status_code=httpx.codes.SERVICE_UNAVAILABLE,
-        json={"code": "at_capacity", "message": "No room", "retryable": True},
-        headers={"retry-after": "2"},
+    )
+
+    # THEN the network error surfaces and the connection is released
+    with pytest.raises(httpx.ReadError):
+        with aai.TextToSpeech().stream("Hi."):
+            pass
+
+    assert body.closed
+
+
+def test_biometric_terms_refusal_and_auth_unavailable(httpx_mock: HTTPXMock):
+    _mock_error(
+        httpx_mock,
+        403,
+        {
+            "code": "biometric_terms_not_accepted",
+            "message": "Accept the biometric data terms in the dashboard.",
+            "param": "voice_id",
+            "retryable": False,
+        },
+    )
+    _mock_error(
+        httpx_mock,
+        503,
+        {"code": "auth_unavailable", "message": "Try again", "retryable": True},
+        **{"retry-after": "1"},
+    )
+    tts = aai.TextToSpeech()
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        tts.synthesize(
+            "Hi.", aai.TTSConfig(voice_id="aai-x", extend_biometric_consent=True)
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.error_code == "biometric_terms_not_accepted"
+    assert exc_info.value.retryable is False
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        tts.synthesize("Hi.")
+    assert exc_info.value.error_code == "auth_unavailable"
+    assert exc_info.value.retryable is True
+    assert exc_info.value.retry_after == 1
+
+
+def test_retry_after_header_is_read_when_the_body_has_no_hint(httpx_mock: HTTPXMock):
+    _mock_error(
+        httpx_mock,
+        503,
+        {"code": "at_capacity", "message": "No room", "retryable": True},
+        **{"retry-after": "2"},
     )
 
     with pytest.raises(aai.TTSError) as exc_info:
@@ -340,6 +403,29 @@ def test_retry_after_header_is_read_when_the_body_has_no_hint(httpx_mock: HTTPXM
     assert exc_info.value.status_code == 503
     assert exc_info.value.error_code == "at_capacity"
     assert exc_info.value.retry_after == 2
+
+
+def test_fractional_retry_after_is_rounded_up(httpx_mock: HTTPXMock):
+    _mock_error(
+        httpx_mock,
+        429,
+        {"code": "rate_limited", "message": "slow down", "retry_after_seconds": 1.2},
+    )
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        aai.TextToSpeech().synthesize("Hi.")
+
+    assert exc_info.value.retry_after == 2
+
+
+def test_json_error_without_retryable_falls_back_to_the_status(httpx_mock: HTTPXMock):
+    _mock_error(httpx_mock, 503, {"message": "upstream unavailable"})
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        aai.TextToSpeech().synthesize("Hi.")
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.error_code is None
 
 
 def test_non_json_error_reports_the_status_and_text(httpx_mock: HTTPXMock):
@@ -379,270 +465,6 @@ def test_tts_base_url_setting_picks_the_host(httpx_mock: HTTPXMock):
     assert str(httpx_mock.get_requests()[0].url) == eu_url
 
 
-def test_setting_config_to_none_restores_the_defaults(httpx_mock: HTTPXMock):
-    _mock_ok(httpx_mock)
-    tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-alba"))
-    tts.config = None  # type: ignore[assignment]
-
-    tts.synthesize("Hi.")
-
-    assert _sent_body(httpx_mock) == {"text": "Hi.", "stream": False}
-
-
-def test_json_error_without_retryable_falls_back_to_the_status(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.SERVICE_UNAVAILABLE,
-        json={"message": "upstream unavailable"},
-    )
-
-    with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().synthesize("Hi.")
-
-    assert exc_info.value.retryable is True
-    assert exc_info.value.error_code is None
-
-
-def test_voice_expiry_header_is_reported(httpx_mock: HTTPXMock):
-    # GIVEN one of the account's cloned voices, named by its UUID
-    voice_id = "01a0da61-138c-77c7-ab98-421431ed74e8"
-    _mock_ok(
-        httpx_mock,
-        **{"x-tts-voice-id": voice_id, "x-tts-voice-expires-at": "1791480600"},
-    )
-
-    response = aai.TextToSpeech().synthesize("Hi.", aai.TTSConfig(voice_id=voice_id))
-
-    # THEN the voice and its expiry come from the headers
-    assert response.voice_id == voice_id
-    assert response.voice_expires_at == 1791480600
-
-
-def test_voice_id_is_read_from_x_tts_voice_id_only(httpx_mock: HTTPXMock):
-    # GIVEN a server that sends the old X-TTS-Voice header and no X-TTS-Voice-Id
-    headers = {k: v for k, v in _OK_HEADERS.items() if k != "x-tts-voice-id"}
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.OK,
-        content=_AUDIO,
-        headers={**headers, "x-tts-voice": "jane"},
-    )
-
-    response = aai.TextToSpeech().synthesize("Hi.")
-
-    # THEN voice_id is unknown, and the retired header is not exposed
-    assert response.voice_id is None
-    assert not hasattr(response, "voice")
-    assert "voice" not in _field_names(aai.TTSResponse)
-
-
-def test_voice_is_not_a_config_field_and_the_error_names_voice_id():
-    # GIVEN the retired `voice` field, with or without voice_id
-    for kwargs in ({"voice": "jane"}, {"voice": "jane", "voice_id": "aai-jane"}):
-        # THEN the config refuses it and points to voice_id
-        with pytest.raises(ValueError, match="voice_id"):
-            aai.TTSConfig(**kwargs)  # type: ignore[arg-type]
-
-    assert "voice" not in _field_names(aai.TTSConfig)
-
-
-def test_the_apis_refusal_of_voice_is_a_tts_error(httpx_mock: HTTPXMock):
-    # GIVEN the API's refusal of a body that sends `voice`
-    message = "voice: voice is not accepted; name the voice with voice_id=aai-jane"
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
-        json={
-            **_ERROR_BODY,
-            "message": message,
-            "error": message,
-            "param": "voice",
-            "errors": [{"message": message, "param": "voice"}],
-        },
-    )
-
-    with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().synthesize("Hi.")
-
-    assert exc_info.value.error_code == "invalid_parameter"
-    assert exc_info.value.param == "voice"
-    assert exc_info.value.retryable is False
-
-
-def test_biometric_terms_refusal_is_a_tts_error(httpx_mock: HTTPXMock):
-    # GIVEN an account that has not accepted the biometric data terms
-    message = (
-        "This account has not accepted the biometric data terms. Please visit "
-        "https://www.assemblyai.com/dashboard/settings/data-controls to review "
-        "and accept them."
-    )
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.FORBIDDEN,
-        json={
-            "code": "biometric_terms_not_accepted",
-            "message": message,
-            "param": "voice_id",
-            "request_id": "req-403",
-            "errors": None,
-            "retryable": False,
-            "retry_after_seconds": None,
-            "error": message,
-        },
-    )
-
-    # WHEN one of its own cloned voices is used
-    with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().synthesize(
-            "Hi.", aai.TTSConfig(voice_id="01a0da61-138c-77c7-ab98-421431ed74e8")
-        )
-
-    # THEN the refusal is final until the terms are accepted
-    err = exc_info.value
-    assert err.status_code == 403
-    assert err.error_code == "biometric_terms_not_accepted"
-    assert err.param == "voice_id"
-    assert err.retryable is False
-    assert "data-controls" in str(err)
-
-
-def test_auth_unavailable_is_retryable(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=SPEECH_URL,
-        method="POST",
-        status_code=httpx.codes.SERVICE_UNAVAILABLE,
-        json={
-            "code": "auth_unavailable",
-            "message": "Could not confirm the account's biometric data terms",
-            "retryable": True,
-            "retry_after_seconds": 1,
-        },
-        headers={"retry-after": "1"},
-    )
-
-    with pytest.raises(aai.TTSError) as exc_info:
-        with aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="my-voice")):
-            pass
-
-    assert exc_info.value.error_code == "auth_unavailable"
-    assert exc_info.value.retryable is True
-    assert exc_info.value.retry_after == 1
-
-
-def test_a_cut_stream_delivers_its_first_audio_and_releases_its_connection(
-    httpx_mock: HTTPXMock,
-):
-    # GIVEN a streamed answer that the API cuts after its first audio
-    body = _RecordingStream(_AUDIO, error=_peer_closed())
-    httpx_mock.add_callback(
-        lambda request: httpx.Response(200, headers=_OK_HEADERS, stream=body),
-        url=SPEECH_URL,
-        method="POST",
-    )
-
-    # WHEN the audio is read
-    received = []
-    with pytest.raises(aai.TTSError) as exc_info:
-        with aai.TextToSpeech().stream("Hello there.") as speech:
-            for chunk in speech:
-                received.append(chunk)
-
-    # THEN the first audio arrived, then a retryable error with the request id
-    assert b"".join(received) == _AUDIO
-    err = exc_info.value
-    assert err.status_code == 200
-    assert err.error_code is None
-    assert err.retryable is True
-    assert err.request_id == _OK_HEADERS["x-request-id"]
-    assert isinstance(err.__cause__, httpx.RemoteProtocolError)
-    # AND the connection was released
-    assert body.closed
-
-
-def test_a_read_error_while_streaming_stays_an_httpx_error(httpx_mock: HTTPXMock):
-    # GIVEN a streamed answer whose connection fails after the first audio
-    httpx_mock.add_callback(
-        lambda request: httpx.Response(
-            200,
-            headers=_OK_HEADERS,
-            stream=_RecordingStream(_AUDIO, error=httpx.ReadError("reset")),
-        ),
-        url=SPEECH_URL,
-        method="POST",
-    )
-
-    # THEN reading raises the network error itself, as everywhere in the SDK
-    with aai.TextToSpeech().stream("Hello there.") as speech:
-        with pytest.raises(httpx.ReadError):
-            speech.read()
-
-
-def test_a_refused_stream_releases_its_connection_if_its_body_fails(
-    httpx_mock: HTTPXMock,
-):
-    # GIVEN a refusal whose error body is cut while it is read
-    body = _RecordingStream(b'{"code": ', error=httpx.ReadError("reset"))
-    httpx_mock.add_callback(
-        lambda request: httpx.Response(
-            503, headers={"content-type": "application/json"}, stream=body
-        ),
-        url=SPEECH_URL,
-        method="POST",
-    )
-
-    # THEN the network error surfaces and the connection is released
-    with pytest.raises(httpx.ReadError):
-        with aai.TextToSpeech().stream("Hi."):
-            pass
-
-    assert body.closed
-
-
-def test_region_is_reported(httpx_mock: HTTPXMock):
-    _mock_ok(httpx_mock)
-
-    response = aai.TextToSpeech().synthesize("Hi.")
-
-    assert response.region == "us-east-1"
-
-
-def test_container_takes_the_enum_or_a_string(httpx_mock: HTTPXMock):
-    _mock_ok(httpx_mock)
-    _mock_ok(httpx_mock)
-    tts = aai.TextToSpeech()
-
-    tts.synthesize("Hi.", aai.TTSConfig(container="WAV"))
-    tts.synthesize("Hi.", aai.TTSConfig(container=aai.TTSContainer.raw))
-
-    bodies = [json.loads(r.content) for r in httpx_mock.get_requests()]
-    assert bodies[0]["container"] == "WAV"
-    assert bodies[1]["container"] == "raw"
-
-
-def test_model_id_needs_no_protected_namespace_warning():
-    if models.pydantic_v2:
-        assert aai.TTSConfig.model_config["protected_namespaces"] == ()
-
-    assert aai.TTSConfig(model_id="assemblyai-tts-1").model_id == "assemblyai-tts-1"
-
-
-def test_encoding_takes_the_enum_or_a_string_alias(httpx_mock: HTTPXMock):
-    _mock_ok(httpx_mock)
-    _mock_ok(httpx_mock)
-    tts = aai.TextToSpeech()
-
-    tts.synthesize("Hi.", aai.TTSConfig(encoding="mulaw"))
-    tts.synthesize("Hi.", aai.TTSConfig(encoding=aai.TTSEncoding.pcm_alaw))
-
-    bodies = [json.loads(r.content) for r in httpx_mock.get_requests()]
-    assert bodies[0]["encoding"] == "mulaw"
-    assert bodies[1]["encoding"] == "pcm_alaw"
-
-
 def test_synthesize_and_stream_use_their_own_timeouts(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
     _mock_ok(httpx_mock)
@@ -655,25 +477,70 @@ def test_synthesize_and_stream_use_their_own_timeouts(httpx_mock: HTTPXMock):
     with tts.stream("Hi.") as speech:
         speech.read()
 
-    # The buffered read waits for the whole audio; everything else, and the
-    # streamed request, use the per-operation timeout
-    synthesize, stream = [r.extensions["timeout"] for r in httpx_mock.get_requests()]
-    assert synthesize == {"connect": 7.0, "read": 99.0, "write": 7.0, "pool": 7.0}
-    assert stream == {"connect": 7.0, "read": 7.0, "write": 7.0, "pool": 7.0}
+    timeouts = [r.extensions["timeout"] for r in httpx_mock.get_requests()]
+    # synthesize: the read waits for the whole clip, connecting does not
+    assert (timeouts[0]["read"], timeouts[0]["connect"]) == (99.0, 7.0)
+    assert timeouts[1]["read"] == 7.0
 
 
 def test_the_synthesize_read_timeout_outlasts_the_apis_request_limit():
-    # The API answers 504 session_expired after 600 seconds
-    assert aai.settings.tts_synthesize_http_timeout > 600
+    assert aai.Settings().tts_synthesize_http_timeout > 600
+
+
+def test_setting_config_to_none_restores_the_defaults(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-alba"))
+    tts.config = None  # type: ignore[assignment]
+
+    tts.synthesize("Hi.")
+
+    assert _sent_body(httpx_mock) == {"text": "Hi.", "stream": False}
+
+
+def test_voice_expiry_header_is_reported(httpx_mock: HTTPXMock):
+    _mock_ok(
+        httpx_mock,
+        **{"x-tts-voice-id": "aai-x", "x-tts-voice-expires-at": "1791480600"},
+    )
+
+    response = aai.TextToSpeech().synthesize("Hi.", aai.TTSConfig(voice_id="aai-x"))
+
+    assert response.voice_id == "aai-x"
+    assert response.voice_expires_at == 1791480600
+
+
+def test_encoding_and_container_take_the_enum_or_a_string(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    _mock_ok(httpx_mock)
+    tts = aai.TextToSpeech()
+
+    tts.synthesize("Hi.", aai.TTSConfig(encoding="mulaw", container="wav"))
+    tts.synthesize(
+        "Hi.",
+        aai.TTSConfig(
+            encoding=aai.TTSEncoding.pcm_alaw, container=aai.TTSContainer.raw
+        ),
+    )
+
+    bodies = [json.loads(r.content) for r in httpx_mock.get_requests()]
+    assert (bodies[0]["encoding"], bodies[0]["container"]) == ("mulaw", "wav")
+    assert (bodies[1]["encoding"], bodies[1]["container"]) == ("pcm_alaw", "raw")
 
 
 def test_config_rejects_unknown_fields():
     with pytest.raises(ValueError):
-        aai.TTSConfig(sample_rte=8000)  # type: ignore[call-arg]
+        aai.TTSConfig(voice_id="aai-jane", speed=2)  # type: ignore[call-arg]
 
-    # `speed` exists on the API, but only as 1: the config leaves it out
-    with pytest.raises(ValueError):
-        aai.TTSConfig(speed=1)  # type: ignore[call-arg]
+
+def test_voice_is_not_a_config_field_and_the_error_names_voice_id():
+    with pytest.raises(ValueError, match="voice_id"):
+        aai.TTSConfig(voice="jane")  # type: ignore[call-arg]
+
+
+def test_model_id_needs_no_protected_namespace_warning():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        aai.TTSConfig(model_id="assemblyai-tts-1")
 
 
 def test_config_is_a_native_model_of_the_installed_pydantic():

@@ -53,7 +53,7 @@ class TextToSpeech:
         Args:
             client: The HTTP client to use. Defaults to the shared default client.
             config: Default options. A per-call `config` replaces it whole,
-                so repeat the `voice_id` in a per-call config.
+                so repeat the voice_id in a per-call config.
             api_key: The API key to authenticate with. Builds a `Client` for
                 this instance. Given alongside `client`, it takes precedence:
                 a client is built from a copy of that client's settings with
@@ -94,10 +94,7 @@ class TextToSpeech:
 
         Nothing is sent back until the audio is complete, so a long text
         takes several seconds and an API failure is always a `TTSError`,
-        never a cut response. The read timeout,
-        `settings.tts_synthesize_http_timeout`, outlasts the API's own
-        600-second limit on a request. Network failures and client timeouts
-        raise httpx exceptions. Use `stream()` when the first audio matters.
+        never a cut response. Use `stream()` when the first audio matters.
 
         Args:
             text: 1 to 5,000 characters.

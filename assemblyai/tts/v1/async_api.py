@@ -1,13 +1,14 @@
-from typing import Any, AsyncIterator, Dict, Optional, Union
+from typing import Any, AsyncContextManager, AsyncIterator, Dict, Optional
 
 import httpx
 
 from .api import (
+    _CUT_ERRORS,
     ENDPOINT_SPEECH,
+    Timeout,
     _cut_error,
     _error_from_response,
     _header_fields,
-    _info_from_headers,
 )
 from .models import TTSResponse, TTSResponseInfo
 
@@ -27,9 +28,19 @@ class AsyncTTSStream:
     body: the iteration then raises `TTSError` with `retryable=True`.
     """
 
-    def __init__(self, client: httpx.AsyncClient, request: httpx.Request) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        url: str,
+        body: Dict[str, Any],
+        timeout: Timeout,
+    ) -> None:
         self._client = client
-        self._request = request
+        self._url = url
+        self._body = body
+        self._timeout = timeout
+        self._cm: Optional[AsyncContextManager[httpx.Response]] = None
         self._response: Optional[httpx.Response] = None
         self._info: Optional[TTSResponseInfo] = None
 
@@ -43,16 +54,22 @@ class AsyncTTSStream:
         if self._response is not None:
             return self._response
 
-        response = await self._client.send(self._request, stream=True)
+        cm = self._client.stream(
+            "POST", self._url, json=self._body, timeout=self._timeout
+        )
+        response = await cm.__aenter__()
         if response.status_code != httpx.codes.OK:
             try:
                 await response.aread()
                 raise _error_from_response(response)
             finally:
-                await response.aclose()
+                await cm.__aexit__(None, None, None)
 
+        self._cm = cm
         self._response = response
-        self._info = _info_from_headers(response.headers)
+        self._info = TTSResponseInfo(
+            **_header_fields(response.headers, self._body.get("voice_id"))
+        )
         return response
 
     async def __aenter__(self) -> "AsyncTTSStream":
@@ -66,15 +83,21 @@ class AsyncTTSStream:
         return self.aiter_bytes()
 
     async def aiter_bytes(self) -> AsyncIterator[bytes]:
-        """Yields the audio bytes as they arrive."""
+        """
+        Yields the audio bytes as they arrive.
+
+        Raises:
+            TTSError: from the first read if the API refuses the request, or
+                later if the body is cut before the audio is complete.
+        """
 
         response = await self._open()
         try:
             async for chunk in response.aiter_bytes():
                 if chunk:
                     yield chunk
-        except httpx.RemoteProtocolError as exc:
-            raise _cut_error(self._info) from exc
+        except _CUT_ERRORS as error:
+            raise _cut_error(self._info, error) from error
 
     async def aread(self) -> bytes:
         """Reads the rest of the audio and returns it."""
@@ -87,8 +110,9 @@ class AsyncTTSStream:
     async def aclose(self) -> None:
         """Releases the connection. Audio not yet read is discarded."""
 
-        if self._response is not None:
-            await self._response.aclose()
+        cm, self._cm = self._cm, None
+        if cm is not None:
+            await cm.__aexit__(None, None, None)
 
 
 async def synthesize(
@@ -96,7 +120,7 @@ async def synthesize(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: Union[float, httpx.Timeout],
+    timeout: Timeout,
 ) -> TTSResponse:
     """
     Posts a buffered speech request and returns the complete audio.
@@ -115,7 +139,10 @@ async def synthesize(
     if response.status_code != httpx.codes.OK:
         raise _error_from_response(response)
 
-    return TTSResponse(audio=response.content, **_header_fields(response.headers))
+    return TTSResponse(
+        audio=response.content,
+        **_header_fields(response.headers, body.get("voice_id")),
+    )
 
 
 def stream_speech(
@@ -123,7 +150,7 @@ def stream_speech(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: float,
+    timeout: Timeout,
 ) -> AsyncTTSStream:
     """
     Prepares a streamed speech request and returns it as an `AsyncTTSStream`.
@@ -131,10 +158,9 @@ def stream_speech(
     The asyncio counterpart of `api.stream_speech`: nothing is sent here.
     """
 
-    request = client.build_request(
-        "POST",
-        base_url.rstrip("/") + ENDPOINT_SPEECH,
-        json={**body, "stream": True},
+    return AsyncTTSStream(
+        client,
+        url=base_url.rstrip("/") + ENDPOINT_SPEECH,
+        body={**body, "stream": True},
         timeout=timeout,
     )
-    return AsyncTTSStream(client, request)

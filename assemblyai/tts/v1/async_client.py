@@ -50,7 +50,7 @@ class AsyncTextToSpeech:
                 the global `settings` and closed on `aclose()`. Pass a client
                 to share one pool between instances.
             config: Default options. A per-call `config` replaces it whole,
-                so repeat the `voice_id` in a per-call config.
+                so repeat the voice_id in a per-call config.
             api_key: The API key to authenticate with. Builds and owns an
                 `AsyncClient` from it. Given alongside `client`, it takes
                 precedence: a client is built from a copy of that client's
