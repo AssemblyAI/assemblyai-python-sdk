@@ -52,6 +52,11 @@ aai.settings.api_key = "your-key"
 - `aai.AsyncDictationTranscriber` — Asyncio counterpart of `DictationTranscriber`; `open_live()` returns an `AsyncDictationLiveSession`. Owns an HTTP pool: use `async with` or `await aclose()`
 - `aai.DictationConfig` — Dictation options: `sample_rate`, `channels`, `language_codes`, `keyterms_prompt`, `llm_instruction`, `rewrite_mode` (`aai.DictationRewriteMode.fast` default | `smart`). Rejects unknown fields
 - `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
+- `aai.TextToSpeech` — Text-to-Speech HTTP API: one text per request, audio out. Methods: `synthesize()` (complete audio as a `TTSResponse`), `stream()` (a `TTSStream` context manager yielding bytes as the API generates them), `close()` / `with` for a client built from `api_key=`. Host from `aai.settings.tts_base_url` (`https://tts.us.assemblyai.com`; set `https://tts.eu.assemblyai.com` for the EU zone)
+- `aai.AsyncTextToSpeech` — Asyncio counterpart of `TextToSpeech`; `synthesize()` is a coroutine and `stream()` returns an `AsyncTTSStream`. Owns an HTTP pool: use `async with` or `await aclose()`
+- `aai.TTSConfig` — Text-to-Speech options: `voice_id` (a library voice such as `aai-jane`, or a cloned voice by UUID or slug), `model_id` (`assemblyai-tts-1`), `language`, `sample_rate`, `encoding` (`aai.TTSEncoding`: `pcm_s16le` default | `pcm_mulaw` | `pcm_alaw` | `mp3`), `container` (`aai.TTSContainer`: `raw` default | `wav`), `bit_rate`, `extend_biometric_consent` (owner-only consent renewal of a cloned voice). Rejects unknown fields
+- `aai.TTSResponse` — Text-to-Speech result: `.audio` (bytes) plus the response headers: `.request_id`, `.region`, `.model`, `.voice_id`, `.language`, `.encoding`, `.sample_rate`, `.container`, `.bit_rate`, `.content_type`, `.voice_expires_at`, `.billed_characters`, `.audio_duration_ms`. `TTSStream.info` carries the same fields without `audio`; `audio_duration_ms` is `None` on a stream with audio (`0` when the text had nothing to speak)
+- `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code; `biometric_terms_not_accepted` 403 until the account accepts the biometric data terms in the dashboard, `auth_unavailable` 503 retryable), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`, `.body` (the whole envelope)
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
 - `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `understanding.create()`/`.validate()`
@@ -451,6 +456,30 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 - Don't feed `AsyncRealTimeTranscriber.stream()` from a sync generator that blocks (e.g. `time.sleep` pacing) — it starves the read task. Use an `async def` generator with `await asyncio.sleep(...)` instead.
 - `format_turns=True` enables punctuation/casing on confirmed end-of-turns. Toggle mid-session via `client.set_params(RealTimeSessionParameters(format_turns=True))`.
 - `AsyncRealTimeTranscriber` used as `async with` calls `disconnect(terminate=True)` on normal block exit and `disconnect(terminate=False)` on exception — no explicit `disconnect()` needed inside the block.
+
+## Text-to-Speech
+
+One text per HTTP request. `synthesize()` returns the whole audio; `stream()` yields it as it is generated. An API refusal is always `aai.TTSError`, and so is a stream body cut after the first audio (`retryable=True`, from the loop: retry the request). Connect and first-byte failures are httpx exceptions, as in the rest of the SDK. Settings are copied when a client is built: set `tts_base_url` before creating `TextToSpeech`. `synthesize()` waits for the whole clip under `settings.tts_synthesize_http_timeout` (610 s, over the API's 600 s request cap); `stream()` uses `settings.tts_http_timeout` (30 s) per socket operation.
+
+```python
+tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-jane"))
+
+# A per-call config replaces the default whole: repeat the voice_id in it
+wav = tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-jane", container=aai.TTSContainer.wav)).audio
+
+with tts.stream("Hello.") as speech:
+    for chunk in speech:  # raw 24 kHz s16le mono by default
+        play(chunk)
+
+# Telephony: 8 kHz mu-law (chunk sizes vary; re-frame to 160 bytes for 20 ms frames)
+telephony = aai.TTSConfig(voice_id="aai-jane", encoding=aai.TTSEncoding.pcm_mulaw, sample_rate=8000)
+with tts.stream("Hello.", telephony) as speech:
+    for chunk in speech:
+        send_to_call(chunk)
+
+# A cloned or library voice by id
+tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-alba"))
+```
 
 ## LLM Gateway
 

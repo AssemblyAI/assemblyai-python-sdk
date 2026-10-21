@@ -29,6 +29,18 @@ from .llm_gateway.v1 import (
 from .prerecorded.v2 import AsyncTranscriber, AsyncTranscript
 from .sync.v1 import AsyncSyncTranscriber, SyncTranscriber
 from .transcriber import Transcriber, Transcript, TranscriptGroup
+from .tts.v1 import (
+    AsyncTextToSpeech,
+    AsyncTTSStream,
+    TextToSpeech,
+    TTSConfig,
+    TTSContainer,
+    TTSEncoding,
+    TTSError,
+    TTSResponse,
+    TTSResponseInfo,
+    TTSStream,
+)
 from .types import (
     AssemblyAIError,
     AutohighlightResponse,
@@ -128,6 +140,8 @@ __all__ = [
     "AsyncDictationTranscriber",
     "AsyncLLMGateway",
     "AsyncSyncTranscriber",
+    "AsyncTTSStream",
+    "AsyncTextToSpeech",
     "AsyncTranscriber",
     "AsyncTranscript",
     "AutohighlightResponse",
@@ -197,6 +211,14 @@ __all__ = [
     "SyncTranscriptResponse",
     "SyncWord",
     "Timestamp",
+    "TTSConfig",
+    "TTSContainer",
+    "TTSEncoding",
+    "TTSError",
+    "TTSResponse",
+    "TTSResponseInfo",
+    "TTSStream",
+    "TextToSpeech",
     "Transcriber",
     "TranscriptionConfig",
     "Transcript",

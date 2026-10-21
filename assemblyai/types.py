@@ -162,6 +162,15 @@ class Settings(BaseSettings):
     llm_gateway_http_timeout: float = 30.0
     "The HTTP timeout for LLM Gateway requests"
 
+    tts_base_url: str = "https://tts.us.assemblyai.com"
+    "The base URL for the Text-to-Speech API (used by `TextToSpeech`/`AsyncTextToSpeech`). Set `https://tts.eu.assemblyai.com` to keep requests in the EU data zone."
+
+    tts_http_timeout: float = 30.0
+    "The HTTP timeout for streamed Text-to-Speech requests (`stream()`). Like every httpx timeout it bounds each socket operation (connecting, the wait for the first audio, each read), not the response as a whole. Buffered requests (`synthesize()`) use it to connect and send."
+
+    tts_synthesize_http_timeout: float = 610.0
+    "The read timeout of buffered Text-to-Speech requests (`synthesize()`), whose one read waits for the complete audio. A little over the API's own 600-second limit on a request, so a request that reaches it gets the API's `504 session_expired` as a `TTSError`, not a client timeout."
+
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
 
