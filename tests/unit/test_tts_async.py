@@ -86,7 +86,7 @@ async def test_stream_yields_audio_and_reports_the_headers(httpx_mock: HTTPXMock
 
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
     assert b"".join(chunks) == _AUDIO
-    assert speech.info is not None and speech.info.model == "assemblyai-tts-1"
+    assert speech.info.model == "assemblyai-tts-1"
 
 
 async def test_stream_aread_collects_the_whole_audio(httpx_mock: HTTPXMock):
@@ -135,6 +135,63 @@ async def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error(error):
     assert exc_info.value.status_code == 200
     assert exc_info.value.request_id == "req-async"
     assert exc_info.value.__cause__ is error
+
+
+class _RecordingStream(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _AUDIO[:100]
+        yield _AUDIO[100:]
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _transport(body: httpx.AsyncByteStream, status: int = 200) -> httpx.MockTransport:
+    headers = _OK_HEADERS if status == 200 else {"content-type": "application/json"}
+    return httpx.MockTransport(
+        lambda request: httpx.Response(status, headers=headers, stream=body)
+    )
+
+
+async def test_leaving_the_async_with_block_early_releases_the_connection():
+    body = _RecordingStream()
+    async with httpx.AsyncClient(transport=_transport(body)) as http:
+        async with async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        ) as speech:
+            await speech.aiter_bytes().__anext__()  # a barge-in after the first chunk
+        assert body.closed
+
+
+class _JsonBody(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield json.dumps({"code": "at_capacity", "message": "No room"}).encode()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_a_refused_stream_releases_its_connection():
+    body = _JsonBody()
+    async with httpx.AsyncClient(transport=_transport(body, status=503)) as http:
+        speech = async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with pytest.raises(aai.TTSError) as exc_info:
+            await speech.aread()
+    assert exc_info.value.error_code == "at_capacity"
+    assert body.closed
+
+
+async def test_an_owned_pool_is_closed_on_aclose():
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    http = tts.client.http_client
+    await tts.aclose()
+    assert http.is_closed
 
 
 async def test_errors_are_tts_errors(httpx_mock: HTTPXMock):

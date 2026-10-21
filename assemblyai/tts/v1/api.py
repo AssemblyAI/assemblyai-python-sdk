@@ -116,6 +116,7 @@ def _error_from_response(response: httpx.Response) -> TTSError:
             retryable=retryable,
             retry_after=retry_after,
             errors=body.get("errors"),
+            body=body,
         )
 
     text = response.text.strip()
@@ -180,9 +181,11 @@ class TTSStream:
         self._info: Optional[TTSResponseInfo] = None
 
     @property
-    def info(self) -> Optional[TTSResponseInfo]:
-        """The response headers; `None` until the request has been sent."""
+    def info(self) -> TTSResponseInfo:
+        """The response headers, once the stream is entered or first read."""
 
+        if self._info is None:
+            raise RuntimeError("enter or read the stream before `info`")
         return self._info
 
     def _open(self) -> httpx.Response:

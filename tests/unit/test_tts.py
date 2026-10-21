@@ -177,7 +177,6 @@ def test_stream_yields_audio_as_it_arrives_and_reports_the_headers(
     # THEN the request asked for a streamed response and the bytes came back
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
     assert b"".join(chunks) == _AUDIO
-    assert speech.info is not None
     assert speech.info.model == "assemblyai-tts-1"
     assert speech.info.voice_id == "aai-jane"
     assert speech.info.sample_rate == 24000
@@ -191,7 +190,8 @@ def test_stream_sends_nothing_until_entered_and_raises_there(httpx_mock: HTTPXMo
 
     speech = aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="aai-x"))
     assert httpx_mock.get_requests() == []
-    assert speech.info is None
+    with pytest.raises(RuntimeError, match="enter or read"):
+        speech.info
 
     with pytest.raises(aai.TTSError) as exc_info:
         with speech:
@@ -208,7 +208,7 @@ def test_stream_can_be_iterated_without_a_context_manager(httpx_mock: HTTPXMock)
     speech.close()
 
     assert b"".join(chunks) == _AUDIO
-    assert speech.info is not None and speech.info.voice_id == "aai-jane"
+    assert speech.info.voice_id == "aai-jane"
 
 
 def test_stream_read_collects_the_whole_audio(httpx_mock: HTTPXMock):
@@ -257,6 +257,119 @@ def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error(error):
     assert err.error_code is None
     assert err.request_id == _OK_HEADERS["x-request-id"]
     assert err.__cause__ is error
+
+
+class _RecordingStream(httpx.SyncByteStream):
+    closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield _AUDIO[:100]
+        yield _AUDIO[100:]
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _transport(body: httpx.SyncByteStream, status: int = 200) -> httpx.MockTransport:
+    headers = _OK_HEADERS if status == 200 else {"content-type": "application/json"}
+    return httpx.MockTransport(
+        lambda request: httpx.Response(status, headers=headers, stream=body)
+    )
+
+
+def test_leaving_the_with_block_early_releases_the_connection():
+    body = _RecordingStream()
+    with httpx.Client(transport=_transport(body)) as http:
+        with api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        ) as speech:
+            next(iter(speech))  # a barge-in after the first chunk
+        assert body.closed
+
+
+def test_close_releases_a_stream_read_outside_a_with_block():
+    body = _RecordingStream()
+    with httpx.Client(transport=_transport(body)) as http:
+        speech = api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        speech.read()
+        assert body.closed  # a fully read stream is released by httpx itself
+        speech.close()  # and a second close is harmless
+
+
+class _JsonBody(httpx.SyncByteStream):
+    closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield json.dumps({"code": "at_capacity", "message": "No room"}).encode()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_refused_stream_releases_its_connection():
+    body = _JsonBody()
+    with httpx.Client(transport=_transport(body, status=503)) as http:
+        speech = api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with pytest.raises(aai.TTSError) as exc_info:
+            speech.read()
+    assert exc_info.value.error_code == "at_capacity"
+    assert body.closed
+
+
+def test_a_client_built_from_api_key_is_closed_with_the_instance():
+    with aai.TextToSpeech(api_key="k") as tts:
+        http = tts.client.http_client
+        assert not http.is_closed
+    assert http.is_closed
+
+    # the shared default client is never closed by an instance
+    shared = aai.TextToSpeech()
+    shared.close()
+    assert not shared.client.http_client.is_closed
+
+
+def test_error_body_is_kept_for_the_fields_some_codes_add(httpx_mock: HTTPXMock):
+    _mock_error(
+        httpx_mock,
+        429,
+        {
+            "code": "rate_limited",
+            "message": "slow down",
+            "retryable": True,
+            "limit": 100,
+            "limit_window": "minute",
+        },
+    )
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        aai.TextToSpeech().synthesize("Hi.")
+
+    assert exc_info.value.body is not None
+    assert exc_info.value.body["limit"] == 100
+    assert exc_info.value.body["limit_window"] == "minute"
+
+
+def test_config_is_a_native_model_of_the_installed_pydantic():
+    import pydantic
+
+    # On pydantic 2 without pydantic-settings the SDK's shared models run in
+    # v1-compat mode; the TTS models must still be native v2 models.
+    assert issubclass(aai.TTSConfig, pydantic.BaseModel)
+    assert issubclass(aai.TTSResponse, pydantic.BaseModel)
+
+
+def test_defining_the_models_raises_no_pydantic_warnings():
+    import importlib
+
+    from assemblyai.tts.v1 import models
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        importlib.reload(models)
 
 
 def test_response_repr_leaves_the_audio_out(httpx_mock: HTTPXMock):
