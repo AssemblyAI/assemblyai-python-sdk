@@ -27,7 +27,7 @@ class AsyncTextToSpeech:
 
         async def main():
             async with aai.AsyncTextToSpeech() as tts:
-                async with await tts.stream("Hello from AssemblyAI.") as speech:
+                async with tts.stream("Hello from AssemblyAI.") as speech:
                     async for chunk in speech:
                         await play(chunk)
 
@@ -107,7 +107,7 @@ class AsyncTextToSpeech:
             timeout=synthesize_timeout(self._client.settings),
         )
 
-    async def stream(
+    def stream(
         self,
         text: str,
         config: Optional[TTSConfig] = None,
@@ -115,19 +115,20 @@ class AsyncTextToSpeech:
         """
         Speaks `text` and returns the audio as it is generated.
 
-        The asyncio counterpart of `TextToSpeech.stream`: returns once the
-        API has sent the first audio. Use the returned `AsyncTTSStream` with
-        `async with`, or `await aclose()` it.
+        The asyncio counterpart of `TextToSpeech.stream`. Nothing is sent
+        until the returned `AsyncTTSStream` is entered with `async with` or
+        first read, which is where a refusal raises. Use `async with`, or
+        `await aclose()` it, so the connection is released.
 
         Raises:
-            TTSError: if the API refuses the request before any audio, or
-                (from the iteration) cuts the body after it.
+            TTSError: from the `async with` or the first read, if the API
+                refuses the request before any audio.
         """
         check_text(text)
         check_config(type(self).__name__, config)
         body = request_body(text, config or self._config)
 
-        return await async_api.stream_speech(
+        return async_api.stream_speech(
             self._client.http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,

@@ -270,4 +270,5 @@ class TTSResponse(TTSResponseInfo):
     """The audio in the requested encoding and container, complete. Its
     duration is `audio_duration_ms`. A text with nothing to speak (only emoji,
     for example) gives no audio: empty bytes, or a WAV header without samples,
-    with `billed_characters` `0`. Left out of the repr."""
+    with `billed_characters` `0`. Left out of `repr()`, so a logged response
+    does not carry the clip."""

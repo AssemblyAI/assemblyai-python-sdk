@@ -13,7 +13,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
-from assemblyai.tts.v1 import models
+from assemblyai.tts.v1 import api, models
 
 aai.settings.api_key = "test"
 
@@ -180,6 +180,88 @@ def test_stream_yields_audio_as_it_arrives_and_reports_the_headers(
     assert speech.info.audio_duration_ms is None
 
 
+def test_stream_sends_nothing_until_entered_and_raises_there(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=SPEECH_URL,
+        method="POST",
+        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
+        json={**_ERROR_BODY, "code": "voice_not_found", "param": "voice_id"},
+    )
+
+    speech = aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="aai-x"))
+    assert httpx_mock.get_requests() == []
+    assert speech.info is None
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        with speech:
+            pass
+    assert exc_info.value.error_code == "voice_not_found"
+    speech.close()  # a never-opened stream closes quietly
+
+
+def test_stream_can_be_iterated_without_a_context_manager(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+
+    speech = aai.TextToSpeech().stream("Hi.")
+    chunks = list(speech)
+    speech.close()
+
+    assert b"".join(chunks) == _AUDIO
+    assert speech.info is not None and speech.info.voice_id == "aai-jane"
+
+
+class _CutStream(httpx.SyncByteStream):
+    def __iter__(self) -> Iterator[bytes]:
+        yield _AUDIO[:100]
+        raise httpx.RemoteProtocolError("peer closed connection")
+
+
+def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error():
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, headers=_OK_HEADERS, stream=_CutStream())
+    )
+    with httpx.Client(transport=transport) as http:
+        speech = api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with speech, pytest.raises(aai.TTSError) as exc_info:
+            list(speech)
+
+    err = exc_info.value
+    assert err.retryable is True
+    assert err.status_code == 200
+    assert err.request_id == _OK_HEADERS["x-request-id"]
+    assert isinstance(err.__cause__, httpx.RemoteProtocolError)
+
+
+def test_response_repr_leaves_the_audio_out(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+
+    response = aai.TextToSpeech().synthesize("Hi.")
+
+    assert "audio=" not in repr(response)
+    assert "voice_id='aai-jane'" in repr(response)
+    assert response.audio == _AUDIO
+
+
+def test_fractional_retry_after_is_rounded_up(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=SPEECH_URL,
+        method="POST",
+        status_code=httpx.codes.TOO_MANY_REQUESTS,
+        json={
+            "code": "rate_limited",
+            "message": "slow down",
+            "retry_after_seconds": 1.2,
+        },
+    )
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        aai.TextToSpeech().synthesize("Hi.")
+
+    assert exc_info.value.retry_after == 2
+
+
 def test_stream_read_collects_the_whole_audio(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
 
@@ -235,7 +317,8 @@ def test_stream_raises_the_same_error_before_any_audio(httpx_mock: HTTPXMock):
     )
 
     with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().stream("Hi.")
+        with aai.TextToSpeech().stream("Hi."):
+            pass
 
     assert exc_info.value.error_code == "rate_limited"
     assert exc_info.value.retryable is True
@@ -442,14 +525,15 @@ def test_auth_unavailable_is_retryable(httpx_mock: HTTPXMock):
     )
 
     with pytest.raises(aai.TTSError) as exc_info:
-        aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="my-voice"))
+        with aai.TextToSpeech().stream("Hi.", aai.TTSConfig(voice_id="my-voice")):
+            pass
 
     assert exc_info.value.error_code == "auth_unavailable"
     assert exc_info.value.retryable is True
     assert exc_info.value.retry_after == 1
 
 
-def test_a_stream_cut_after_the_first_audio_is_a_retryable_tts_error(
+def test_a_cut_stream_delivers_its_first_audio_and_releases_its_connection(
     httpx_mock: HTTPXMock,
 ):
     # GIVEN a streamed answer that the API cuts after its first audio
@@ -479,7 +563,8 @@ def test_a_stream_cut_after_the_first_audio_is_a_retryable_tts_error(
     assert body.closed
 
 
-def test_stream_read_raises_the_same_error_on_a_cut(httpx_mock: HTTPXMock):
+def test_a_read_error_while_streaming_stays_an_httpx_error(httpx_mock: HTTPXMock):
+    # GIVEN a streamed answer whose connection fails after the first audio
     httpx_mock.add_callback(
         lambda request: httpx.Response(
             200,
@@ -490,12 +575,10 @@ def test_stream_read_raises_the_same_error_on_a_cut(httpx_mock: HTTPXMock):
         method="POST",
     )
 
+    # THEN reading raises the network error itself, as everywhere in the SDK
     with aai.TextToSpeech().stream("Hello there.") as speech:
-        with pytest.raises(aai.TTSError) as exc_info:
+        with pytest.raises(httpx.ReadError):
             speech.read()
-
-    assert exc_info.value.retryable is True
-    assert isinstance(exc_info.value.__cause__, httpx.ReadError)
 
 
 def test_a_refused_stream_releases_its_connection_if_its_body_fails(
@@ -513,21 +596,18 @@ def test_a_refused_stream_releases_its_connection_if_its_body_fails(
 
     # THEN the network error surfaces and the connection is released
     with pytest.raises(httpx.ReadError):
-        aai.TextToSpeech().stream("Hi.")
+        with aai.TextToSpeech().stream("Hi."):
+            pass
 
     assert body.closed
 
 
-def test_region_is_reported_and_the_audio_stays_out_of_the_repr(
-    httpx_mock: HTTPXMock,
-):
+def test_region_is_reported(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
 
     response = aai.TextToSpeech().synthesize("Hi.")
 
     assert response.region == "us-east-1"
-    assert "audio=" not in repr(response)
-    assert repr(_AUDIO) not in repr(response)
 
 
 def test_container_takes_the_enum_or_a_string(httpx_mock: HTTPXMock):

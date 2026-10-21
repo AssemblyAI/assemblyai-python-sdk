@@ -13,6 +13,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai.tts.v1 import async_api
 
 pytestmark = pytest.mark.asyncio
 
@@ -95,7 +96,7 @@ async def test_stream_yields_audio_and_reports_the_headers(httpx_mock: HTTPXMock
     _mock_ok(httpx_mock)
 
     async with aai.AsyncTextToSpeech() as tts:
-        async with await tts.stream("Hello there.") as speech:
+        async with tts.stream("Hello there.") as speech:
             chunks = [chunk async for chunk in speech]
 
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
@@ -108,7 +109,7 @@ async def test_stream_aread_collects_the_whole_audio(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
 
     async with aai.AsyncTextToSpeech() as tts:
-        speech = await tts.stream("Hello there.")
+        speech = tts.stream("Hello there.")
         try:
             assert await speech.aread() == _AUDIO
         finally:
@@ -146,9 +147,32 @@ async def test_errors_are_tts_errors(httpx_mock: HTTPXMock):
         assert exc_info.value.request_id == "req-2"
 
         with pytest.raises(aai.TTSError) as exc_info:
-            await tts.stream("Hi.")
+            async with tts.stream("Hi."):
+                pass
         assert exc_info.value.error_code == "at_capacity"
         assert exc_info.value.retry_after == 3
+
+
+class _CutStream(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _AUDIO[:100]
+        raise httpx.RemoteProtocolError("peer closed connection")
+
+
+async def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error():
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, headers=_OK_HEADERS, stream=_CutStream())
+    )
+    async with httpx.AsyncClient(transport=transport) as http:
+        speech = async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        async with speech:
+            with pytest.raises(aai.TTSError) as exc_info:
+                await speech.aread()
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.request_id == "req-async"
 
 
 async def test_a_shared_client_is_left_open_on_aclose(httpx_mock: HTTPXMock):
@@ -203,13 +227,14 @@ async def test_biometric_terms_refusal_and_auth_unavailable(httpx_mock: HTTPXMoc
         assert exc_info.value.retryable is False
 
         with pytest.raises(aai.TTSError) as exc_info:
-            await tts.stream("Hi.", renew)
+            async with tts.stream("Hi.", renew):
+                pass
         assert exc_info.value.error_code == "auth_unavailable"
         assert exc_info.value.retryable is True
         assert exc_info.value.retry_after == 1
 
 
-async def test_a_stream_cut_after_the_first_audio_is_a_retryable_tts_error(
+async def test_a_cut_stream_delivers_its_first_audio_and_releases_its_connection(
     httpx_mock: HTTPXMock,
 ):
     # GIVEN a streamed answer that the API cuts after its first audio
@@ -228,7 +253,7 @@ async def test_a_stream_cut_after_the_first_audio_is_a_retryable_tts_error(
     received = []
     async with aai.AsyncTextToSpeech() as tts:
         with pytest.raises(aai.TTSError) as exc_info:
-            async with await tts.stream("Hello there.") as speech:
+            async with tts.stream("Hello there.") as speech:
                 async for chunk in speech:
                     received.append(chunk)
 
@@ -243,7 +268,10 @@ async def test_a_stream_cut_after_the_first_audio_is_a_retryable_tts_error(
     assert body.closed
 
 
-async def test_stream_aread_raises_the_same_error_on_a_cut(httpx_mock: HTTPXMock):
+async def test_a_read_timeout_while_streaming_stays_an_httpx_error(
+    httpx_mock: HTTPXMock,
+):
+    # GIVEN a streamed answer that sends no more audio for a whole read timeout
     httpx_mock.add_callback(
         lambda request: httpx.Response(
             200,
@@ -254,13 +282,11 @@ async def test_stream_aread_raises_the_same_error_on_a_cut(httpx_mock: HTTPXMock
         method="POST",
     )
 
+    # THEN reading raises the timeout itself, as everywhere in the SDK
     async with aai.AsyncTextToSpeech() as tts:
-        async with await tts.stream("Hello there.") as speech:
-            with pytest.raises(aai.TTSError) as exc_info:
+        async with tts.stream("Hello there.") as speech:
+            with pytest.raises(httpx.ReadTimeout):
                 await speech.aread()
-
-    assert exc_info.value.retryable is True
-    assert isinstance(exc_info.value.__cause__, httpx.ReadTimeout)
 
 
 async def test_a_refused_stream_releases_its_connection_if_its_body_fails(
@@ -279,7 +305,8 @@ async def test_a_refused_stream_releases_its_connection_if_its_body_fails(
     # THEN the network error surfaces and the connection is released
     async with aai.AsyncTextToSpeech() as tts:
         with pytest.raises(httpx.ReadError):
-            await tts.stream("Hi.")
+            async with tts.stream("Hi."):
+                pass
 
         assert body.closed
 
@@ -294,7 +321,7 @@ async def test_synthesize_and_stream_use_their_own_timeouts(httpx_mock: HTTPXMoc
     async with client:
         tts = aai.AsyncTextToSpeech(client=client)
         await tts.synthesize("Hi.")
-        async with await tts.stream("Hi.") as speech:
+        async with tts.stream("Hi.") as speech:
             await speech.aread()
 
     synthesize, stream = [r.extensions["timeout"] for r in httpx_mock.get_requests()]

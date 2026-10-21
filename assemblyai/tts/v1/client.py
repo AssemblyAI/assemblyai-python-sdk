@@ -128,11 +128,10 @@ class TextToSpeech:
         """
         Speaks `text` and returns the audio as it is generated.
 
-        Returns once the API has sent the first audio. Iterate the returned
-        `TTSStream` for the bytes, and use it as a context manager (or call
-        `close()`) so the connection is released. A body cut after the first
-        audio raises `TTSError` (`status_code` `200`, `retryable`) from the
-        iteration.
+        The request is sent when the returned `TTSStream` is entered as a
+        context manager or first read; it returns once the API has sent the
+        first audio. Iterate the stream for the bytes, and use `with` (or
+        call `close()`) so the connection is released.
 
         Args:
             text: 1 to 5,000 characters.
@@ -140,8 +139,8 @@ class TextToSpeech:
                 the instance's default `config`.
 
         Raises:
-            TTSError: if the API refuses the request before any audio, or
-                (from the iteration) cuts the body after it.
+            TTSError: from the `with` or the first read, if the API refuses
+                the request before any audio.
         """
         check_text(text)
         check_config(type(self).__name__, config)
