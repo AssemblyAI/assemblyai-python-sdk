@@ -2,7 +2,7 @@ from typing import Optional
 
 from ... import client as _client
 from . import api
-from ._base import check_config, check_text, request_body
+from ._base import check_config, check_text, request_body, synthesize_timeout
 from .api import TTSStream
 from .models import TTSConfig, TTSResponse
 
@@ -28,10 +28,10 @@ class TextToSpeech:
 
         aai.settings.api_key = "your-key"
 
-        tts = aai.TextToSpeech(config=aai.TTSConfig(voice="alba"))
+        tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-alba"))
 
         with open("hello.wav", "wb") as out:
-            wav = aai.TTSConfig(voice="alba", container=aai.TTSContainer.wav)
+            wav = aai.TTSConfig(voice_id="aai-alba", container=aai.TTSContainer.wav)
             out.write(tts.synthesize("Hello from AssemblyAI.", wav).audio)
 
         with tts.stream("Streaming straight to the speakers.") as speech:
@@ -53,7 +53,7 @@ class TextToSpeech:
         Args:
             client: The HTTP client to use. Defaults to the shared default client.
             config: Default options. A per-call `config` replaces it whole,
-                so repeat the voice in a per-call config.
+                so repeat the voice_id in a per-call config.
             api_key: The API key to authenticate with. Builds a `Client` for
                 this instance. Given alongside `client`, it takes precedence:
                 a client is built from a copy of that client's settings with
@@ -114,7 +114,7 @@ class TextToSpeech:
             self._client.http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
-            timeout=self._client.settings.tts_synthesize_http_timeout,
+            timeout=synthesize_timeout(self._client.settings),
         )
 
     def stream(

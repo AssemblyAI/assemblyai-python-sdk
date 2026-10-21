@@ -892,7 +892,7 @@ except aai.DictationError as error:
 
 ### **Text-to-Speech Examples**
 
-`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: a preset `voice` (`jane` by default, `alba`, `anna`, `charles`, `eve`, `george`, `jean`, `mary`, `michael`, `paul`, `vera`) or a `voice_id` (a voice cloned by your account, or a voice of the AssemblyAI voice library by its slug such as `aai-jane`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
+`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: the `voice_id` (a voice of the AssemblyAI voice library by its slug: `aai-jane` by default, `aai-alba`, `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera` and hundreds more; or a voice cloned by your account, by its UUID or slug), the `model_id` (`assemblyai-tts-1`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
 
 Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone.
 
@@ -908,17 +908,17 @@ tts = aai.TextToSpeech()
 
 response = tts.synthesize(
     "Hello from AssemblyAI.",
-    aai.TTSConfig(voice="jane", container=aai.TTSContainer.wav),
+    aai.TTSConfig(voice_id="aai-jane", container=aai.TTSContainer.wav),
 )
 # A config given per call replaces the client's default config whole.
 
 with open("hello.wav", "wb") as out:
     out.write(response.audio)
 
-print(response.model, response.voice, response.audio_duration_ms, "ms")
+print(response.model, response.voice_id, response.audio_duration_ms, "ms")
 ```
 
-`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `model`, `voice`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
 
 </details>
 
@@ -930,7 +930,7 @@ import assemblyai as aai
 
 aai.settings.api_key = "<YOUR_API_KEY>"
 
-tts = aai.TextToSpeech(config=aai.TTSConfig(voice="alba"))
+tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-alba"))
 
 with tts.stream("Streaming straight to the speakers.") as speech:
     print("speaking with", speech.info.model, "at", speech.info.sample_rate, "Hz")
@@ -1010,6 +1010,21 @@ asyncio.run(main())
 ```
 
 `AsyncTextToSpeech` owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one.
+
+</details>
+
+<details>
+  <summary>Renew a cloned voice's consent</summary>
+
+A voice cloned by your account expires 60 days after its biometric consent was last given. Its owner renews it by sending `extend_biometric_consent=True` with a request that uses the voice; `voice_expires_at` on the response shows the new expiry. The account must have accepted the biometric data terms in the dashboard, or the request is refused with `biometric_terms_not_accepted`.
+
+```python
+response = tts.synthesize(
+    "Consent renewed.",
+    aai.TTSConfig(voice_id="<your cloned voice's UUID>", extend_biometric_consent=True),
+)
+print(response.voice_expires_at)  # Unix seconds
+```
 
 </details>
 

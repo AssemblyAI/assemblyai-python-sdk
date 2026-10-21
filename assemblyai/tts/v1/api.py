@@ -1,5 +1,5 @@
 import math
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, ContextManager, Dict, Iterator, Optional, Union
 
 import httpx
 
@@ -13,7 +13,12 @@ ENDPOINT_SPEECH = "/v1/speech"
 # answers have no JSON body, so `retryable` is decided from the status alone.
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
-_CUT_MESSAGE = "The response was cut before the audio was complete. Retry the request."
+# What httpx raises from a streamed body that ends before the audio is
+# complete: the API closing the connection or resetting the stream after a
+# failure, a dropped connection, or no audio for a whole read timeout.
+_CUT_ERRORS = (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout)
+
+Timeout = Union[float, httpx.Timeout]
 
 
 def _seconds(value: Any) -> Optional[int]:
@@ -32,13 +37,33 @@ def _int_header(headers: httpx.Headers, name: str) -> Optional[int]:
     return _seconds(headers.get(name))
 
 
-def _header_fields(headers: httpx.Headers) -> Dict[str, Any]:
+def _voice_id(headers: httpx.Headers, requested: Optional[str]) -> Optional[str]:
+    """
+    The voice that spoke, from `X-TTS-Voice-Id`.
+
+    Until the API sends that header, it is derived from `X-TTS-Voice`: the
+    request's own `voice_id` for `custom`, else the built-in voice's slug.
+    """
+
+    voice_id = headers.get("x-tts-voice-id")
+    if voice_id is not None:
+        return voice_id
+    voice = headers.get("x-tts-voice")
+    if voice == "custom":
+        return requested
+    return f"aai-{voice}" if voice else None
+
+
+def _header_fields(
+    headers: httpx.Headers, requested_voice_id: Optional[str]
+) -> Dict[str, Any]:
     """The `TTSResponseInfo` fields read from the `X-TTS-*` headers of a `200`."""
 
     return {
         "request_id": headers.get("x-request-id"),
+        "region": headers.get("x-tts-region"),
         "model": headers.get("x-tts-model"),
-        "voice": headers.get("x-tts-voice"),
+        "voice_id": _voice_id(headers, requested_voice_id),
         "language": headers.get("x-tts-language"),
         "encoding": headers.get("x-tts-encoding"),
         "sample_rate": _int_header(headers, "x-tts-sample-rate"),
@@ -49,10 +74,6 @@ def _header_fields(headers: httpx.Headers) -> Dict[str, Any]:
         "billed_characters": _int_header(headers, "x-tts-billed-characters"),
         "audio_duration_ms": _int_header(headers, "x-tts-audio-duration-ms"),
     }
-
-
-def _info_from_headers(headers: httpx.Headers) -> TTSResponseInfo:
-    return TTSResponseInfo(**_header_fields(headers))
 
 
 def _error_from_response(response: httpx.Response) -> TTSError:
@@ -110,11 +131,12 @@ def _error_from_response(response: httpx.Response) -> TTSError:
     )
 
 
-def _cut_error(info: Optional[TTSResponseInfo]) -> TTSError:
-    """The error for a body cut after the first audio: retry the request."""
+def _cut_error(info: Optional[TTSResponseInfo], error: Exception) -> TTSError:
+    """The error for a body cut after the first audio: retry the whole request."""
 
     return TTSError(
-        _CUT_MESSAGE,
+        "The response was cut before the audio was complete "
+        f"({type(error).__name__}). Retry the request.",
         status_code=200,
         request_id=info.request_id if info else None,
         retryable=True,
@@ -130,7 +152,7 @@ class TTSStream:
     there if the API refuses it. Use `with`, or call `close()`, so the
     connection is released: a fully read stream's connection returns to the
     pool, a partially read one is dropped. `info` holds what the response
-    headers say (model, voice, encoding, sample rate, request id) once the
+    headers say (model, voice id, encoding, sample rate, request id) once the
     request has been sent; `iter_bytes()` yields the audio as it arrives and
     `read()` collects all of it.
 
@@ -141,9 +163,19 @@ class TTSStream:
     to the next chunk.
     """
 
-    def __init__(self, client: httpx.Client, request: httpx.Request) -> None:
+    def __init__(
+        self,
+        client: httpx.Client,
+        *,
+        url: str,
+        body: Dict[str, Any],
+        timeout: Timeout,
+    ) -> None:
         self._client = client
-        self._request = request
+        self._url = url
+        self._body = body
+        self._timeout = timeout
+        self._cm: Optional[ContextManager[httpx.Response]] = None
         self._response: Optional[httpx.Response] = None
         self._info: Optional[TTSResponseInfo] = None
 
@@ -157,16 +189,24 @@ class TTSStream:
         if self._response is not None:
             return self._response
 
-        response = self._client.send(self._request, stream=True)
+        # `client.stream()` rather than `build_request(timeout=)`, which the
+        # SDK's httpx floor lacks.
+        cm = self._client.stream(
+            "POST", self._url, json=self._body, timeout=self._timeout
+        )
+        response = cm.__enter__()
         if response.status_code != httpx.codes.OK:
             try:
                 response.read()
                 raise _error_from_response(response)
             finally:
-                response.close()
+                cm.__exit__(None, None, None)
 
+        self._cm = cm
         self._response = response
-        self._info = _info_from_headers(response.headers)
+        self._info = TTSResponseInfo(
+            **_header_fields(response.headers, self._body.get("voice_id"))
+        )
         return response
 
     def __enter__(self) -> "TTSStream":
@@ -180,15 +220,21 @@ class TTSStream:
         return self.iter_bytes()
 
     def iter_bytes(self) -> Iterator[bytes]:
-        """Yields the audio bytes as they arrive."""
+        """
+        Yields the audio bytes as they arrive.
+
+        Raises:
+            TTSError: from the first read if the API refuses the request, or
+                later if the body is cut before the audio is complete.
+        """
 
         response = self._open()
         try:
             for chunk in response.iter_bytes():
                 if chunk:
                     yield chunk
-        except httpx.RemoteProtocolError as exc:
-            raise _cut_error(self._info) from exc
+        except _CUT_ERRORS as error:
+            raise _cut_error(self._info, error) from error
 
     def read(self) -> bytes:
         """Reads the rest of the audio and returns it."""
@@ -198,8 +244,9 @@ class TTSStream:
     def close(self) -> None:
         """Releases the connection. Audio not yet read is discarded."""
 
-        if self._response is not None:
-            self._response.close()
+        cm, self._cm = self._cm, None
+        if cm is not None:
+            cm.__exit__(None, None, None)
 
 
 def synthesize(
@@ -207,7 +254,7 @@ def synthesize(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: float,
+    timeout: Timeout,
 ) -> TTSResponse:
     """
     Posts a buffered speech request and returns the complete audio.
@@ -219,7 +266,8 @@ def synthesize(
         client: the HTTP client (carries the `Authorization` header).
         base_url: the Text-to-Speech API base URL, e.g. `https://tts.us.assemblyai.com`.
         body: the JSON body: `text` and the options of a `TTSConfig`.
-        timeout: the httpx timeout of each socket operation.
+        timeout: the httpx timeout; its read timeout is the wait for the
+            whole audio.
 
     Raises: `TTSError` on any non-200 response.
     """
@@ -233,7 +281,10 @@ def synthesize(
     if response.status_code != httpx.codes.OK:
         raise _error_from_response(response)
 
-    return TTSResponse(audio=response.content, **_header_fields(response.headers))
+    return TTSResponse(
+        audio=response.content,
+        **_header_fields(response.headers, body.get("voice_id")),
+    )
 
 
 def stream_speech(
@@ -241,7 +292,7 @@ def stream_speech(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: float,
+    timeout: Timeout,
 ) -> TTSStream:
     """
     Prepares a streamed speech request and returns it as a `TTSStream`.
@@ -250,10 +301,9 @@ def stream_speech(
     first read, and raises `TTSError` then if the API refuses it.
     """
 
-    request = client.build_request(
-        "POST",
-        base_url.rstrip("/") + ENDPOINT_SPEECH,
-        json={**body, "stream": True},
+    return TTSStream(
+        client,
+        url=base_url.rstrip("/") + ENDPOINT_SPEECH,
+        body={**body, "stream": True},
         timeout=timeout,
     )
-    return TTSStream(client, request)

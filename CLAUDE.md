@@ -54,8 +54,8 @@ aai.settings.api_key = "your-key"
 - `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
 - `aai.TextToSpeech` — Text-to-Speech HTTP API: one text per request, audio out. Methods: `synthesize()` (complete audio as a `TTSResponse`), `stream()` (a `TTSStream` context manager yielding bytes as the API generates them). Host from `aai.settings.tts_base_url` (`https://tts.us.assemblyai.com`; set `https://tts.eu.assemblyai.com` for the EU zone)
 - `aai.AsyncTextToSpeech` — Asyncio counterpart of `TextToSpeech`; `synthesize()` is a coroutine and `stream()` returns an `AsyncTTSStream`. Owns an HTTP pool: use `async with` or `await aclose()`
-- `aai.TTSConfig` — Text-to-Speech options: `voice` (preset name) or `voice_id` (a cloned or library voice), `model_id`, `language`, `sample_rate`, `encoding` (`aai.TTSEncoding`: `pcm_s16le` default | `pcm_mulaw` | `pcm_alaw` | `mp3`), `container` (`aai.TTSContainer`: `raw` default | `wav`), `bit_rate`. Rejects unknown fields
-- `aai.TTSResponse` — Text-to-Speech result: `.audio` (bytes) plus the response headers: `.request_id`, `.model`, `.voice`, `.language`, `.encoding`, `.sample_rate`, `.container`, `.bit_rate`, `.content_type`, `.voice_expires_at`, `.billed_characters`, `.audio_duration_ms`. `TTSStream.info` carries the same fields without `audio`; `audio_duration_ms` is `None` on a stream
+- `aai.TTSConfig` — Text-to-Speech options: `voice_id` (a library voice such as `aai-jane`, or a cloned voice by UUID or slug), `model_id` (`assemblyai-tts-1`), `language`, `sample_rate`, `encoding` (`aai.TTSEncoding`: `pcm_s16le` default | `pcm_mulaw` | `pcm_alaw` | `mp3`), `container` (`aai.TTSContainer`: `raw` default | `wav`), `bit_rate`. Rejects unknown fields
+- `aai.TTSResponse` — Text-to-Speech result: `.audio` (bytes) plus the response headers: `.request_id`, `.region`, `.model`, `.voice_id`, `.language`, `.encoding`, `.sample_rate`, `.container`, `.bit_rate`, `.content_type`, `.voice_expires_at`, `.billed_characters`, `.audio_duration_ms`. `TTSStream.info` carries the same fields without `audio`; `audio_duration_ms` is `None` on a stream
 - `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
@@ -462,17 +462,17 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 One text per HTTP request. `synthesize()` returns the whole audio; `stream()` yields it as it is generated. An API refusal is always `aai.TTSError`; network failures are httpx exceptions; a body cut after the first audio raises `TTSError` (`retryable=True`) from the stream loop, so retry the request. Settings are copied when a client is built: set `tts_base_url` before creating `TextToSpeech`. `synthesize()` waits for the whole clip under `settings.tts_synthesize_http_timeout` (120 s); `stream()` uses `settings.tts_http_timeout` (30 s) per socket operation.
 
 ```python
-tts = aai.TextToSpeech(config=aai.TTSConfig(voice="jane"))
+tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-jane"))
 
-# A per-call config replaces the default whole: repeat the voice in it
-wav = tts.synthesize("Hello.", aai.TTSConfig(voice="jane", container=aai.TTSContainer.wav)).audio
+# A per-call config replaces the default whole: repeat the voice_id in it
+wav = tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-jane", container=aai.TTSContainer.wav)).audio
 
 with tts.stream("Hello.") as speech:
     for chunk in speech:  # raw 24 kHz s16le mono by default
         play(chunk)
 
 # Telephony: 8 kHz mu-law (chunk sizes vary; re-frame to 160 bytes for 20 ms frames)
-telephony = aai.TTSConfig(voice="jane", encoding=aai.TTSEncoding.pcm_mulaw, sample_rate=8000)
+telephony = aai.TTSConfig(voice_id="aai-jane", encoding=aai.TTSEncoding.pcm_mulaw, sample_rate=8000)
 with tts.stream("Hello.", telephony) as speech:
     for chunk in speech:
         send_to_call(chunk)

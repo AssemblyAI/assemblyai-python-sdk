@@ -6,16 +6,16 @@ that uses them.
 """
 
 from enum import Enum
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from ...types import AssemblyAIError, pydantic_v2
 
 # pydantic 1.10 also exports `ConfigDict`, so the version is taken from
 # `types.py`, which probes a v2-only name, instead of an import attempt here.
 if pydantic_v2:
-    from pydantic import BaseModel, ConfigDict, Field
+    from pydantic import BaseModel, ConfigDict, Field, model_validator
 else:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, root_validator
 
 __all__ = [
     "TTSConfig",
@@ -32,12 +32,24 @@ class TTSError(AssemblyAIError):
     Error raised when a Text-to-Speech request fails.
 
     `error_code` is the API's stable `code` (`invalid_parameter`,
-    `voice_not_found`, `rate_limited`, `at_capacity`, ...): branch on it, not
-    on the message, which may be reworded. `retryable` says whether the same
-    request can succeed later and `retry_after` (seconds) when to send it;
-    `param` names the field at fault and `errors` lists every failing field
+    `voice_not_found`, `biometric_terms_not_accepted`, `rate_limited`,
+    `at_capacity`, `auth_unavailable`, ...): branch on it, not on the message,
+    which may be reworded. `retryable` says whether the same request can
+    succeed later and `retry_after` (seconds) when to send it; `param` names
+    the field at fault and `errors` lists every failing field
     (`{"message", "param"}`) of an `invalid_parameter` refusal. `request_id`
     is the value to quote to support.
+
+    `biometric_terms_not_accepted` (`403`, not retryable) refuses one of the
+    account's own cloned voices, or `extend_biometric_consent`, until the
+    account accepts the biometric data terms in the AssemblyAI dashboard.
+    `auth_unavailable` (`503`, retryable) means the credential, or those
+    terms, could not be checked just now.
+
+    A streamed response cut after its first audio raises a `TTSError` with
+    `status_code` `200`, no `error_code`, `retryable` `True` and the
+    request's `request_id`; the httpx error is its `__cause__`. Retry the
+    whole request.
     """
 
     def __init__(
@@ -92,33 +104,47 @@ class TTSContainer(str, Enum):
         return self.value
 
 
+def _refuse_voice_field(data: Any) -> Any:
+    """A `voice` key is refused with a message that points to `voice_id`."""
+
+    if isinstance(data, dict) and "voice" in data:
+        raise ValueError(
+            "TTSConfig has no field `voice`: name the voice with `voice_id`, "
+            'such as voice_id="aai-jane"'
+        )
+    return data
+
+
 class TTSConfig(BaseModel):
     """
     Options for a Text-to-Speech request.
 
-    Every field is optional: the API speaks English with its default voice at
-    24 kHz as raw 16-bit PCM when nothing is set. Unknown fields are rejected
-    rather than silently dropped, so a typo surfaces as a validation error.
+    Every field is optional: the API speaks English with its default voice
+    (`aai-jane`) at 24 kHz as raw 16-bit PCM when nothing is set. Every voice
+    is named by `voice_id`. Unknown fields are rejected rather than silently
+    dropped, so a typo surfaces as a validation error.
     """
 
-    voice: Optional[str] = None
-    """The name of an AssemblyAI voice: `jane` (the default), `alba`, `anna`,
-    `charles`, `eve`, `george`, `jean`, `mary`, `michael`, `paul` or `vera`,
-    each in every language. Case-insensitive. Not together with `voice_id`."""
-
     voice_id: Optional[str] = None
-    """A voice by its id: a voice cloned by the account (its UUID or slug) or a
-    voice of the AssemblyAI voice library by its global slug, such as
-    `aai-jane`. Sets the request's language to the voice's own unless
-    `language` is given. Not together with `voice`."""
+    """The voice: a voice of the AssemblyAI voice library by its slug, such as
+    `aai-jane` (the default), `aai-alba` or `aai-michael`; a voice's ID (a
+    UUID); or the slug of one of the account's own cloned voices. The
+    dashboard shows the value that names each voice. A voice belongs to the
+    data zone it was created in: on the other zone's host it is
+    `voice_not_found`."""
 
     model_id: Optional[str] = None
     """The model to run the request on, such as `assemblyai-tts-1`. Defaults to
-    the region's default model of the request's language."""
+    the region's default model of the request's language. A cloned voice must
+    be paired with it."""
 
     language: Optional[str] = None
-    """The language, by its English name: `english` (the default), `spanish`,
-    `german`, `french`, `italian` or `portuguese`. Case-insensitive."""
+    """The language, by its English name: `english`, `spanish`, `german`,
+    `french`, `italian` or `portuguese`. Case-insensitive. Defaults to the
+    voice's own language. The eleven built-in voices (`aai-jane`, `aai-alba`,
+    `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`,
+    `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera`) speak all six; another
+    voice speaks a language other than its own only where its model can."""
 
     sample_rate: Optional[int] = None
     "Output sample rate in Hz: 8000, 16000, 22050, 24000 (the default), 44100 or 48000."
@@ -127,8 +153,9 @@ class TTSConfig(BaseModel):
     """Output codec: a `TTSEncoding`, or its name as a string. The API also
     takes the aliases `mulaw` and `alaw`. Defaults to `pcm_s16le`."""
 
-    container: Optional[TTSContainer] = None
-    "`raw` (the default) or `wav`, with a PCM or G.711 encoding only."
+    container: Optional[Union[TTSContainer, str]] = None
+    """`raw` (the default) or `wav`, with a PCM or G.711 encoding only: a
+    `TTSContainer`, or its name as a string."""
 
     bit_rate: Optional[int] = None
     """MP3 bit rate in bits per second: 32000, 48000, 64000 (the default),
@@ -136,16 +163,30 @@ class TTSConfig(BaseModel):
 
     extend_biometric_consent: Optional[bool] = None
     """`True` renews the biometric consent of the cloned voice in `voice_id`,
-    which only the voice's owner may do. A cloned voice expires 60 days after
-    its consent was last given."""
+    which only the voice's owner may do; `voice_expires_at` on the response
+    shows the new expiry. A cloned voice expires 60 days after its consent
+    was last given. Refused `not_owner` on a voice the account does not own
+    and `403 biometric_terms_not_accepted` until the account has accepted the
+    biometric data terms in the dashboard."""
 
     if pydantic_v2:
-        model_config = ConfigDict(extra="forbid")
+        # `model_id` is the API's field name: `protected_namespaces=()` keeps
+        # pydantic 2.0 to 2.9 from warning about its `model_` prefix on import.
+        model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+        @model_validator(mode="before")
+        @classmethod
+        def _refuse_voice(cls, data: Any) -> Any:
+            return _refuse_voice_field(data)
 
     else:
 
         class Config:
             extra = "forbid"
+
+        @root_validator(pre=True)
+        def _refuse_voice(cls, values: Any) -> Any:
+            return _refuse_voice_field(values)
 
 
 class TTSResponseInfo(BaseModel):
@@ -158,11 +199,15 @@ class TTSResponseInfo(BaseModel):
     request_id: Optional[str] = None
     "The request's id, from `X-Request-Id`. Quote it in support requests."
 
+    region: Optional[str] = None
+    "The region that served the request, such as `us-east-1`."
+
     model: Optional[str] = None
     "The model that spoke, such as `assemblyai-tts-1`."
 
-    voice: Optional[str] = None
-    "The voice that spoke, such as `jane`; `custom` for a voice named by `voice_id`."
+    voice_id: Optional[str] = None
+    """The voice that spoke: the request's `voice_id`, or the default voice's
+    slug (`aai-jane`) when the request named none."""
 
     language: Optional[str] = None
     "The language used, lowercase."
@@ -185,14 +230,15 @@ class TTSResponseInfo(BaseModel):
     voice_expires_at: Optional[int] = None
     """For a cloned voice of the account that expires: its expiry as a Unix
     time in seconds, after the request's consent renewal if it asked for one.
-    `None` for a preset or library voice."""
+    `None` for a library voice. On a stream, the value as the stream started."""
 
     billed_characters: Optional[int] = None
-    "The characters the request bills."
+    """The characters the request bills. On a stream, the value as the stream
+    started: a body cut by a server failure bills nothing."""
 
     audio_duration_ms: Optional[int] = None
-    """The duration of the audio in milliseconds. Sent on a buffered response
-    (`synthesize()`) only: a streamed response does not know it up front."""
+    """The duration of the audio in milliseconds, on a complete response
+    (`synthesize()`): a stream does not know it up front."""
 
 
 class TTSResponse(TTSResponseInfo):
