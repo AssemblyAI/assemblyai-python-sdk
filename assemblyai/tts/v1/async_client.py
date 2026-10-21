@@ -2,7 +2,7 @@ from typing import Optional
 
 from ... import async_client as _async_client
 from . import async_api
-from ._base import check_config, check_text, request_body
+from ._base import check_config, check_text, request_body, synthesize_timeout
 from .async_api import AsyncTTSStream
 from .models import TTSConfig, TTSResponse
 
@@ -50,7 +50,7 @@ class AsyncTextToSpeech:
                 the global `settings` and closed on `aclose()`. Pass a client
                 to share one pool between instances.
             config: Default options. A per-call `config` replaces it whole,
-                so repeat the voice in a per-call config.
+                so repeat the `voice_id` in a per-call config.
             api_key: The API key to authenticate with. Builds and owns an
                 `AsyncClient` from it. Given alongside `client`, it takes
                 precedence: a client is built from a copy of that client's
@@ -104,7 +104,7 @@ class AsyncTextToSpeech:
             self._client.http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
-            timeout=self._client.settings.tts_synthesize_http_timeout,
+            timeout=synthesize_timeout(self._client.settings),
         )
 
     async def stream(
@@ -120,7 +120,8 @@ class AsyncTextToSpeech:
         `async with`, or `await aclose()` it.
 
         Raises:
-            TTSError: if the API refuses the request before any audio.
+            TTSError: if the API refuses the request before any audio, or
+                (from the iteration) cuts the body after it.
         """
         check_text(text)
         check_config(type(self).__name__, config)

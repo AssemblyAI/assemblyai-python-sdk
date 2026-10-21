@@ -1,9 +1,11 @@
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, Union
 
 import httpx
 
 from .api import (
+    _CUT_ERRORS,
     ENDPOINT_SPEECH,
+    _cut_error,
     _error_from_response,
     _header_fields,
     _info_from_headers,
@@ -20,8 +22,9 @@ class AsyncTTSStream:
     the connection is released (a fully read stream's connection returns to
     the pool, a partially read one is dropped). `info` holds what the response
     headers say; `aiter_bytes()` yields the audio as it arrives and `aread()`
-    collects all of it. A failure after the first audio cuts the body:
-    httpx raises `RemoteProtocolError` from the iteration.
+    collects all of it. A failure after the first audio cuts the body: the
+    iteration raises a `TTSError` with `status_code` `200`, `retryable`
+    `True` and `info.request_id`, from the httpx error.
     """
 
     def __init__(self, response: httpx.Response, info: TTSResponseInfo) -> None:
@@ -38,11 +41,19 @@ class AsyncTTSStream:
         return self.aiter_bytes()
 
     async def aiter_bytes(self) -> AsyncIterator[bytes]:
-        """Yields the audio bytes as they arrive."""
+        """
+        Yields the audio bytes as they arrive.
 
-        async for chunk in self._response.aiter_bytes():
-            if chunk:
-                yield chunk
+        Raises:
+            TTSError: if the body is cut before the audio is complete.
+        """
+
+        try:
+            async for chunk in self._response.aiter_bytes():
+                if chunk:
+                    yield chunk
+        except _CUT_ERRORS as error:
+            raise _cut_error(self.info, error) from error
 
     async def aread(self) -> bytes:
         """Reads the rest of the audio and returns it."""
@@ -63,7 +74,7 @@ async def synthesize(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: float,
+    timeout: Union[float, httpx.Timeout],
 ) -> TTSResponse:
     """
     Posts a buffered speech request and returns the complete audio.
@@ -97,7 +108,8 @@ async def stream_speech(
 
     The asyncio counterpart of `api.stream_speech`.
 
-    Raises: `TTSError` if the request fails before any audio is sent.
+    Raises: `TTSError` if the request fails before any audio is sent; the
+    returned stream raises it if the body is cut after the first audio.
     """
 
     request = client.build_request(

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import httpx
+
 from ... import _audio
+from ...types import Settings
 from .models import TTSConfig
 
-__all__ = ["check_config", "check_text", "request_body"]
+__all__ = ["check_config", "check_text", "request_body", "synthesize_timeout"]
 
 
 def check_config(owner: str, config: Optional[TTSConfig]) -> None:
@@ -29,6 +32,20 @@ def check_text(text: object) -> None:
         )
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, not {type(text).__name__}")
+
+
+def synthesize_timeout(settings: Settings) -> httpx.Timeout:
+    """
+    The httpx timeout of a buffered request (`synthesize()`).
+
+    Its one read waits for the whole audio, so the read timeout is
+    `tts_synthesize_http_timeout`; connecting, sending the body and waiting
+    for a pooled connection use `tts_http_timeout`, as a streamed request does.
+    """
+
+    return httpx.Timeout(
+        settings.tts_http_timeout, read=settings.tts_synthesize_http_timeout
+    )
 
 
 def request_body(text: str, config: TTSConfig) -> Dict[str, Any]:

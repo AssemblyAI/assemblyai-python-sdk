@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, Union
 
 import httpx
 
@@ -11,6 +11,12 @@ ENDPOINT_SPEECH = "/v1/speech"
 # Statuses an answer made before the request reached the API can carry; those
 # answers have no JSON body, so `retryable` is decided from the status alone.
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+
+# What httpx raises from a streamed body that ends before the audio is
+# complete: the API closing the connection (HTTP/1.1) or resetting the stream
+# (HTTP/2) after a failure, a dropped connection, or no audio for a whole read
+# timeout.
+_CUT_ERRORS = (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout)
 
 
 def _int_header(headers: httpx.Headers, name: str) -> Optional[int]:
@@ -25,8 +31,9 @@ def _header_fields(headers: httpx.Headers) -> Dict[str, Any]:
 
     return {
         "request_id": headers.get("x-request-id"),
+        "region": headers.get("x-tts-region"),
         "model": headers.get("x-tts-model"),
-        "voice": headers.get("x-tts-voice"),
+        "voice_id": headers.get("x-tts-voice-id"),
         "language": headers.get("x-tts-language"),
         "encoding": headers.get("x-tts-encoding"),
         "sample_rate": _int_header(headers, "x-tts-sample-rate"),
@@ -41,6 +48,24 @@ def _header_fields(headers: httpx.Headers) -> Dict[str, Any]:
 
 def _info_from_headers(headers: httpx.Headers) -> TTSResponseInfo:
     return TTSResponseInfo(**_header_fields(headers))
+
+
+def _cut_error(info: TTSResponseInfo, error: Exception) -> TTSError:
+    """
+    The `TTSError` for a streamed body that ended before the audio was complete.
+
+    The API commits to `200` with the first audio, so a failure after it cuts
+    the body: the request is retryable from the start, and a cut caused on the
+    API's side is not billed. Raised `from` the httpx error.
+    """
+
+    return TTSError(
+        "the audio stream was cut after the first audio "
+        f"({type(error).__name__}: {error}); retry the whole request",
+        status_code=200,
+        request_id=info.request_id,
+        retryable=True,
+    )
 
 
 def _error_from_response(response: httpx.Response) -> TTSError:
@@ -105,13 +130,14 @@ class TTSStream:
     Returned by `TextToSpeech.stream()`. Use it as a context manager, or call
     `close()`, so the connection is released: a fully read stream's connection
     returns to the pool, a partially read one is dropped. `info` holds what
-    the response headers say (model, voice, encoding, sample rate, request
+    the response headers say (model, voice id, encoding, sample rate, request
     id); `iter_bytes()` yields the audio as it arrives and `read()` collects
     all of it.
 
     The API commits to `200` with the first audio, so a failure after that
-    cuts the body instead of changing the status: httpx raises
-    `RemoteProtocolError` from the iteration. Retry the whole request.
+    cuts the body instead of changing the status: the iteration raises a
+    `TTSError` with `status_code` `200`, `retryable` `True` and
+    `info.request_id`, from the httpx error. Retry the whole request.
     Chunks are not aligned to samples: for 16-bit PCM, carry an odd trailing
     byte over to the next chunk.
     """
@@ -130,11 +156,19 @@ class TTSStream:
         return self.iter_bytes()
 
     def iter_bytes(self) -> Iterator[bytes]:
-        """Yields the audio bytes as they arrive."""
+        """
+        Yields the audio bytes as they arrive.
 
-        for chunk in self._response.iter_bytes():
-            if chunk:
-                yield chunk
+        Raises:
+            TTSError: if the body is cut before the audio is complete.
+        """
+
+        try:
+            for chunk in self._response.iter_bytes():
+                if chunk:
+                    yield chunk
+        except _CUT_ERRORS as error:
+            raise _cut_error(self.info, error) from error
 
     def read(self) -> bytes:
         """Reads the rest of the audio and returns it."""
@@ -152,7 +186,7 @@ def synthesize(
     *,
     base_url: str,
     body: Dict[str, Any],
-    timeout: float,
+    timeout: Union[float, httpx.Timeout],
 ) -> TTSResponse:
     """
     Posts a buffered speech request and returns the complete audio.
@@ -164,7 +198,8 @@ def synthesize(
         client: the HTTP client (carries the `Authorization` header).
         base_url: the Text-to-Speech API base URL, e.g. `https://tts.us.assemblyai.com`.
         body: the JSON body: `text` and the options of a `TTSConfig`.
-        timeout: the httpx timeout of each socket operation.
+        timeout: the httpx timeout; its read timeout is the wait for the
+            whole audio.
 
     Raises: `TTSError` on any non-200 response.
     """
@@ -195,7 +230,8 @@ def stream_speech(
     the API has started speaking. The caller reads the audio from the
     returned `TTSStream` and closes it.
 
-    Raises: `TTSError` if the request fails before any audio is sent.
+    Raises: `TTSError` if the request fails before any audio is sent; the
+    returned stream raises it if the body is cut after the first audio.
     """
 
     request = client.build_request(
