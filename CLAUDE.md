@@ -487,7 +487,7 @@ with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
     for sentence in llm_reply_sentences():
         for chunk in session.speak(sentence):
             play(chunk)
-# session.termination is the summary (None if the session failed); raw PCM/G.711 only, no mp3/container
+# session.termination is the summary (None if the session failed); raw PCM/G.711 only, no mp3, wav or bit_rate
 ```
 
 ## LLM Gateway

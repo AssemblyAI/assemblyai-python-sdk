@@ -10,6 +10,7 @@ from .._base_ws import (
     PullBuffer,
     PullItem,
     build_uri,
+    check_session_config,
     check_text_frame,
     handshake_error,
     max_generate_chars,
@@ -80,6 +81,7 @@ class AsyncTTSSession:
 
         _audio.check_config(type(self).__name__, config, TTSConfig)
         self.config = config or TTSConfig()
+        check_session_config(self.config)
         self._settings = resolve_settings(
             type(self).__name__, client.settings if client else None, api_key, token
         )

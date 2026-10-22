@@ -338,10 +338,24 @@ def test_audio_before_connect_says_the_session_is_not_open(server):
         _drain(aai.TTSSession().audio())
 
 
-def test_http_only_options_are_refused_on_a_session(server):
-    with pytest.raises(ValueError, match="container and bit_rate"):
-        with aai.TTSSession(config=aai.TTSConfig(container="wav")):
-            pass
+@pytest.mark.parametrize(
+    "config",
+    [aai.TTSConfig(container="wav"), aai.TTSConfig(bit_rate=64000)],
+    ids=["wav", "bit_rate"],
+)
+def test_http_only_options_are_refused_when_the_session_is_built(server, config):
+    with pytest.raises(ValueError, match="wav container and bit_rate"):
+        aai.TTSSession(config=config)
+    assert not server.connect.called
+
+
+@pytest.mark.parametrize(
+    "container", ["raw", aai.TTSContainer.raw], ids=["str", "enum"]
+)
+def test_a_raw_container_is_what_a_session_streams(server, container):
+    with aai.TTSSession(config=aai.TTSConfig(container=container)):
+        pass
+    assert "container" not in parse_qs(urlsplit(server.connect.call_args.args[0]).query)
 
 
 def test_a_cancel_before_a_request_does_not_end_it(server):

@@ -608,6 +608,22 @@ async def test_a_path_prefix_in_the_host_setting_is_kept(server, monkeypatch):
     assert server.connect.uri.startswith("wss://proxy.example.com/tts/v1/ws?")
 
 
+@pytest.mark.parametrize(
+    "config",
+    [aai.TTSConfig(container="wav"), aai.TTSConfig(bit_rate=64000)],
+    ids=["wav", "bit_rate"],
+)
+async def test_http_only_options_are_refused_when_the_session_is_built(config):
+    with pytest.raises(ValueError, match="wav container and bit_rate"):
+        aai.AsyncTTSSession(config=config)
+
+
+async def test_a_raw_container_is_what_a_session_streams(server):
+    async with aai.AsyncTTSSession(config=aai.TTSConfig(container="raw")):
+        pass
+    assert "container" not in parse_qs(urlsplit(server.connect.uri).query)
+
+
 async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)

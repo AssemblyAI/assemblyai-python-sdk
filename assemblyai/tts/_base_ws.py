@@ -11,7 +11,7 @@ from .. import _audio
 from ..__version__ import __version__
 from ..types import Settings
 from .v1.api import _RETRYABLE_STATUSES
-from .v1.models import TTSConfig, TTSError
+from .v1.models import TTSConfig, TTSContainer, TTSError
 
 # The route of the WebSocket API, after the host and any path prefix of
 # `settings.tts_base_url`.
@@ -158,6 +158,16 @@ def _user_agent() -> str:
     )
 
 
+def check_session_config(config: TTSConfig) -> None:
+    """Refuses the options a session cannot honour: it streams raw audio."""
+
+    if config.container not in (None, TTSContainer.raw) or config.bit_rate is not None:
+        raise ValueError(
+            "a wav container and bit_rate do not apply to a session, which streams "
+            "raw pcm_s16le, pcm_mulaw or pcm_alaw; leave them unset in its TTSConfig"
+        )
+
+
 def build_uri(
     base_url: str,
     config: TTSConfig,
@@ -169,11 +179,7 @@ def build_uri(
 ) -> Tuple[str, Dict[str, Optional[str]]]:
     """The session URI and handshake headers from the settings and config."""
 
-    if config.container is not None or config.bit_rate is not None:
-        raise ValueError(
-            "container and bit_rate do not apply to a session, which streams raw "
-            "pcm_s16le, pcm_mulaw or pcm_alaw; leave them unset in its TTSConfig"
-        )
+    check_session_config(config)
     parts = urlsplit(base_url if "://" in base_url else f"https://{base_url}")
     scheme = "ws" if parts.scheme in ("http", "ws") else "wss"
     params: Dict[str, Any] = (
