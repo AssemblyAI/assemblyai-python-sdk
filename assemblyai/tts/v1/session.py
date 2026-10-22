@@ -1,12 +1,18 @@
 import json
 import logging
-import queue
 import threading
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
 from ... import _audio
 from ... import client as _client
-from .._base_ws import PULL_QUEUE_FRAMES, build_uri, check_text_frame, resolve_settings
+from .._base_ws import (
+    PULL_QUEUE_FRAMES,
+    PullBuffer,
+    PullItem,
+    build_uri,
+    check_text_frame,
+    resolve_settings,
+)
 from .models import TTSConfig, TTSError
 from .ws_models import (
     TTSBeginEvent,
@@ -23,7 +29,6 @@ __all__ = ["TTSSession"]
 logger = logging.getLogger(__name__)
 
 _Handler = Callable[[Any], None]
-_Item = Tuple[str, Any, Any]  # (kind, flush_id or cancel id, payload)
 
 
 def websocket_connect(uri: str, **kwargs: Any) -> Any:
@@ -136,7 +141,8 @@ class TTSSession:
 
         self._begun = threading.Event()
         self._stopped = threading.Event()
-        self._queue: "queue.Queue[_Item]" = queue.Queue(maxsize=PULL_QUEUE_FRAMES)
+        self._queue = PullBuffer(PULL_QUEUE_FRAMES)
+        self._queue_ready = threading.Condition()
         self._next_flush_id = 0
         self._cancel_ids: List[int] = []
         # Requests with a lower flush_id than this were dropped by a Cancel.
@@ -335,14 +341,14 @@ class TTSSession:
         while True:
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
-            try:
-                kind, ident, payload = self._queue.get(timeout=0.5)
-            except queue.Empty:
+            item = self._get(timeout=0.5)
+            if item is None:
                 if self._stopped.is_set():
                     if self.error is not None:
                         raise self.error
                     return
                 continue
+            kind, ident, payload = item
             if kind == "audio":
                 if ident == flush_id:
                     yield payload
@@ -361,24 +367,28 @@ class TTSSession:
 
     # -- internals ---------------------------------------------------------------
 
-    def _put(self, item: _Item) -> None:
-        """Queues an item for `audio()`, dropping the oldest audio when full."""
+    def _put(self, item: PullItem) -> None:
+        """Queues an item for `audio()`; past the cap the oldest audio drops."""
 
-        while True:
-            try:
-                self._queue.put_nowait(item)
-                return
-            except queue.Full:
-                try:
-                    dropped = self._queue.get_nowait()
-                except queue.Empty:
-                    continue
-                if dropped[0] == "audio" and not self._drop_warned:
-                    self._drop_warned = True
-                    logger.warning(
-                        "TTSSession: dropping audio nobody reads; iterate audio() "
-                        "or register an Audio handler"
-                    )
+        with self._queue_ready:
+            dropped = self._queue.append(item)
+            self._queue_ready.notify_all()
+        if dropped and not self._drop_warned:
+            self._drop_warned = True
+            logger.warning(
+                "TTSSession: over %d audio frames are waiting to be read, so the "
+                "oldest are being dropped; read audio() as fast as the audio "
+                "arrives, or register an Audio handler",
+                self._queue.max_audio,
+            )
+
+    def _get(self, timeout: float) -> Optional[PullItem]:
+        """The next item for `audio()`; `None` when none came in `timeout` s."""
+
+        with self._queue_ready:
+            if not self._queue:
+                self._queue_ready.wait(timeout)
+            return self._queue.popleft()
 
     def _send(self, frame: Dict[str, Any]) -> None:
         if self._ws is None or self._stopped.is_set():

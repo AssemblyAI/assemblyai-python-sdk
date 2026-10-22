@@ -429,14 +429,37 @@ def test_unread_audio_is_bounded_and_dropped_oldest_first(server, caplog):
         deadline = time.monotonic() + 5
         while not server.inbox.empty() and time.monotonic() < deadline:
             time.sleep(0.01)  # let the reader queue the flood before anyone reads
-        assert session._queue.full()
+        assert len(session._queue) == PULL_QUEUE_FRAMES
         session.generate("y")
         flush_id = session.flush()
-        assert (
-            b"".join(_drain(session.audio(flush_id))) == b"y"
-        )  # still served after the flood
-    assert session._queue.maxsize == PULL_QUEUE_FRAMES
-    assert "dropping audio" in caplog.text
+        # still served after the flood
+        assert b"".join(_drain(session.audio(flush_id))) == b"y"
+    assert session._queue.max_audio == PULL_QUEUE_FRAMES
+    assert "oldest are being dropped" in caplog.text
+
+
+def test_an_overflow_drops_audio_but_never_the_end_of_a_request(server, mocker, caplog):
+    mocker.patch("assemblyai.tts.v1.session.PULL_QUEUE_FRAMES", 6)
+    server.answer_flush = False
+    done: List[int] = []
+    with aai.TTSSession() as session:
+        session.on(aai.TTSEvents.FlushDone, lambda event: done.append(event.flush_id))
+        flush_ids = [session.flush() for _ in range(3)]
+        for flush_id in flush_ids:  # 4 frames each, all before anything is read
+            for _ in range(4):
+                server.push({"type": "Audio", "audio": "AA==", "flush_id": flush_id})
+            server.push(
+                {"type": "FlushDone", "flush_id": flush_id, "audio_duration_ms": 320}
+            )
+        deadline = time.monotonic() + 5
+        while len(done) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        got = [_drain(session.audio(flush_id)) for flush_id in flush_ids]
+
+    # 12 frames for room for 6: the oldest 6 went, every request still ended
+    assert [len(chunks) for chunks in got] == [0, 2, 4]
+    assert "oldest are being dropped" in caplog.text
 
 
 def test_an_audio_handler_receives_the_frames_instead_of_the_queue(server):

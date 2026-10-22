@@ -258,6 +258,33 @@ async def test_a_cancel_drops_every_pipelined_request(server):
         assert await _drain(session.audio(second)) == []
 
 
+async def test_an_overflow_drops_audio_but_never_the_end_of_a_request(
+    server, mocker, caplog
+):
+    mocker.patch("assemblyai.tts.v1.async_session.PULL_QUEUE_FRAMES", 6)
+    server.answer_flush = False
+    done: List[int] = []
+    async with aai.AsyncTTSSession() as session:
+        session.on(aai.TTSEvents.FlushDone, lambda event: done.append(event.flush_id))
+        flush_ids = [await session.flush() for _ in range(3)]
+        for flush_id in flush_ids:  # 4 frames each, all before anything is read
+            for _ in range(4):
+                server.push({"type": "Audio", "audio": "AA==", "flush_id": flush_id})
+            server.push(
+                {"type": "FlushDone", "flush_id": flush_id, "audio_duration_ms": 320}
+            )
+        for _ in range(500):
+            if len(done) == 3:
+                break
+            await asyncio.sleep(0.01)
+
+        got = [await _drain(session.audio(flush_id)) for flush_id in flush_ids]
+
+    # 12 frames for room for 6: the oldest 6 went, every request still ended
+    assert [len(chunks) for chunks in got] == [0, 2, 4]
+    assert "oldest are being dropped" in caplog.text
+
+
 async def test_a_session_object_can_be_reused(mocker):
     fakes = [_FakeAsyncServer(), _FakeAsyncServer()]
 

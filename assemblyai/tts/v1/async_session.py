@@ -1,11 +1,18 @@
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 
 from ... import _audio
 from ... import async_client as _async_client
-from .._base_ws import PULL_QUEUE_FRAMES, build_uri, check_text_frame, resolve_settings
+from .._base_ws import (
+    PULL_QUEUE_FRAMES,
+    PullBuffer,
+    PullItem,
+    build_uri,
+    check_text_frame,
+    resolve_settings,
+)
 from .models import TTSConfig, TTSError
 from .ws_models import (
     TTSBeginEvent,
@@ -22,7 +29,6 @@ __all__ = ["AsyncTTSSession"]
 logger = logging.getLogger(__name__)
 
 _Handler = Callable[[Any], Any]
-_Item = Tuple[str, Any, Any]
 
 
 def websocket_connect_async(
@@ -86,6 +92,7 @@ class AsyncTTSSession:
         self._begun: Any = None
         self._stopped: Any = None
         self._queue: Any = None
+        self._queue_ready: Any = None
         self._next_flush_id = 0
         self._cancel_ids: List[int] = []
         self._cancelled_before = 0
@@ -111,7 +118,8 @@ class AsyncTTSSession:
             raise RuntimeError("the session is already connected")
         self._begun = asyncio.Event()
         self._stopped = asyncio.Event()
-        self._queue = asyncio.Queue(maxsize=PULL_QUEUE_FRAMES)
+        self._queue = PullBuffer(PULL_QUEUE_FRAMES)
+        self._queue_ready = asyncio.Event()
         self._next_flush_id = 0
         self._cancel_ids = []
         self._cancelled_before = 0
@@ -259,16 +267,14 @@ class AsyncTTSSession:
         while True:
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
-            try:
-                kind, ident, payload = await asyncio.wait_for(
-                    self._queue.get(), timeout=0.5
-                )
-            except asyncio.TimeoutError:
+            item = await self._get(timeout=0.5)
+            if item is None:
                 if self._stopped.is_set():
                     if self.error is not None:
                         raise self.error
                     return
                 continue
+            kind, ident, payload = item
             if kind == "audio":
                 if ident == flush_id:
                     yield payload
@@ -285,24 +291,30 @@ class AsyncTTSSession:
                     raise self.error
                 return
 
-    def _put(self, item: _Item) -> None:
-        """Queues an item for `audio()`, dropping the oldest audio when full."""
+    def _put(self, item: PullItem) -> None:
+        """Queues an item for `audio()`; past the cap the oldest audio drops."""
 
-        while True:
+        dropped = self._queue.append(item)
+        self._queue_ready.set()
+        if dropped and not self._drop_warned:
+            self._drop_warned = True
+            logger.warning(
+                "AsyncTTSSession: over %d audio frames are waiting to be read, so the "
+                "oldest are being dropped; read audio() as fast as the audio "
+                "arrives, or register an Audio handler",
+                self._queue.max_audio,
+            )
+
+    async def _get(self, timeout: float) -> Optional[PullItem]:
+        """The next item for `audio()`; `None` when none came in `timeout` s."""
+
+        if not self._queue:
+            self._queue_ready.clear()
             try:
-                self._queue.put_nowait(item)
-                return
-            except asyncio.QueueFull:
-                try:
-                    dropped = self._queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    continue
-                if dropped[0] == "audio" and not self._drop_warned:
-                    self._drop_warned = True
-                    logger.warning(
-                        "AsyncTTSSession: dropping audio nobody reads; iterate "
-                        "audio() or register an Audio handler"
-                    )
+                await asyncio.wait_for(self._queue_ready.wait(), timeout)
+            except asyncio.TimeoutError:
+                return None
+        return self._queue.popleft()
 
     async def _fail(self, error: TTSError) -> None:
         if self.error is None:

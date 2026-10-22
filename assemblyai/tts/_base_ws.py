@@ -1,7 +1,8 @@
 """Helpers shared by the sync and async Text-to-Speech sessions."""
 
 import platform
-from typing import Any, Dict, Optional, Tuple
+from collections import deque
+from typing import Any, Deque, Dict, Optional, Tuple
 from urllib.parse import urlencode, urlsplit
 
 from .. import _audio
@@ -14,8 +15,57 @@ WS_PATH = "/v1/ws"
 # Characters a single `Generate` frame may carry (Unicode code points).
 MAX_GENERATE_CHARS = 2000
 # Audio frames queued for pulling before the oldest is dropped: about 160 s
-# at the API's ~80 ms per frame. Bounds memory when nothing reads them.
+# at the API's ~80 ms per frame. Bounds memory when audio is not read, or is
+# read more slowly than it arrives.
 PULL_QUEUE_FRAMES = 2000
+
+# An item `audio()` reads: (kind, flush_id or cancel id, payload). `audio`
+# items carry a request's audio; the markers `done` and `cancelled` end a
+# request, and `error` and `closed` end the session.
+PullItem = Tuple[str, Any, Any]
+
+
+class PullBuffer:
+    """
+    The items `audio()` reads, in arrival order.
+
+    Markers are always kept, since an `audio()` iteration ends only at one.
+    Past `max_audio` audio frames, the oldest audio frame is dropped.
+    """
+
+    def __init__(self, max_audio: int) -> None:
+        self.max_audio = max_audio
+        self._items: Deque[PullItem] = deque()
+        self._audio = 0
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def append(self, item: PullItem) -> bool:
+        """Adds `item`; returns whether an older audio frame was dropped."""
+
+        self._items.append(item)
+        if item[0] != "audio":
+            return False
+        self._audio += 1
+        if self._audio <= self.max_audio:
+            return False
+        for index, queued in enumerate(self._items):
+            if queued[0] == "audio":
+                del self._items[index]
+                self._audio -= 1
+                return True
+        return False
+
+    def popleft(self) -> Optional[PullItem]:
+        """Removes and returns the oldest item; `None` when there is none."""
+
+        if not self._items:
+            return None
+        item = self._items.popleft()
+        if item[0] == "audio":
+            self._audio -= 1
+        return item
 
 
 def check_text_frame(text: object) -> None:
