@@ -6,7 +6,7 @@ plus pool ownership.
 """
 
 import json
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import httpx
 import pytest
@@ -86,7 +86,7 @@ async def test_stream_yields_audio_and_reports_the_headers(httpx_mock: HTTPXMock
 
     assert _sent_body(httpx_mock) == {"text": "Hello there.", "stream": True}
     assert b"".join(chunks) == _AUDIO
-    assert speech.info is not None and speech.info.model == "assemblyai-tts-1"
+    assert speech.info.model == "assemblyai-tts-1"
 
 
 async def test_stream_aread_collects_the_whole_audio(httpx_mock: HTTPXMock):
@@ -135,6 +135,90 @@ async def test_a_body_cut_after_the_first_audio_is_a_retryable_tts_error(error):
     assert exc_info.value.status_code == 200
     assert exc_info.value.request_id == "req-async"
     assert exc_info.value.__cause__ is error
+
+
+class _RecordingStream(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _AUDIO[:100]
+        yield _AUDIO[100:]
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _transport(body: httpx.AsyncByteStream, status: int = 200) -> httpx.MockTransport:
+    headers = _OK_HEADERS if status == 200 else {"content-type": "application/json"}
+    return httpx.MockTransport(
+        lambda request: httpx.Response(status, headers=headers, stream=body)
+    )
+
+
+async def test_leaving_the_async_with_block_early_releases_the_connection():
+    body = _RecordingStream()
+    async with httpx.AsyncClient(transport=_transport(body)) as http:
+        async with async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        ) as speech:
+            await speech.aiter_bytes().__anext__()  # a barge-in after the first chunk
+        assert body.closed
+
+
+class _JsonBody(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield json.dumps({"code": "at_capacity", "message": "No room"}).encode()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_a_refused_stream_releases_its_connection():
+    body = _JsonBody()
+    async with httpx.AsyncClient(transport=_transport(body, status=503)) as http:
+        speech = async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with pytest.raises(aai.TTSError) as exc_info:
+            await speech.aread()
+    assert exc_info.value.error_code == "at_capacity"
+    assert body.closed
+
+
+class _CutJsonBody(httpx.AsyncByteStream):
+    closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b'{"code": '
+        raise httpx.ReadError("connection reset")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_a_refused_stream_releases_its_connection_if_its_body_fails():
+    # httpx closes a fully read body itself; a body cut while it is read is
+    # released only by the stream. The error stays referenced until the end,
+    # as a caller that logs it would, so its traceback keeps the stream's
+    # frames alive and garbage collection cannot release the body instead.
+    body = _CutJsonBody()
+    async with httpx.AsyncClient(transport=_transport(body, status=503)) as http:
+        speech = async_api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with pytest.raises(httpx.ReadError) as exc_info:
+            await speech.aread()
+        assert body.closed
+        assert "connection reset" in str(exc_info.value)
+
+
+async def test_an_owned_pool_is_closed_on_aclose():
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    http = tts.client.http_client
+    await tts.aclose()
+    assert http.is_closed
 
 
 async def test_errors_are_tts_errors(httpx_mock: HTTPXMock):
@@ -202,47 +286,6 @@ async def test_synthesize_and_stream_use_their_own_timeouts(httpx_mock: HTTPXMoc
     timeouts = [r.extensions["timeout"] for r in httpx_mock.get_requests()]
     assert (timeouts[0]["read"], timeouts[0]["connect"]) == (99.0, 7.0)
     assert timeouts[1]["read"] == 7.0
-
-
-class _RecordingStream(httpx.AsyncByteStream):
-    """A response body that yields `chunks`, then raises `error` if one is
-    given, and records whether it was closed."""
-
-    def __init__(self, *chunks: bytes, error: Optional[Exception] = None) -> None:
-        self._chunks = chunks
-        self._error = error
-        self.closed = False
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        for chunk in self._chunks:
-            yield chunk
-        if self._error is not None:
-            raise self._error
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-async def test_a_refused_stream_releases_its_connection_if_its_body_fails(
-    httpx_mock: HTTPXMock,
-):
-    # GIVEN a refusal whose error body is cut while it is read
-    body = _RecordingStream(b'{"code": ', error=httpx.ReadError("reset"))
-    httpx_mock.add_callback(
-        lambda request: httpx.Response(
-            503, headers={"content-type": "application/json"}, stream=body
-        ),
-        url=SPEECH_URL,
-        method="POST",
-    )
-
-    # THEN the network error surfaces and the connection is released
-    async with aai.AsyncTextToSpeech() as tts:
-        with pytest.raises(httpx.ReadError):
-            async with tts.stream("Hi."):
-                pass
-
-        assert body.closed
 
 
 async def test_a_shared_client_is_left_open_on_aclose(httpx_mock: HTTPXMock):

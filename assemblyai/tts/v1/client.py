@@ -64,6 +64,9 @@ class TextToSpeech:
         """
         check_config(type(self).__name__, config)
 
+        # Only a client built from `api_key` is owned; `client=None` is the
+        # shared default client, which stays open.
+        self._owns_client = api_key is not None
         self._client = _client._resolve_client(client, api_key)
         self.config = config or TTSConfig()
 
@@ -126,9 +129,9 @@ class TextToSpeech:
         Speaks `text` and returns the audio as it is generated.
 
         The request is sent when the returned `TTSStream` is entered as a
-        context manager or first read; it returns once the API has sent the
-        first audio. Iterate the stream for the bytes, and use `with` (or
-        call `close()`) so the connection is released.
+        context manager or first read; entering it returns once the API has
+        sent the first audio. Iterate the stream for the bytes, and use
+        `with` (or call `close()`) so the connection is released.
 
         Args:
             text: 1 to 5,000 characters.
@@ -149,3 +152,15 @@ class TextToSpeech:
             body=body,
             timeout=self._client.settings.tts_http_timeout,
         )
+
+    def close(self) -> None:
+        """Closes the HTTP pool this instance owns. A shared `client` is left open."""
+
+        if self._owns_client:
+            self._client.http_client.close()
+
+    def __enter__(self) -> "TextToSpeech":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

@@ -918,7 +918,7 @@ with open("hello.wav", "wb") as out:
 print(response.model, response.voice_id, response.audio_duration_ms, "ms")
 ```
 
-`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 120 s by default), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 610 s by default, just over the API's 600-second limit on a request), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
 
 </details>
 
@@ -938,7 +938,7 @@ with tts.stream("Streaming straight to the speakers.") as speech:
         play(chunk)  # raw 24 kHz 16-bit mono PCM
 ```
 
-`stream()` returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop then raises a `TTSError` with `retryable=True`, and the whole request should be retried.
+`stream()` itself sends nothing: entering the `with` block (or the first read) sends the request and returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop then raises a `TTSError` with `retryable=True`, and the whole request should be retried.
 
 </details>
 
@@ -982,7 +982,7 @@ except aai.TTSError as e:
         time.sleep(e.retry_after or 1)
 ```
 
-`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `rate_limited`, `at_capacity`, ...); branch on it rather than on the message. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
+`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `biometric_terms_not_accepted` (403: accept the biometric data terms in the dashboard, then retry), `rate_limited`, `at_capacity`, `auth_unavailable` (503, retryable), ...); branch on it rather than on the message. `body` holds the whole error envelope for the fields some codes add. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
 
 </details>
 
@@ -1979,7 +1979,7 @@ aai.settings.dictation_http_timeout = 300.0
 # Text-to-Speech: the host (US by default, EU below) and the timeouts
 aai.settings.tts_base_url = "https://tts.eu.assemblyai.com"
 aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation
-aai.settings.tts_synthesize_http_timeout = 120.0  # synthesize(): the wait for the whole clip
+aai.settings.tts_synthesize_http_timeout = 610.0  # synthesize(): the wait for the whole clip
 ```
 
 Set these before creating a client: `aai.TextToSpeech()` (like every client) copies the settings when it is built, so a later change applies to the next instance, not to an existing one. Every setting can also come from the environment with the `ASSEMBLYAI_` prefix, such as `ASSEMBLYAI_TTS_BASE_URL`.
@@ -2102,7 +2102,7 @@ All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streami
 | `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
 | `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
-| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[dict]]` |
+| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[Dict[str, Optional[str]]]]`, `body: Optional[dict]` |
 | `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |

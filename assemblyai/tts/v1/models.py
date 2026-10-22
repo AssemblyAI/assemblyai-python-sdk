@@ -6,10 +6,11 @@ that uses them.
 """
 
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 try:
-    # pydantic v2 import (`model_validator` exists only in v2)
+    # pydantic v2 import (`model_validator` exists only in v2; pydantic 1.10
+    # also exports `ConfigDict`, so it is not the probe)
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 
     pydantic_v2 = True
@@ -44,6 +45,10 @@ class TTSError(AssemblyAIError):
     (`{"message", "param"}`) of an `invalid_parameter` refusal. `request_id`
     is the value to quote to support.
 
+    `body` is the parsed error envelope as the API sent it, for fields some
+    codes add (`rate_limited` adds `limit` and `limit_window`; a text or
+    body over its limit adds `limit`).
+
     `biometric_terms_not_accepted` (`403`, not retryable) refuses one of the
     account's own cloned voices, or `extend_biometric_consent`, until the
     account accepts the biometric data terms in the AssemblyAI dashboard.
@@ -65,7 +70,8 @@ class TTSError(AssemblyAIError):
         request_id: Optional[str] = None,
         retryable: Optional[bool] = None,
         retry_after: Optional[int] = None,
-        errors: Optional[List[dict]] = None,
+        errors: Optional[List[Dict[str, Optional[str]]]] = None,
+        body: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(message, status_code)
         self.error_code = error_code
@@ -74,6 +80,7 @@ class TTSError(AssemblyAIError):
         self.retryable = retryable
         self.retry_after = retry_after
         self.errors = errors
+        self.body = body
 
 
 class TTSEncoding(str, Enum):
@@ -126,7 +133,9 @@ class TTSConfig(BaseModel):
     Every field is optional: the API speaks English with its default voice
     (`aai-jane`) at 24 kHz as raw 16-bit PCM when nothing is set. Every voice
     is named by `voice_id`. Unknown fields are rejected rather than silently
-    dropped, so a typo surfaces as a validation error.
+    dropped, so a typo surfaces as a validation error. `speed` (only 1 is
+    supported) and `word_boundaries` (served by `/v1/speech/events`) are
+    left out on purpose.
     """
 
     voice_id: Optional[str] = None
@@ -188,7 +197,7 @@ class TTSConfig(BaseModel):
         class Config:
             extra = "forbid"
 
-        @root_validator(pre=True)
+        @root_validator(pre=True, allow_reuse=True)
         def _refuse_voice(cls, values: Any) -> Any:
             return _refuse_voice_field(values)
 
@@ -245,8 +254,8 @@ class TTSResponseInfo(BaseModel):
 
     audio_duration_ms: Optional[int] = None
     """The duration of the audio in milliseconds, on a complete response:
-    `synthesize()`, and a streamed request with nothing to speak (`0`). A
-    stream with audio does not know it up front."""
+    `synthesize()`, and a stream whose text had nothing to speak (`0`). A
+    stream with audio does not know it up front: `None`."""
 
 
 class TTSResponse(TTSResponseInfo):
@@ -254,5 +263,6 @@ class TTSResponse(TTSResponseInfo):
 
     audio: bytes = Field(..., repr=False)
     """The audio in the requested encoding and container, complete. Its
-    duration is `audio_duration_ms`. Left out of `repr()`, so a logged
-    response does not carry the clip."""
+    duration is `audio_duration_ms`. Empty (or a header-only WAV) for a text
+    with nothing to speak, such as one made only of emoji, which bills `0`.
+    Left out of `repr()`, so a logged response does not carry the clip."""
