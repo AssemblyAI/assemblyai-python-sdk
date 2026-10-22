@@ -10,6 +10,7 @@ import json
 import queue
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional
 from urllib.parse import parse_qs, urlsplit
 
@@ -57,6 +58,36 @@ _INPUT_RATE_EXCEEDED = {
     "param": None,
     "retry_after_seconds": None,
 }
+
+
+class _Rejected(Exception):
+    """A handshake answered with an HTTP status, as the current clients raise."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"server rejected WebSocket connection: HTTP {status}")
+        self.response = SimpleNamespace(status_code=status)
+
+
+class _LegacyRejected(Exception):
+    """The same, as the legacy client of websockets 11 and 12 raises it."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"server rejected WebSocket connection: HTTP {status}")
+        self.status_code = status
+
+
+_HANDSHAKE_FAILURES = [
+    pytest.param(_Rejected(503), 503, True, id="503"),
+    pytest.param(_Rejected(502), 502, True, id="502"),
+    pytest.param(_Rejected(401), 401, False, id="401"),
+    pytest.param(_LegacyRejected(429), 429, True, id="legacy-429"),
+    pytest.param(_LegacyRejected(403), 403, False, id="legacy-403"),
+    pytest.param(
+        ConnectionRefusedError(111, "Connection refused"), None, True, id="refused"
+    ),
+    pytest.param(TimeoutError("timed out"), None, True, id="timeout"),
+    pytest.param(ValueError("not a WebSocket URI"), None, False, id="bad-uri"),
+]
 
 
 def _closed_ok() -> ConnectionClosedOK:
@@ -341,6 +372,19 @@ def test_an_error_before_begin_raises_from_with(mocker):
     assert err.body["error_code"] == 3012
     assert err.request_id is None  # no Begin, so no session id yet
     assert fake.closed
+
+
+@pytest.mark.parametrize("failure, status, retryable", _HANDSHAKE_FAILURES)
+def test_a_failed_handshake_keeps_its_status_and_says_if_retryable(
+    mocker, failure, status, retryable
+):
+    mocker.patch("assemblyai.tts.v1.session.websocket_connect", side_effect=failure)
+    with pytest.raises(aai.TTSError, match="handshake failed") as exc_info:
+        with aai.TTSSession():
+            pass
+    assert exc_info.value.status_code == status
+    assert exc_info.value.retryable is retryable
+    assert exc_info.value.__cause__ is failure
 
 
 def test_an_error_mid_session_raises_from_the_audio_and_reaches_the_handler(server):

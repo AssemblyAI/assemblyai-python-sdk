@@ -1,6 +1,8 @@
 """Helpers shared by the sync and async Text-to-Speech sessions."""
 
+import asyncio
 import platform
+import ssl
 from collections import deque
 from typing import Any, Deque, Dict, Optional, Tuple
 from urllib.parse import urlencode, urlsplit
@@ -8,7 +10,8 @@ from urllib.parse import urlencode, urlsplit
 from .. import _audio
 from ..__version__ import __version__
 from ..types import Settings
-from .v1.models import TTSConfig
+from .v1.api import _RETRYABLE_STATUSES
+from .v1.models import TTSConfig, TTSError
 
 # The route of the WebSocket API; the host comes from `settings.tts_base_url`.
 WS_PATH = "/v1/ws"
@@ -102,6 +105,31 @@ def resolve_settings(
             f"variable, set aai.settings.api_key, or pass api_key= or token= to {owner}."
         )
     return settings
+
+
+def handshake_error(exc: BaseException) -> TTSError:
+    """
+    The `TTSError` for a WebSocket handshake that failed with `exc`.
+
+    An HTTP answer is retryable by its status, as on the HTTP API; with no
+    answer, a refused or dropped connection and a timeout are retryable.
+    """
+
+    # The legacy client's InvalidStatusCode carries `status_code`; the
+    # current clients' InvalidStatus carries the `response`.
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        retryable = status in _RETRYABLE_STATUSES
+    else:
+        status = None
+        retryable = isinstance(exc, (OSError, asyncio.TimeoutError)) and not isinstance(
+            exc, ssl.CertificateError
+        )
+    return TTSError(
+        f"WebSocket handshake failed: {exc}", status_code=status, retryable=retryable
+    )
 
 
 def _user_agent() -> str:

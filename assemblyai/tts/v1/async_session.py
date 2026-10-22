@@ -11,6 +11,7 @@ from .._base_ws import (
     PullItem,
     build_uri,
     check_text_frame,
+    handshake_error,
     resolve_settings,
 )
 from .models import TTSConfig, TTSError
@@ -153,11 +154,8 @@ class AsyncTTSSession:
             self._ws = await asyncio.wait_for(
                 websocket_connect_async(uri, headers), timeout=self._connect_timeout
             )
-        except Exception as exc:
-            status = getattr(getattr(exc, "response", None), "status_code", None)
-            raise TTSError(
-                f"WebSocket handshake failed: {exc}", status_code=status
-            ) from exc
+        except Exception as exc:  # the handshake failed
+            raise handshake_error(exc) from exc
 
         self._reader = asyncio.create_task(self._read_loop())
         try:
