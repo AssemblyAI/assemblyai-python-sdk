@@ -39,6 +39,15 @@ _TERMINATION = {
 }
 
 
+_INACTIVITY_TIMEOUT = {
+    "type": "Error",
+    "error_code": 3006,
+    "error": "No message received for 120 seconds; the idle session was closed.",
+    "error_type": "inactivity_timeout",
+    "retryable": True,
+    "param": None,
+    "retry_after_seconds": None,
+}
 _INPUT_RATE_EXCEEDED = {
     "type": "Error",
     "error_code": 3010,
@@ -485,6 +494,58 @@ def test_a_session_object_can_be_reused(mocker):
     with session:
         assert b"".join(_drain(session.speak("Two."))) == b"Two."
     assert [f["type"] for f in fakes[1].sent] == ["Generate", "Flush", "Terminate"]
+
+
+def test_connect_after_the_api_ended_the_session_opens_a_new_one(mocker):
+    first, second = _FakeServer(), _FakeServer()
+    mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect", side_effect=[first, second]
+    )
+    session = aai.TTSSession()
+    session.connect()
+    first.push(_INACTIVITY_TIMEOUT)
+    first.push(
+        ConnectionClosedError(Close(3006, "See Error message for details"), None)
+    )
+    assert session._stopped.wait(5)
+    assert session.error is not None and session.error.retryable is True
+
+    session.connect()  # no close() needed first
+    assert first.closed
+    assert session.error is None
+    assert b"".join(_drain(session.speak("Hello again."))) == b"Hello again."
+    session.terminate()
+
+
+def test_connect_on_a_live_session_is_refused(server):
+    with aai.TTSSession() as session:
+        with pytest.raises(RuntimeError, match="already connected"):
+            session.connect()
+
+
+def test_a_new_connection_waits_for_the_previous_connections_handler(mocker):
+    first, second = _FakeServer(), _FakeServer()
+    mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect", side_effect=[first, second]
+    )
+    in_handler = threading.Event()
+
+    def blocking_player(event: aai.TTSAudioEvent) -> None:
+        in_handler.set()
+        time.sleep(1)  # a playback write that blocks
+
+    session = aai.TTSSession(terminate_timeout=0.2)
+    session.on(aai.TTSEvents.Audio, blocking_player)
+    with session:
+        session.generate("Hi.")
+        session.flush()
+        assert in_handler.wait(5)
+    # the previous reader is still in the handler here
+    with session:
+        time.sleep(1.5)  # the previous handler has returned by now
+        session.generate("Still open.")
+        assert not session._stopped.is_set()
+        assert session.termination is None
 
 
 def test_unread_audio_is_bounded_and_dropped_oldest_first(server, caplog):

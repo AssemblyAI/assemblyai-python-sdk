@@ -31,6 +31,15 @@ _TERMINATION = {
 }
 
 
+_INACTIVITY_TIMEOUT = {
+    "type": "Error",
+    "error_code": 3006,
+    "error": "No message received for 120 seconds; the idle session was closed.",
+    "error_type": "inactivity_timeout",
+    "retryable": True,
+    "param": None,
+    "retry_after_seconds": None,
+}
 _INPUT_RATE_EXCEEDED = {
     "type": "Error",
     "error_code": 3010,
@@ -450,6 +459,65 @@ async def test_a_cancelled_close_propagates_the_cancellation(server):
     assert closing.cancelled()
     await asyncio.sleep(0)
     assert session._reader is not None and session._reader.done()
+
+
+def _connect_to(mocker, *fakes: "_FakeAsyncServer") -> None:
+    queued = list(fakes)
+
+    async def connect(uri, additional_headers):
+        return queued.pop(0)
+
+    mocker.patch(
+        "assemblyai.tts.v1.async_session.websocket_connect_async", side_effect=connect
+    )
+
+
+async def test_connect_after_the_api_ended_the_session_opens_a_new_one(mocker):
+    first, second = _FakeAsyncServer(), _FakeAsyncServer()
+    _connect_to(mocker, first, second)
+    session = aai.AsyncTTSSession()
+    await session.connect()
+    first.push(_INACTIVITY_TIMEOUT)
+    first.push(
+        ConnectionClosedError(Close(3006, "See Error message for details"), None)
+    )
+    await asyncio.wait_for(session._stopped.wait(), 5)
+    assert session.error is not None and session.error.retryable is True
+
+    await session.connect()  # no close() needed first
+    assert first.closed
+    assert session.error is None
+    assert b"".join(await _drain(session.speak("Hello again."))) == b"Hello again."
+    await session.terminate()
+
+
+async def test_connect_on_a_live_session_is_refused(server):
+    async with aai.AsyncTTSSession() as session:
+        with pytest.raises(RuntimeError, match="already connected"):
+            await session.connect()
+
+
+async def test_connect_right_after_close_gave_up_on_a_handler(mocker):
+    first, second = _FakeAsyncServer(), _FakeAsyncServer()
+    _connect_to(mocker, first, second)
+    in_handler = asyncio.Event()
+
+    async def busy_handler(event):
+        in_handler.set()
+        await asyncio.sleep(30)
+
+    session = aai.AsyncTTSSession(terminate_timeout=0.1)
+    await session.connect()
+    session.on(aai.TTSEvents.Cancelled, busy_handler)
+    await session.cancel()
+    await asyncio.wait_for(in_handler.wait(), 5)
+    await session.close()  # gives up on the busy reader and cancels it
+
+    await asyncio.wait_for(session.connect(), 5)  # at once
+    await asyncio.sleep(0.05)
+    assert not session._stopped.is_set()
+    assert b"".join(await _drain(session.speak("Hi."))) == b"Hi."
+    await session.terminate()
 
 
 async def test_missing_key_is_a_clear_error(monkeypatch):

@@ -105,7 +105,9 @@ class TTSSession:
             api_key: The API key to authenticate with; takes precedence over
                 `client` and the global settings.
             token: A temporary token instead of an API key, for a session
-                opened on a user's device.
+                opened on a user's device. The API spends the token when the
+                session begins, so such a session connects once: to
+                reconnect, mint a new token and build a new session.
             word_boundaries: Whether the server sends `WordBoundaries` frames.
             inactivity_timeout: Seconds (5 to 120) after which an idle session
                 is closed; `None` for the account's default.
@@ -173,12 +175,29 @@ class TTSSession:
         """
         Opens the socket and waits for `Begin`.
 
+        A session whose previous connection has ended (cleanly, by `close()`
+        or by the API, such as after an `inactivity_timeout`) connects again;
+        one built with `token=` cannot, since its token is already spent.
+
         Raises:
             TTSError: if the API refuses the session (its `Error` frame), the
                 handshake is rejected, or `Begin` does not arrive in time.
+            RuntimeError: if the session is still connected, from a session
+                handler, or while a handler of the previous connection still
+                runs after `connect_timeout`.
         """
+        self._check_not_in_handler("connect()")
         if self._ws is not None:
-            raise RuntimeError("the session is already connected")
+            if not self._stopped.is_set():
+                raise RuntimeError("the session is already connected")
+            self.close()  # the previous connection has ended
+        if self._reader is not None and self._reader.is_alive():
+            # Its reader would write into the new connection's state.
+            self._reader.join(self._connect_timeout)
+            if self._reader.is_alive():
+                raise RuntimeError(
+                    "a handler of the previous connection is still running"
+                )
         self._reset()
 
         uri, headers = build_uri(

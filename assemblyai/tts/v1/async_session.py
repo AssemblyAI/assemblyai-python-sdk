@@ -116,8 +116,19 @@ class AsyncTTSSession:
     async def connect(self) -> TTSBeginEvent:
         """Opens the socket and waits for `Begin`; see `TTSSession.connect`."""
 
+        self._check_not_in_handler("connect()")
         if self._ws is not None:
-            raise RuntimeError("the session is already connected")
+            if not self._stopped.is_set():
+                raise RuntimeError("the session is already connected")
+            await self.close()  # the previous connection has ended
+        reader = self._reader
+        if reader is not None and not reader.done():
+            # Its reader would write into the new connection's state.
+            await asyncio.wait({reader}, timeout=self._connect_timeout)
+            if not reader.done():
+                raise RuntimeError(
+                    "a handler of the previous connection is still running"
+                )
         self._begun = asyncio.Event()
         self._stopped = asyncio.Event()
         self._queue = PullBuffer(PULL_QUEUE_FRAMES)

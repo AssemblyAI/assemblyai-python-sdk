@@ -1056,7 +1056,9 @@ Register handlers for the other frames with `session.on(event, handler)`, where 
 
 A refusal of the session raises `TTSError` from the `with`; a failure mid-session raises it from the next `audio()` iteration or send, and reaches the `Error` handler. On a session `status_code` is `None` (there is no HTTP status) and `request_id` is the session id; `retryable=True` means a new session can succeed, such as after an `inactivity_timeout`.
 
-For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`, which answers `{"token": ..., "expires_in_seconds": 60}`).
+Once the API has ended a session (an `inactivity_timeout`, say), the same `TTSSession` object opens a new one with `with session:` or `session.connect()`.
+
+For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`, which answers `{"token": ..., "expires_in_seconds": 60}`). The API spends the token when the session begins, so a token opens one session: to reconnect, mint a new token and build a new `TTSSession` with it.
 
 The asyncio twin is `aai.AsyncTTSSession`:
 
