@@ -126,7 +126,9 @@ class TTSSession:
         self._handlers: Dict[str, List[_Handler]] = {}
         self._ws: Any = None
         self._reader: Optional[threading.Thread] = None
-        self._send_lock = threading.Lock()
+        # Held while a frame is written. flush() and cancel() hold it while
+        # they also take the frame's flush_id, so the ids follow wire order.
+        self._send_lock = threading.RLock()
         self.begin: Optional[TTSBeginEvent] = None
         "The `Begin` frame, once connected."
         self.termination: Optional[TTSTerminationEvent] = None
@@ -276,9 +278,10 @@ class TTSSession:
         Everything sent so far is spoken, then `FlushDone` arrives for this
         id. Flushes can be pipelined; the audio comes in order.
         """
-        flush_id = self._next_flush_id
-        self._next_flush_id += 1
-        self._send({"type": "Flush"})
+        with self._send_lock:
+            flush_id = self._next_flush_id
+            self._next_flush_id += 1
+            self._send({"type": "Flush"})
         return flush_id
 
     def cancel(self) -> None:
@@ -290,11 +293,12 @@ class TTSSession:
         Text sent and not flushed is discarded. Like `flush()`, a cancel
         takes a `flush_id`, so the next request's id skips one.
         """
-        cancel_id = self._next_flush_id
-        self._next_flush_id += 1
-        self._cancel_ids.append(cancel_id)
-        self._cancelled_before = max(self._cancelled_before, cancel_id)
-        self._send({"type": "Cancel"})
+        with self._send_lock:
+            cancel_id = self._next_flush_id
+            self._next_flush_id += 1
+            self._cancel_ids.append(cancel_id)
+            self._cancelled_before = max(self._cancelled_before, cancel_id)
+            self._send({"type": "Cancel"})
 
     def keep_alive(self) -> None:
         """Resets the inactivity timer between sparse requests."""
@@ -471,8 +475,8 @@ class TTSSession:
         elif kind == "FlushDone":
             self._put(("done", event.flush_id, None))
         elif kind == "Cancelled":
+            # cancel() already raised the watermark for this id.
             cancel_id = self._cancel_ids.pop(0) if self._cancel_ids else -1
-            self._cancelled_before = max(self._cancelled_before, cancel_id)
             self._put(("cancelled", cancel_id, None))
         elif kind == "Termination":
             self.termination = event

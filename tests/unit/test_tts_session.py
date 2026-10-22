@@ -51,6 +51,7 @@ class _FakeServer:
         self.text = ""
         self.flush_id = 0
         self.answer_flush = answer_flush
+        self.generate_delay = 0.0
         if begin is not None:
             self.push(begin)
 
@@ -62,6 +63,7 @@ class _FakeServer:
         self.sent.append(frame)
         kind = frame["type"]
         if kind == "Generate":
+            time.sleep(self.generate_delay)
             self.text += frame["text"]
         elif kind == "Flush":
             if self.answer_flush:
@@ -201,6 +203,27 @@ def test_cancel_ends_the_current_request_but_not_a_later_one(server):
         "Flush",
         "Terminate",
     ]
+
+
+def test_a_cancel_from_another_thread_keeps_flush_ids_in_wire_order(server):
+    server.generate_delay = 0.02  # a slow write the cancel lands in
+    with aai.TTSSession() as session:
+        for _ in range(5):
+            flush_ids: List[int] = []
+
+            def write_reply() -> None:
+                session.generate("Hello there. ")
+                flush_ids.append(session.flush())
+
+            writer = threading.Thread(target=write_reply)
+            writer.start()
+            time.sleep(0.01)
+            session.cancel()  # barge-in from a VAD callback, say
+            writer.join(5)
+            _drain(session.audio(flush_ids[0]))  # ends, cancelled or spoken
+
+        # every Flush and Cancel took the id the API gives it
+        assert session._next_flush_id == server.flush_id == 10
 
 
 def test_cancel_ends_the_iteration_before_the_server_answers(server):
