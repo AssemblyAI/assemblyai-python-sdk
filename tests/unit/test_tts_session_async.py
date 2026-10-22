@@ -662,10 +662,11 @@ async def test_speak_splits_long_text_across_generate_frames(server):
 
 
 async def test_a_stale_audio_iterator_ends_when_the_session_reconnects(mocker):
-    fakes = [_FakeAsyncServer(answer_flush=False), _FakeAsyncServer()]
+    first, second = _FakeAsyncServer(answer_flush=False), _FakeAsyncServer()
+    servers = [first, second]
 
     async def connect(uri, additional_headers):
-        return fakes.pop(0)
+        return servers.pop(0)
 
     mocker.patch(
         "assemblyai.tts.v1.async_session.websocket_connect_async", side_effect=connect
@@ -673,7 +674,7 @@ async def test_a_stale_audio_iterator_ends_when_the_session_reconnects(mocker):
     session = aai.AsyncTTSSession()
     await session.connect()
     stale = session.audio(await session.flush())
-    fakes[0].push(ConnectionClosedError(Close(3006, "idle"), None))
+    first.push(ConnectionClosedError(Close(3006, "idle"), None))
     await asyncio.wait_for(session._stopped.wait(), 2)
     with pytest.raises(aai.TTSError):
         await stale.__anext__()
