@@ -779,6 +779,22 @@ def test_a_plain_http_host_opens_a_plain_websocket(server):
     assert server.connect.call_args.args[0].startswith("ws://localhost:8080/v1/ws?")
 
 
+@pytest.mark.parametrize(
+    "base_url, expected",
+    [
+        ("https://proxy.example.com/tts", "wss://proxy.example.com/tts/v1/ws?"),
+        ("https://proxy.example.com/tts/", "wss://proxy.example.com/tts/v1/ws?"),
+        ("https://tts.us.assemblyai.com/", "wss://tts.us.assemblyai.com/v1/ws?"),
+    ],
+)
+def test_a_path_prefix_in_the_host_setting_is_kept(server, base_url, expected):
+    client = aai.Client(api_key="test")
+    client.settings.tts_base_url = base_url
+    with aai.TTSSession(client=client):
+        pass
+    assert server.connect.call_args.args[0].startswith(expected)
+
+
 def test_api_key_argument_is_used_without_touching_the_shared_settings(server):
     with aai.TTSSession(
         api_key="other", config=aai.TTSConfig(extend_biometric_consent=True)

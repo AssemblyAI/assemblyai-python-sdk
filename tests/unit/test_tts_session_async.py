@@ -601,6 +601,13 @@ async def test_audio_before_connect_says_the_session_is_not_open(server):
         await _drain(aai.AsyncTTSSession().audio())
 
 
+async def test_a_path_prefix_in_the_host_setting_is_kept(server, monkeypatch):
+    monkeypatch.setattr(aai.settings, "tts_base_url", "https://proxy.example.com/tts/")
+    async with aai.AsyncTTSSession():
+        pass
+    assert server.connect.uri.startswith("wss://proxy.example.com/tts/v1/ws?")
+
+
 async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)

@@ -13,7 +13,8 @@ from ..types import Settings
 from .v1.api import _RETRYABLE_STATUSES
 from .v1.models import TTSConfig, TTSError
 
-# The route of the WebSocket API; the host comes from `settings.tts_base_url`.
+# The route of the WebSocket API, after the host and any path prefix of
+# `settings.tts_base_url`.
 WS_PATH = "/v1/ws"
 # Characters a single `Generate` frame may carry (Unicode code points) when
 # `Begin` does not report the limit in force.
@@ -190,4 +191,5 @@ def build_uri(
     headers: Dict[str, Optional[str]] = {"User-Agent": _user_agent()}
     if token is None and api_key:
         headers["Authorization"] = api_key
-    return f"{scheme}://{parts.netloc}{WS_PATH}?{query}", headers
+    prefix = parts.path.rstrip("/")
+    return f"{scheme}://{parts.netloc}{prefix}{WS_PATH}?{query}", headers
