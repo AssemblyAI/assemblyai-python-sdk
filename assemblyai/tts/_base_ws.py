@@ -72,6 +72,11 @@ def build_uri(
 ) -> Tuple[str, Dict[str, Optional[str]]]:
     """The session URI and handshake headers from the settings and config."""
 
+    if config.container is not None or config.bit_rate is not None:
+        raise ValueError(
+            "container and bit_rate do not apply to a session, which streams raw "
+            "pcm_s16le, pcm_mulaw or pcm_alaw; leave them unset in its TTSConfig"
+        )
     parts = urlsplit(base_url if "://" in base_url else f"https://{base_url}")
     scheme = "ws" if parts.scheme in ("http", "ws") else "wss"
     params: Dict[str, Any] = (

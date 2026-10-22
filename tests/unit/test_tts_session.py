@@ -180,6 +180,57 @@ def test_cancel_ends_the_current_request_but_not_a_later_one(server):
     ]
 
 
+def test_cancel_ends_the_iteration_before_the_server_answers(server):
+    server.answer_flush = False
+    with aai.TTSSession() as session:
+        flush_id = session.flush()
+        server.push({"type": "Audio", "audio": "AA==", "flush_id": 0})
+        stream = session.audio(flush_id)
+        assert next(stream) == b"\x00"
+        session.cancel()
+        # in-transit audio of the cancelled request is discarded, not yielded
+        server.push({"type": "Audio", "audio": "AA==", "flush_id": 0})
+        assert list(stream) == []
+
+
+def test_audio_for_an_unflushed_id_raises(server):
+    with aai.TTSSession() as session:
+        with pytest.raises(ValueError, match="not been flushed"):
+            next(session.audio(5))
+
+
+def test_audio_without_an_id_follows_the_request_being_written(server):
+    import threading
+
+    with aai.TTSSession() as session:
+        got = []
+        reader = threading.Thread(target=lambda: got.extend(session.audio()))
+        reader.start()  # reading before the flush, like a player thread
+        session.generate("Early ")
+        session.generate("audio.")
+        session.flush()
+        reader.join(timeout=5)
+    assert b"".join(got) == b"Early audio."
+
+
+def test_a_misspelled_event_name_is_refused(server):
+    session = aai.TTSSession()
+    with pytest.raises(ValueError, match="FlushDone"):
+        session.on("FlushDon", print)
+    session.on("FlushDone", print)  # a string spelling of a member is fine
+
+
+def test_sending_before_connect_says_how_to_open(server):
+    with pytest.raises(RuntimeError, match="with"):
+        aai.TTSSession().generate("Hi.")
+
+
+def test_http_only_options_are_refused_on_a_session(server):
+    with pytest.raises(ValueError, match="container and bit_rate"):
+        with aai.TTSSession(config=aai.TTSConfig(container="wav")):
+            pass
+
+
 def test_a_cancel_before_a_request_does_not_end_it(server):
     with aai.TTSSession() as session:
         session.cancel()  # nothing in flight; Cancelled arrives later
@@ -211,6 +262,7 @@ def test_an_error_before_begin_raises_from_with(mocker):
     assert err.param == "voice_id"
     assert err.retryable is False
     assert err.body["error_code"] == 3012
+    assert err.request_id is None  # no Begin, so no session id yet
     assert fake.closed
 
 
@@ -236,6 +288,7 @@ def test_an_error_mid_session_raises_from_the_audio_and_reaches_the_handler(serv
 
     assert exc_info.value.error_code == "at_capacity"
     assert exc_info.value.retry_after == 2
+    assert exc_info.value.request_id == "sess-1"  # the session id
     assert errors == [exc_info.value]
     assert session.error is exc_info.value
 
@@ -320,7 +373,9 @@ def test_an_audio_handler_receives_the_frames_instead_of_the_queue(server):
         session.on(aai.TTSEvents.FlushDone, done.append)
         session.generate("Pushed.")
         flush_id = session.flush()
-        assert list(session.audio(flush_id)) == []  # nothing queued for pulling
+        with pytest.raises(RuntimeError, match="Audio handler"):
+            list(session.audio(flush_id))
+        session._stopped.wait(0.2)  # let the frames land
 
     assert [e.audio for e in received] == [b"Pushed."]
     assert received[0].flush_id == 0

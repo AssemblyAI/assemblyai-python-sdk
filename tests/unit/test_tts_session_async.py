@@ -169,7 +169,9 @@ async def test_handlers_may_be_coroutines(server):
         session.on(aai.TTSEvents.Audio, on_audio)
         await session.generate("Pushed.")
         flush_id = await session.flush()
-        assert [c async for c in session.audio(flush_id)] == []
+        with pytest.raises(RuntimeError, match="Audio handler"):
+            await session.audio(flush_id).__anext__()
+        await asyncio.sleep(0.05)
 
     assert received == [b"Pushed."]
 

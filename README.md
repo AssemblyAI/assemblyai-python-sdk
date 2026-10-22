@@ -1016,7 +1016,9 @@ asyncio.run(main())
 <details>
   <summary>Stream text in and audio out over a WebSocket session (voice agents)</summary>
 
-`aai.TTSSession` keeps one connection open and speaks text as it is written, so an LLM's reply can be voiced sentence by sentence with no per-request handshake. `speak()` sends one text and yields its audio; `generate()` / `flush()` do the same in two steps, so tokens can be sent as they arrive; `cancel()` is the barge-in. Leaving the `with` block ends the session cleanly and `session.termination` holds the summary.
+`aai.TTSSession` keeps one connection open and speaks text as it is written, so an LLM's reply can be voiced sentence by sentence with no per-request handshake. `speak()` sends one text and yields its audio; `generate()` / `flush()` do the same in two steps, so tokens can be sent as they arrive; `cancel()` is the barge-in. Leaving the `with` block ends the session cleanly and `session.termination` holds the summary (`None` if the session failed instead).
+
+A session streams raw `pcm_s16le` (the default), `pcm_mulaw` or `pcm_alaw` at the config's `sample_rate`; `mp3`, `container` and `bit_rate` are HTTP-only and are refused. Chunk sizes vary and are not aligned to frames, so re-frame for a fixed-size sink (20 ms of 8 kHz mu-law is 160 bytes). `word_boundaries=True` and `inactivity_timeout=<seconds>` are arguments of the session, not of `TTSConfig`.
 
 ```python
 import assemblyai as aai
@@ -1028,7 +1030,7 @@ with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
         for chunk in session.speak(sentence):  # raw 24 kHz 16-bit mono PCM
             play(chunk)
 
-print(session.termination.audio_duration_seconds, "s spoken")
+print("spoken:", session.termination)  # the session's summary
 ```
 
 Streaming the text in as it is generated, with a barge-in:
@@ -1041,17 +1043,33 @@ with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
 
     for chunk in session.audio(request):
         if user_started_talking():
-            session.cancel()  # stops this request; the iteration ends
+            session.cancel()  # ends this iteration at once; the server drops the rest
+            break
         play(chunk)
 ```
 
-Requests can be pipelined: call `flush()` again before reading the previous request's audio, then read each `audio(flush_id)` in order. A `Generate` frame takes at most 2,000 characters; split longer text across calls. The session ends after an hour, or after `inactivity_timeout` seconds without a frame; send `keep_alive()` between sparse requests.
+Audio starts before `flush()` once whole sentences have arrived. To play it while the text is still being sent, read `session.audio()` with no id from another thread (or task): it follows the request being written, and ends at that request's `FlushDone`. Requests can be pipelined: call `flush()` again before reading the previous request's audio, then read each `audio(flush_id)` in order. Every `flush()` and every `cancel()` takes the next `flush_id`, so ids skip one after a cancel.
 
-Register handlers for the other frames with `session.on(event, handler)`, where `handler(event)` runs on the session's reader thread: `TTSEvents.FlushDone`, `TTSEvents.WordBoundaries` (word timings per request, with `word_boundaries=True`), `TTSEvents.Cancelled`, `TTSEvents.Termination`, `TTSEvents.Error`. An `Audio` handler receives the audio frames instead of the pull iterators. A refusal of the session raises `TTSError` from the `with`; a failure mid-session raises it from the audio iteration and reaches the `Error` handler.
+Limits: a `Generate` frame takes at most 2,000 characters (split longer text across calls), and the API accepts text at about 100 characters per second after an initial 1,500, holding at most 8,000 unspoken characters; sending far ahead of the speech ends the session with `input_rate_exceeded`, so pace text to the audio. The session ends after an hour, or after `inactivity_timeout` seconds (5 to 120, default 120) without a frame; send `keep_alive()` between sparse requests. `session.begin` holds the `Begin` frame with the session id and the server's configuration and limits.
 
-For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`).
+Register handlers for the other frames with `session.on(event, handler)`, where `handler(event)` runs on the session's reader thread: `TTSEvents.Begin`, `TTSEvents.FlushDone`, `TTSEvents.WordBoundaries`, `TTSEvents.Cancelled`, `TTSEvents.Termination` and `TTSEvents.Error` (each delivers the matching `TTS...Event`, or the `TTSError`). Registering a `TTSEvents.Audio` handler switches audio from the pull iterators to the handler; `speak()` and `audio()` then raise. Word timings (`word_boundaries=True`) arrive once per request after its `FlushDone`, usually after its `audio()` iteration has ended; their `start`/`end` count from the start of the session's audio, so subtract the event's `audio_start_ms` for a time within the request.
 
-The asyncio twin is `aai.AsyncTTSSession`: `async with`, coroutine `generate()`/`flush()`/`cancel()`, and `async for chunk in session.speak(text)`.
+A refusal of the session raises `TTSError` from the `with`; a failure mid-session raises it from the next `audio()` iteration or send, and reaches the `Error` handler. On a session `status_code` is `None` (there is no HTTP status) and `request_id` is the session id; `retryable=True` means a new session can succeed, such as after an `inactivity_timeout`.
+
+For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`, which answers `{"token": ..., "expires_in_seconds": 60}`).
+
+The asyncio twin is `aai.AsyncTTSSession`:
+
+```python
+async with aai.AsyncTTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    async for chunk in session.speak("Hello there."):
+        await play(chunk)
+    await session.generate("Streamed ")
+    await session.generate("in.")
+    request = await session.flush()
+    async for chunk in session.audio(request):
+        await play(chunk)
+```
 
 </details>
 
@@ -2144,7 +2162,7 @@ All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streami
 | `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
 | `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
-| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[Dict[str, Optional[str]]]]`, `body: Optional[dict]` |
+| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`) or a session is refused or fails (`aai.TTSSession`, where `status_code` is `None` and `request_id` is the session id). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[Dict[str, Optional[str]]]]`, `body: Optional[dict]` |
 | `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |

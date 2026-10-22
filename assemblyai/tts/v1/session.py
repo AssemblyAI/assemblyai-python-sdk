@@ -29,8 +29,16 @@ def websocket_connect(uri: str, **kwargs: Any) -> Any:
     """Opens a sync websocket; the streaming client's seam, imported lazily so
     `import assemblyai` does not load websockets. Tests patch this name."""
 
+    import inspect
+
+    from websockets.sync.client import connect as _ws_connect
+
     from ...streaming.v3.client import websocket_connect as _connect
 
+    # websockets 17 deprecates a bare connect() unless `legacy=True` (older
+    # releases have no such parameter).
+    if "legacy" in inspect.signature(_ws_connect).parameters:
+        kwargs["legacy"] = True
     return _connect(uri, **kwargs)
 
 
@@ -116,7 +124,8 @@ class TTSSession:
         self.begin: Optional[TTSBeginEvent] = None
         "The `Begin` frame, once connected."
         self.termination: Optional[TTSTerminationEvent] = None
-        "The `Termination` frame, once the session ended cleanly."
+        """The `Termination` summary once the session ended cleanly; `None`
+        before that, after a failure, or when the wait for it timed out."""
         self.error: Optional[TTSError] = None
         "The error that ended the session, if one did."
         self._reset()
@@ -141,7 +150,12 @@ class TTSSession:
     def on(self, event: Union[TTSEvents, str], handler: _Handler) -> None:
         """Registers `handler(event)` for a server frame type."""
 
-        self._handlers.setdefault(str(event), []).append(handler)
+        name = str(event)
+        if name not in TTSEvents.__members__:
+            raise ValueError(
+                f"unknown event {name!r}; one of {', '.join(TTSEvents.__members__)}"
+            )
+        self._handlers.setdefault(name, []).append(handler)
 
     def connect(self) -> TTSBeginEvent:
         """
@@ -264,12 +278,15 @@ class TTSSession:
         """
         Barge-in: stops the request in flight and drops queued requests.
 
-        The server answers `Cancelled`; audio already in transit may still
-        arrive before it. Text sent and not flushed is discarded. An
-        `audio()` iteration of a cancelled request ends.
+        An `audio()` iteration of a cancelled request ends at once; audio
+        of it still in transit is discarded. The server answers `Cancelled`.
+        Text sent and not flushed is discarded. Like `flush()`, a cancel
+        takes a `flush_id`, so the next request's id skips one.
         """
-        self._cancel_ids.append(self._next_flush_id)
+        cancel_id = self._next_flush_id
         self._next_flush_id += 1
+        self._cancel_ids.append(cancel_id)
+        self._cancelled_before = max(self._cancelled_before, cancel_id)
         self._send({"type": "Cancel"})
 
     def keep_alive(self) -> None:
@@ -290,16 +307,30 @@ class TTSSession:
         self.generate(text)
         return self.audio(self.flush())
 
-    def audio(self, flush_id: int) -> Iterator[bytes]:
+    def audio(self, flush_id: Optional[int] = None) -> Iterator[bytes]:
         """
         Yields the audio of request `flush_id` until its `FlushDone`.
 
-        Requests are served in order, so read them in order. Audio is queued
-        for pulling only while no `TTSEvents.Audio` handler is registered.
+        Without `flush_id`, the request being written now: a thread can read
+        it while `generate()` is still sending text, since audio starts
+        before `flush()`. Requests are served in order, so read them in
+        order. Audio is queued for pulling only while no `TTSEvents.Audio`
+        handler is registered.
 
         Raises:
             TTSError: if the session fails before the request completes.
+            ValueError: for a `flush_id` no `flush()` has returned.
+            RuntimeError: when an `Audio` handler receives the audio instead.
         """
+        if flush_id is None:
+            flush_id = self._next_flush_id  # the request being written now
+        elif flush_id > self._next_flush_id:
+            raise ValueError(f"flush_id {flush_id} has not been flushed yet")
+        if TTSEvents.Audio.value in self._handlers:
+            raise RuntimeError(
+                "audio goes to the registered Audio handler; pull with audio() "
+                "or speak() only without one"
+            )
         while True:
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
@@ -352,7 +383,9 @@ class TTSSession:
         if self._ws is None or self._stopped.is_set():
             if self.error is not None:
                 raise self.error
-            raise RuntimeError("the session is not open")
+            raise RuntimeError(
+                "the session is not open: use `with` / `async with`, or connect()"
+            )
         with self._send_lock:
             self._ws.send(json.dumps(frame))
 
@@ -390,6 +423,8 @@ class TTSSession:
         """Ends the session on an error: handlers, waiters, state."""
 
         if self.error is None:
+            if error.request_id is None and self.begin is not None:
+                error.request_id = self.begin.id
             self.error = error
             self._emit(TTSEvents.Error, error)
         self._put(("error", None, self.error))
@@ -430,7 +465,10 @@ class TTSSession:
         code = getattr(exc, "code", None)
         reason = getattr(exc, "reason", "") or ""
         if code != 1000 and self.error is None:
-            self.error = error_from_close(code, reason)
+            error = error_from_close(code, reason)
+            if self.begin is not None:
+                error.request_id = self.begin.id
+            self.error = error
             self._emit(TTSEvents.Error, self.error)
         self._stopped.set()
         self._begun.set()

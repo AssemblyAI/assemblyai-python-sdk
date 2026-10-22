@@ -50,12 +50,19 @@ class TTSEvents(str, Enum):
     """The server frames of a session, as `TTSSession.on()` names them."""
 
     Begin = "Begin"
+    "Handler receives a `TTSBeginEvent`."
     Audio = "Audio"
+    "Handler receives a `TTSAudioEvent`; registering one turns off pulling."
     FlushDone = "FlushDone"
+    "Handler receives a `TTSFlushDoneEvent`."
     WordBoundaries = "WordBoundaries"
+    "Handler receives a `TTSWordBoundariesEvent`, after the request's `FlushDone`."
     Cancelled = "Cancelled"
+    "Handler receives a `TTSCancelledEvent`."
     Termination = "Termination"
+    "Handler receives a `TTSTerminationEvent`."
     Error = "Error"
+    "Handler receives the `TTSError` that ended the session."
 
     def __str__(self):
         return self.value
@@ -95,14 +102,23 @@ class TTSFlushDoneEvent(BaseModel):
 
 class TTSWord(BaseModel):
     word: str
+    "One whitespace-delimited token of the request's text, verbatim."
     start: int
-    "Milliseconds on the session's audio timeline (not the request's)."
+    """Milliseconds on the session's whole audio timeline, not the request's:
+    subtract the event's `audio_start_ms` for a time within the request."""
     end: int
     confidence: float
 
 
 class TTSWordBoundariesEvent(BaseModel):
-    """Word timings of a request, best effort, after its `FlushDone`."""
+    """
+    Word timings of a request: best effort, at most one per request.
+
+    Arrives after the request's `FlushDone`, so usually after its `audio()`
+    iteration has ended, and possibly after the next request's first audio;
+    match it by `flush_id`. `start` and `end` count from the start of the
+    session's audio; `start - audio_start_ms` is the time within the request.
+    """
 
     flush_id: int
     audio_start_ms: int

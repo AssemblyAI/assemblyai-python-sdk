@@ -96,7 +96,12 @@ class AsyncTTSSession:
     def on(self, event: Union[TTSEvents, str], handler: _Handler) -> None:
         """Registers `handler(event)`, a function or coroutine function."""
 
-        self._handlers.setdefault(str(event), []).append(handler)
+        name = str(event)
+        if name not in TTSEvents.__members__:
+            raise ValueError(
+                f"unknown event {name!r}; one of {', '.join(TTSEvents.__members__)}"
+            )
+        self._handlers.setdefault(name, []).append(handler)
 
     async def connect(self) -> TTSBeginEvent:
         """Opens the socket and waits for `Begin`; see `TTSSession.connect`."""
@@ -214,8 +219,10 @@ class AsyncTTSSession:
     async def cancel(self) -> None:
         """Barge-in; see `TTSSession.cancel`."""
 
-        self._cancel_ids.append(self._next_flush_id)
+        cancel_id = self._next_flush_id
         self._next_flush_id += 1
+        self._cancel_ids.append(cancel_id)
+        self._cancelled_before = max(self._cancelled_before, cancel_id)
         await self._send({"type": "Cancel"})
 
     async def keep_alive(self) -> None:
@@ -229,11 +236,25 @@ class AsyncTTSSession:
         async for chunk in self.audio(flush_id):
             yield chunk
 
-    async def audio(self, flush_id: int) -> AsyncIterator[bytes]:
-        """Yields the audio of request `flush_id`; see `TTSSession.audio`."""
+    async def audio(self, flush_id: Optional[int] = None) -> AsyncIterator[bytes]:
+        """
+        Yields the audio of request `flush_id`; see `TTSSession.audio`.
+
+        Without `flush_id`, the request being written now, so a task can
+        play it while another still sends text.
+        """
 
         if self._queue is None:
             raise RuntimeError("the session is not open")
+        if flush_id is None:
+            flush_id = self._next_flush_id  # the request being written now
+        elif flush_id > self._next_flush_id:
+            raise ValueError(f"flush_id {flush_id} has not been flushed yet")
+        if TTSEvents.Audio.value in self._handlers:
+            raise RuntimeError(
+                "audio goes to the registered Audio handler; pull with audio() "
+                "or speak() only without one"
+            )
         while True:
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
@@ -284,6 +305,8 @@ class AsyncTTSSession:
 
     async def _fail(self, error: TTSError) -> None:
         if self.error is None:
+            if error.request_id is None and self.begin is not None:
+                error.request_id = self.begin.id
             self.error = error
             await self._emit(TTSEvents.Error, error)
         self._put(("error", None, self.error))
@@ -294,7 +317,9 @@ class AsyncTTSSession:
         if self._ws is None or self._stopped.is_set():
             if self.error is not None:
                 raise self.error
-            raise RuntimeError("the session is not open")
+            raise RuntimeError(
+                "the session is not open: use `with` / `async with`, or connect()"
+            )
         await self._ws.send(json.dumps(frame))
 
     async def _read_loop(self) -> None:
@@ -361,7 +386,10 @@ class AsyncTTSSession:
         code = getattr(exc, "code", None)
         reason = getattr(exc, "reason", "") or ""
         if code != 1000 and self.error is None:
-            self.error = error_from_close(code, reason)
+            error = error_from_close(code, reason)
+            if self.begin is not None:
+                error.request_id = self.begin.id
+            self.error = error
             await self._emit(TTSEvents.Error, self.error)
         self._stopped.set()
         self._begun.set()
