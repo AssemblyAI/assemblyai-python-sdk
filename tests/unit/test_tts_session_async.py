@@ -629,3 +629,56 @@ async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.setattr(aai.settings, "api_key", None)
     with pytest.raises(ValueError, match="api_key= or token="):
         aai.AsyncTTSSession()
+
+
+async def test_a_failure_nobody_read_is_raised_when_the_block_ends(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        async with aai.AsyncTTSSession() as session:
+            session.on(aai.TTSEvents.Audio, lambda e: None)
+            server.answer_flush = False
+            await session.generate("Never read.")
+            await session.flush()
+            server.push(
+                {
+                    "type": "Error",
+                    "error_code": 3010,
+                    "error": "Too fast",
+                    "error_type": "input_rate_exceeded",
+                    "retryable": False,
+                    "param": None,
+                    "retry_after_seconds": None,
+                }
+            )
+            await asyncio.wait_for(session._stopped.wait(), 2)
+    assert exc_info.value.error_code == "input_rate_exceeded"
+
+
+async def test_speak_splits_long_text_across_generate_frames(server):
+    async with aai.AsyncTTSSession() as session:
+        text = "a" * 2000 + "b" * 500
+        assert b"".join([c async for c in session.speak(text)]) == text.encode()
+    sent = [f["text"] for f in server.sent if f["type"] == "Generate"]
+    assert [len(t) for t in sent] == [2000, 500]
+
+
+async def test_a_stale_audio_iterator_ends_when_the_session_reconnects(mocker):
+    fakes = [_FakeAsyncServer(answer_flush=False), _FakeAsyncServer()]
+
+    async def connect(uri, additional_headers):
+        return fakes.pop(0)
+
+    mocker.patch(
+        "assemblyai.tts.v1.async_session.websocket_connect_async", side_effect=connect
+    )
+    session = aai.AsyncTTSSession()
+    await session.connect()
+    stale = session.audio(await session.flush())
+    fakes[0].push(ConnectionClosedError(Close(3006, "idle"), None))
+    await asyncio.wait_for(session._stopped.wait(), 2)
+    with pytest.raises(aai.TTSError):
+        await stale.__anext__()
+
+    await session.connect()
+    assert [c async for c in stale] == []
+    assert b"".join([c async for c in session.speak("NEW")]) == b"NEW"
+    await session.terminate()

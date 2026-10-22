@@ -142,10 +142,12 @@ def handshake_error(exc: BaseException) -> TTSError:
     if isinstance(status, int):
         retryable = status in _RETRYABLE_STATUSES
     else:
+        from websockets.exceptions import InvalidMessage  # a dropped handshake
+
         status = None
-        retryable = isinstance(exc, (OSError, asyncio.TimeoutError)) and not isinstance(
-            exc, ssl.CertificateError
-        )
+        retryable = isinstance(
+            exc, (OSError, asyncio.TimeoutError, InvalidMessage)
+        ) and not isinstance(exc, ssl.CertificateError)
     return TTSError(
         f"WebSocket handshake failed: {exc}", status_code=status, retryable=retryable
     )

@@ -113,6 +113,8 @@ class TTSSession:
                 session begins, so such a session connects once: to
                 reconnect, mint a new token and build a new session.
             word_boundaries: Whether the server sends `WordBoundaries` frames.
+                Off by default here (the API's own default is on); pass
+                `True` to receive them.
             inactivity_timeout: Seconds (5 to 120) with no frame either way
                 after which the API closes the session; `None` keeps the
                 API's 120 s.
@@ -165,6 +167,7 @@ class TTSSession:
         self.begin = None
         self.termination = None
         self.error = None
+        self._error_raised = False
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -220,6 +223,7 @@ class TTSSession:
                 uri, additional_headers=headers, open_timeout=self._connect_timeout
             )
         except Exception as exc:  # the handshake failed
+            self.close()  # ends any audio() waiting on the fresh state
             raise handshake_error(exc) from exc
 
         self._reader = threading.Thread(
@@ -232,7 +236,7 @@ class TTSSession:
             raise TTSError("The session did not begin in time")
         if self.error is not None:
             self.close()
-            raise self.error
+            raise self._surfaced()
         if self.begin is None:
             self.close()
             raise TTSError("The session closed before it began")
@@ -280,10 +284,14 @@ class TTSSession:
         return self
 
     def __exit__(self, exc_type: Any, *exc: object) -> None:
-        if exc_type is None:
-            self.terminate()
-        else:
+        if exc_type is not None:
             self.close()
+            return
+        self.terminate()
+        # A failure nothing in the block observed (push mode, or text sent
+        # and never read) must not pass silently.
+        if self.error is not None and not self._error_raised:
+            raise self._surfaced()
 
     # -- sending ---------------------------------------------------------------
 
@@ -344,15 +352,21 @@ class TTSSession:
         """
         Speaks one text: `generate()`, `flush()`, then its audio.
 
-        Returns an iterator of the request's audio bytes that ends at its
-        `FlushDone`, or early if the request is cancelled.
+        Text longer than one `Generate` frame is split across frames; very
+        long text (several thousand characters) should be paced instead, as
+        the API limits unspoken text. Returns an iterator of the request's
+        audio bytes that ends at its `FlushDone`, or early if the request
+        is cancelled.
 
         Raises:
             TTSError: from the iteration, if the session fails.
             RuntimeError: from a session handler.
         """
         self._check_not_in_handler("speak()")
-        self.generate(text)
+        check_text_frame(text, 0)
+        limit = max_generate_chars(self.begin) or max(len(text), 1)
+        for start in range(0, len(text), limit):
+            self.generate(text[start : start + limit])
         return self.audio(self.flush())
 
     def audio(self, flush_id: Optional[int] = None) -> Iterator[bytes]:
@@ -383,14 +397,17 @@ class TTSSession:
                 "audio goes to the registered Audio handler; pull with audio() "
                 "or speak() only without one"
             )
+        connection = self._queue  # this connection's; a reconnect makes a new one
         while True:
+            if self._queue is not connection:
+                return
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
             item = self._get(timeout=0.5)
             if item is None:
                 if self._stopped.is_set():
                     if self.error is not None:
-                        raise self.error
+                        raise self._surfaced()
                     return
                 continue
             kind, ident, payload = item
@@ -404,13 +421,21 @@ class TTSSession:
                 if ident > flush_id:  # a Cancel sent after this request
                     return
             elif kind == "error":
-                raise payload
+                raise self._surfaced()
             elif kind == "closed":
                 if self.error is not None:
-                    raise self.error
+                    raise self._surfaced()
                 return
 
     # -- internals ---------------------------------------------------------------
+
+    def _surfaced(self) -> TTSError:
+        """The session's error, marked as raised to the caller."""
+
+        if self.error is None:
+            raise RuntimeError("the session has no error")
+        self._error_raised = True
+        return self.error
 
     def _check_not_in_handler(self, method: str) -> None:
         """Refuses a method that waits on the reader when the reader, running
@@ -452,14 +477,17 @@ class TTSSession:
             ws = self._ws
             if ws is None or self._stopped.is_set():
                 if self.error is not None:
-                    raise self.error
+                    raise self._surfaced()
                 raise RuntimeError(
                     "the session is not open: use `with` / `async with`, or connect()"
                 )
             try:
                 ws.send(json.dumps(frame))
+                return
             except ConnectionClosed as exc:
-                raise self._closed_error(ws, exc) from exc
+                closed = exc
+        # Outside the lock: a handler that sends must not block the reader.
+        raise self._closed_error(ws, closed) from closed
 
     def _closed_error(self, ws: Any, exc: Exception) -> Exception:
         """

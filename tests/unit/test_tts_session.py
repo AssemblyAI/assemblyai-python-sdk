@@ -853,3 +853,145 @@ def test_an_exception_inside_with_closes_without_terminate(server):
 def test_wrong_config_type_is_a_type_error():
     with pytest.raises(TypeError):
         aai.TTSSession(config=aai.DictationConfig())  # type: ignore[arg-type]
+
+
+def test_a_failure_nobody_read_is_raised_when_the_block_ends(server):
+    # push mode: an Audio handler, text flushed, then the API fails
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.Audio, lambda e: None)
+            server.answer_flush = False
+            session.generate("Never read.")
+            session.flush()
+            server.push(
+                {
+                    "type": "Error",
+                    "error_code": 3010,
+                    "error": "Too fast",
+                    "error_type": "input_rate_exceeded",
+                    "retryable": False,
+                    "param": None,
+                    "retry_after_seconds": None,
+                }
+            )
+            session._stopped.wait(2)
+    assert exc_info.value.error_code == "input_rate_exceeded"
+
+
+def test_an_error_the_block_already_saw_is_not_raised_twice(server):
+    seen = []
+    with aai.TTSSession() as session:
+        server.answer_flush = False
+        flush_id = session.flush()
+        server.push(
+            {
+                "type": "Error",
+                "error_code": 3005,
+                "error": "No room",
+                "error_type": "at_capacity",
+                "retryable": True,
+                "param": None,
+                "retry_after_seconds": 2,
+            }
+        )
+        try:
+            list(session.audio(flush_id))
+        except aai.TTSError as err:
+            seen.append(err)
+    assert len(seen) == 1  # the with block exited quietly
+
+
+def test_speak_splits_long_text_across_generate_frames(server):
+    with aai.TTSSession() as session:
+        text = "a" * 2000 + "b" * 2000 + "c" * 1000
+        assert b"".join(session.speak(text)) == text.encode()
+    sent = [f["text"] for f in server.sent if f["type"] == "Generate"]
+    assert [len(t) for t in sent] == [2000, 2000, 1000]
+
+
+def test_a_stale_audio_iterator_ends_when_the_session_reconnects(mocker):
+    fakes = [_FakeServer(answer_flush=False), _FakeServer()]
+    mocker.patch("assemblyai.tts.v1.session.websocket_connect", side_effect=fakes)
+    session = aai.TTSSession()
+    session.connect()
+    stale = session.audio(session.flush())  # a player still holding request 0
+    fakes[0].push(ConnectionClosedError(Close(3006, "idle"), None))
+    session._stopped.wait(2)
+    with pytest.raises(aai.TTSError):
+        next(stale)  # the old connection's failure, raised once
+
+    session.connect()  # same object, new connection, ids start again at 0
+    assert list(stale) == []  # the old iterator does not read the new queue
+    assert b"".join(session.speak("NEW")) == b"NEW"
+    session.terminate()
+
+
+def test_a_failed_reconnect_does_not_leave_audio_waiting(mocker):
+    import time
+
+    first = _FakeServer()
+    mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect",
+        side_effect=[first, OSError("refused")],
+    )
+    session = aai.TTSSession()
+    with session:
+        pass
+    with pytest.raises(aai.TTSError) as exc_info:
+        session.connect()
+    assert exc_info.value.retryable is True
+    started = time.monotonic()
+    assert list(session.audio(0)) == []  # ends at once instead of polling forever
+    assert time.monotonic() - started < 2
+
+
+def test_a_dropped_handshake_is_retryable():
+    from websockets.exceptions import InvalidMessage
+
+    from assemblyai.tts._base_ws import handshake_error
+
+    assert handshake_error(
+        InvalidMessage("did not receive a valid HTTP response")
+    ).retryable
+    assert handshake_error(ConnectionRefusedError()).retryable
+    assert not handshake_error(ValueError("bad uri")).retryable
+
+
+def test_a_send_that_meets_a_close_does_not_hold_the_lock_while_waiting(server):
+    import time
+
+    server.answer_flush = False
+    blocked_for = {}
+
+    def on_flush_done(event):
+        t0 = time.monotonic()
+        try:
+            session.keep_alive()
+        except Exception:
+            pass
+        blocked_for["s"] = time.monotonic() - t0
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.FlushDone, on_flush_done)
+            session.flush()
+            # the API closes with an Error frame; the main thread's send races it
+            server.inbox.put(
+                json.dumps({"type": "FlushDone", "flush_id": 0, "audio_duration_ms": 1})
+            )
+            server.push(
+                {
+                    "type": "Error",
+                    "error_code": 3010,
+                    "error": "Too fast",
+                    "error_type": "input_rate_exceeded",
+                    "retryable": False,
+                    "param": None,
+                    "retry_after_seconds": None,
+                }
+            )
+            server.push(ConnectionClosedError(Close(3010, ""), None))
+            session._stopped.wait(2)
+            session.generate("late")
+    assert exc_info.value.error_code == "input_rate_exceeded"
+    assert blocked_for.get("s", 0) < 0.5

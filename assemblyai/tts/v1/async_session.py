@@ -144,6 +144,7 @@ class AsyncTTSSession:
         self.begin = None
         self.termination = None
         self.error = None
+        self._error_raised = False
 
         uri, headers = build_uri(
             self._settings.tts_base_url,
@@ -158,6 +159,7 @@ class AsyncTTSSession:
                 websocket_connect_async(uri, headers), timeout=self._connect_timeout
             )
         except Exception as exc:  # the handshake failed
+            await self.close()  # ends any audio() waiting on the fresh state
             raise handshake_error(exc) from exc
 
         self._reader = asyncio.create_task(self._read_loop())
@@ -171,7 +173,7 @@ class AsyncTTSSession:
             raise
         if self.error is not None:
             await self.close()
-            raise self.error
+            raise self._surfaced()
         if self.begin is None:
             await self.close()
             raise TTSError("The session closed before it began")
@@ -230,10 +232,12 @@ class AsyncTTSSession:
         return self
 
     async def __aexit__(self, exc_type: Any, *exc: object) -> None:
-        if exc_type is None:
-            await self.terminate()
-        else:
+        if exc_type is not None:
             await self.close()
+            return
+        await self.terminate()
+        if self.error is not None and not self._error_raised:
+            raise self._surfaced()
 
     async def generate(self, text: str) -> None:
         """Appends `text` to the current request; see `TTSSession.generate`."""
@@ -262,10 +266,18 @@ class AsyncTTSSession:
         await self._send({"type": "KeepAlive"})
 
     async def speak(self, text: str) -> AsyncIterator[bytes]:
-        """Speaks one text and yields its audio; see `TTSSession.speak`."""
+        """
+        Speaks one text and yields its audio; see `TTSSession.speak`.
+
+        Unlike `TTSSession.speak()`, nothing is sent until iteration starts,
+        so pipeline requests with `generate()`, `flush()` and `audio()`.
+        """
 
         self._check_not_in_handler("speak()")
-        await self.generate(text)
+        check_text_frame(text, 0)
+        limit = max_generate_chars(self.begin) or max(len(text), 1)
+        for start in range(0, len(text), limit):
+            await self.generate(text[start : start + limit])
         flush_id = await self.flush()
         async for chunk in self.audio(flush_id):
             yield chunk
@@ -290,14 +302,17 @@ class AsyncTTSSession:
                 "audio goes to the registered Audio handler; pull with audio() "
                 "or speak() only without one"
             )
+        connection = self._queue  # this connection's; a reconnect makes a new one
         while True:
+            if self._queue is not connection:
+                return
             if flush_id < self._cancelled_before:  # dropped by a Cancel
                 return
             item = await self._get(timeout=0.5)
             if item is None:
                 if self._stopped.is_set():
                     if self.error is not None:
-                        raise self.error
+                        raise self._surfaced()
                     return
                 continue
             kind, ident, payload = item
@@ -311,11 +326,19 @@ class AsyncTTSSession:
                 if ident > flush_id:
                     return
             elif kind == "error":
-                raise payload
+                raise self._surfaced()
             elif kind == "closed":
                 if self.error is not None:
-                    raise self.error
+                    raise self._surfaced()
                 return
+
+    def _surfaced(self) -> TTSError:
+        """The session's error, marked as raised to the caller."""
+
+        if self.error is None:
+            raise RuntimeError("the session has no error")
+        self._error_raised = True
+        return self.error
 
     def _check_not_in_handler(self, method: str) -> None:
         """Refuses a method that waits on the reader when the reader, running
@@ -371,7 +394,7 @@ class AsyncTTSSession:
         ws = self._ws
         if ws is None or self._stopped.is_set():
             if self.error is not None:
-                raise self.error
+                raise self._surfaced()
             raise RuntimeError(
                 "the session is not open: use `with` / `async with`, or connect()"
             )
@@ -458,7 +481,6 @@ class AsyncTTSSession:
             self._put(("done", event.flush_id, None))
         elif kind == "Cancelled":
             cancel_id = self._cancel_ids.pop(0) if self._cancel_ids else -1
-            self._cancelled_before = max(self._cancelled_before, cancel_id)
             self._put(("cancelled", cancel_id, None))
         elif kind == "Termination":
             self.termination = event

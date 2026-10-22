@@ -1018,7 +1018,7 @@ asyncio.run(main())
 
 `aai.TTSSession` keeps one connection open and speaks text as it is written, so an LLM's reply can be voiced sentence by sentence with no per-request handshake. `speak()` sends one text and yields its audio; `generate()` / `flush()` do the same in two steps, so tokens can be sent as they arrive; `cancel()` is the barge-in. Leaving the `with` block ends the session cleanly and `session.termination` holds the summary (`None` if the session failed instead).
 
-A session streams raw `pcm_s16le` (the default), `pcm_mulaw` or `pcm_alaw` at the config's `sample_rate`; `mp3`, a `wav` container and `bit_rate` are HTTP-only and are refused. Chunk sizes vary and are not aligned to frames, so re-frame for a fixed-size sink (20 ms of 8 kHz mu-law is 160 bytes). `word_boundaries=True` and `inactivity_timeout=<seconds>` are arguments of the session, not of `TTSConfig`.
+A session streams raw `pcm_s16le` (the default), `pcm_mulaw` or `pcm_alaw` at the config's `sample_rate`; `mp3`, a `wav` container and `bit_rate` are HTTP-only and are refused. Chunk sizes vary and are not aligned to frames, so re-frame for a fixed-size sink (20 ms of 8 kHz mu-law is 160 bytes). `word_boundaries=True` and `inactivity_timeout=<seconds>` are arguments of the session, not of `TTSConfig`; word boundaries are off unless asked for. A session that fails raises `TTSError` wherever the app meets it first: the `audio()` iteration, the next send, or, for an app that pushes audio to a handler and never reads, the end of the `with` block.
 
 ```python
 import assemblyai as aai
