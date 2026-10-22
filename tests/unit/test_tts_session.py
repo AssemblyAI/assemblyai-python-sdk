@@ -333,6 +333,11 @@ def test_sending_before_connect_says_how_to_open(server):
         aai.TTSSession().generate("Hi.")
 
 
+def test_audio_before_connect_says_the_session_is_not_open(server):
+    with pytest.raises(RuntimeError, match="not open"):
+        _drain(aai.TTSSession().audio())
+
+
 def test_http_only_options_are_refused_on_a_session(server):
     with pytest.raises(ValueError, match="container and bit_rate"):
         with aai.TTSSession(config=aai.TTSConfig(container="wav")):

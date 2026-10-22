@@ -365,9 +365,11 @@ class TTSSession:
             TTSError: if the session fails before the request completes.
             ValueError: for a `flush_id` no `flush()` has returned.
             RuntimeError: when an `Audio` handler receives the audio instead,
-                or from a session handler.
+                before the session first connects, or from a session handler.
         """
         self._check_not_in_handler("audio()")
+        if self._reader is None:
+            raise RuntimeError("the session is not open")
         if flush_id is None:
             flush_id = self._next_flush_id  # the request being written now
         elif flush_id > self._next_flush_id:

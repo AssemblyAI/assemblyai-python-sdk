@@ -596,6 +596,11 @@ async def test_a_begin_without_configuration_opens_the_session(mocker, configura
         assert b"".join(await _drain(session.speak("Hi."))) == b"Hi."
 
 
+async def test_audio_before_connect_says_the_session_is_not_open(server):
+    with pytest.raises(RuntimeError, match="not open"):
+        await _drain(aai.AsyncTTSSession().audio())
+
+
 async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)
