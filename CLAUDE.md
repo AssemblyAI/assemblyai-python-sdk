@@ -54,9 +54,11 @@ aai.settings.api_key = "your-key"
 - `aai.DictationResponse` — Dictation result: `.text`, `.words` (`DictationWord` with `text` + `confidence`), `.confidence`, `.llm_response`, `.llm_error`, `.audio_duration_ms`, `.session_id`, `.request_time_ms`, `.sync_time_ms`, and `.final_text` (the LLM rewrite, falling back to `.text`)
 - `aai.TextToSpeech` — Text-to-Speech HTTP API: one text per request, audio out. Methods: `synthesize()` (complete audio as a `TTSResponse`), `stream()` (a `TTSStream` context manager yielding bytes as the API generates them), `close()` / `with` for a client built from `api_key=`. Host from `aai.settings.tts_base_url` (`https://tts.us.assemblyai.com`; set `https://tts.eu.assemblyai.com` for the EU zone)
 - `aai.AsyncTextToSpeech` — Asyncio counterpart of `TextToSpeech`; `synthesize()` is a coroutine and `stream()` returns an `AsyncTTSStream`. Owns an HTTP pool: use `async with` or `await aclose()`
+- `aai.TTSSession` — Text-to-Speech WebSocket session: one connection, text in as it is written, audio out. `with` connects and waits for `Begin` (`session.begin`); `speak(text)` yields one request's audio; `generate(text)` / `flush()` -> flush_id / `audio(flush_id)` for streamed-in text and pipelining (`audio()` with no id follows the request being written, from another thread); `cancel()` for barge-in (ends the iteration at once); `keep_alive()`; `on(TTSEvents.X, handler(event))` for `Begin`, `Audio` (switches audio from pull to push), `FlushDone`, `WordBoundaries`, `Cancelled`, `Termination`, `Error`. Exit sends `Terminate` and sets `session.termination` (`None` after a failure). Refusals and failures raise `TTSError` (`status_code` None, `request_id` = session id). Raw PCM/G.711 only; 2,000 chars per generate unless `Begin` reports another `limits.max_generate_text_length`; ~100 chars/s sustained. `token=` for temporary tokens
+- `aai.AsyncTTSSession` — Asyncio counterpart: `async with`, coroutine sends, `async for chunk in session.speak(text)`
 - `aai.TTSConfig` — Text-to-Speech options: `voice_id` (a library voice such as `aai-jane`, or a cloned voice by UUID or slug), `model_id` (`assemblyai-tts-1`), `language`, `sample_rate`, `encoding` (`aai.TTSEncoding`: `pcm_s16le` default | `pcm_mulaw` | `pcm_alaw` | `mp3`), `container` (`aai.TTSContainer`: `raw` default | `wav`), `bit_rate`, `extend_biometric_consent` (owner-only consent renewal of a cloned voice). Rejects unknown fields
 - `aai.TTSResponse` — Text-to-Speech result: `.audio` (bytes) plus the response headers: `.request_id`, `.region`, `.model`, `.voice_id`, `.language`, `.encoding`, `.sample_rate`, `.container`, `.bit_rate`, `.content_type`, `.voice_expires_at`, `.billed_characters`, `.audio_duration_ms`. `TTSStream.info` carries the same fields without `audio`; `audio_duration_ms` is `None` on a stream with audio (`0` when the text had nothing to speak)
-- `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code; `biometric_terms_not_accepted` 403 until the account accepts the biometric data terms in the dashboard, `auth_unavailable` 503 retryable), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`, `.body` (the whole envelope)
+- `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code; `biometric_terms_not_accepted` 403 until the account accepts the biometric data terms in the dashboard, `auth_unavailable` 503 retryable; on a session these arrive as close 3006 and 1011, with `status_code` None, the close code in `.body["close_code"]` and `.retryable` from the API's Error frame), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`, `.body` (the whole envelope)
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
 - `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `understanding.create()`/`.validate()`
@@ -479,6 +481,13 @@ with tts.stream("Hello.", telephony) as speech:
 
 # A cloned or library voice by id
 tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-alba"))
+
+# A WebSocket session for a voice agent: no handshake per sentence, barge-in with cancel()
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for sentence in llm_reply_sentences():
+        for chunk in session.speak(sentence):
+            play(chunk)
+# session.termination is the summary (None if the session failed); raw PCM/G.711 only, no mp3, wav or bit_rate
 ```
 
 ## LLM Gateway

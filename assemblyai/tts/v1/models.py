@@ -50,10 +50,17 @@ class TTSError(AssemblyAIError):
     body over its limit adds `limit`).
 
     `biometric_terms_not_accepted` (`403`, not retryable) refuses one of the
-    account's own cloned voices, or `extend_biometric_consent`, until the
-    account accepts the biometric data terms in the AssemblyAI dashboard.
-    `auth_unavailable` (`503`, retryable) means the credential, or those
-    terms, could not be checked just now.
+    account's own cloned voices, an inline voice clip or
+    `extend_biometric_consent`, until the account accepts the biometric data
+    terms in the AssemblyAI dashboard. `auth_unavailable` (`503`, retryable)
+    means the credential, or those terms, could not be checked just now.
+
+    On a WebSocket session (`TTSSession`) there is no HTTP status:
+    `status_code` is `None`, `request_id` is the session id, `retryable` is
+    the API's (from its `Error` frame, else from the close code), and
+    `body["close_code"]` is the WebSocket close code. There
+    `biometric_terms_not_accepted` arrives as close `3006` and
+    `auth_unavailable` as close `1011`.
 
     A streamed response cut after its first audio raises a `TTSError` with
     `status_code` `200`, no `error_code`, `retryable` `True` and the
