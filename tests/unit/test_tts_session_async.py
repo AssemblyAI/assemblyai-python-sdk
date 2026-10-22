@@ -3,7 +3,7 @@
 import asyncio
 import base64
 import json
-from typing import Any, List, Optional
+from typing import Any, AsyncIterable, List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -83,6 +83,15 @@ class _FakeAsyncServer:
         self.push(ConnectionClosedOK(Close(1000, ""), None))
 
 
+async def _drain(items: AsyncIterable[Any], timeout: float = 5.0) -> List[Any]:
+    """Collects `items`, failing the test if it does not end in time."""
+
+    async def collect() -> List[Any]:
+        return [item async for item in items]
+
+    return await asyncio.wait_for(collect(), timeout)
+
+
 @pytest_asyncio.fixture
 async def server(mocker):
     # Built inside the running loop: on Python 3.9 an asyncio.Queue binds to
@@ -106,7 +115,7 @@ async def test_async_with_connects_speaks_and_terminates(server):
         config=aai.TTSConfig(voice_id="aai-alba")
     ) as session:
         assert session.begin is not None and session.begin.id == "sess-1"
-        chunks = [chunk async for chunk in session.speak("Hello there.")]
+        chunks = await _drain(session.speak("Hello there."))
 
     assert b"".join(chunks) == b"Hello there."
     assert parse_qs(urlsplit(server.connect.uri).query)["voice_id"] == ["aai-alba"]
@@ -121,13 +130,13 @@ async def test_pipelined_requests_and_cancel(server):
         await session.generate("One. ")
         first = await session.flush()
         second = await session.flush()
-        assert b"".join([c async for c in session.audio(first)]) == b"One. "
-        assert b"".join([c async for c in session.audio(second)]) == b""
+        assert b"".join(await _drain(session.audio(first))) == b"One. "
+        assert b"".join(await _drain(session.audio(second))) == b""
 
         server.answer_flush = False
         third = await session.flush()
         await session.cancel()
-        assert [c async for c in session.audio(third)] == []
+        assert await _drain(session.audio(third)) == []
 
 
 async def test_an_error_before_begin_raises_from_async_with(mocker):
@@ -182,7 +191,7 @@ async def test_a_lost_connection_raises_a_retryable_error(server):
             server.answer_flush = False
             flush_id = await session.flush()
             server.push(ConnectionClosedError(None, None))  # abnormal: no close frame
-            [c async for c in session.audio(flush_id)]
+            await _drain(session.audio(flush_id))
     assert exc_info.value.retryable is True
     assert exc_info.value.body["close_code"] == 1006
 
@@ -193,8 +202,8 @@ async def test_a_cancel_drops_every_pipelined_request(server):
         first = await session.flush()
         second = await session.flush()
         await session.cancel()
-        assert [c async for c in session.audio(first)] == []
-        assert [c async for c in session.audio(second)] == []
+        assert await _drain(session.audio(first)) == []
+        assert await _drain(session.audio(second)) == []
 
 
 async def test_a_session_object_can_be_reused(mocker):
@@ -208,9 +217,9 @@ async def test_a_session_object_can_be_reused(mocker):
     )
     session = aai.AsyncTTSSession()
     async with session:
-        assert b"".join([c async for c in session.speak("One.")]) == b"One."
+        assert b"".join(await _drain(session.speak("One."))) == b"One."
     async with session:
-        assert b"".join([c async for c in session.speak("Two.")]) == b"Two."
+        assert b"".join(await _drain(session.speak("Two."))) == b"Two."
 
 
 async def test_missing_key_is_a_clear_error(monkeypatch):

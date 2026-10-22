@@ -8,8 +8,9 @@ bytes as one `Audio` frame and a `FlushDone`, `Cancel` with `Cancelled`, and
 import base64
 import json
 import queue
+import threading
 import time
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -106,6 +107,28 @@ def server(mocker):
     return fake
 
 
+def _drain(items: Iterable[Any], timeout: float = 5.0) -> List[Any]:
+    """Collects `items` on a thread, failing the test if it does not end."""
+
+    got: List[Any] = []
+    raised: List[BaseException] = []
+
+    def collect() -> None:
+        try:
+            got.extend(items)
+        except BaseException as exc:
+            raised.append(exc)
+
+    thread = threading.Thread(target=collect, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        pytest.fail(f"the iteration did not end within {timeout} s")
+    if raised:
+        raise raised[0]
+    return got
+
+
 def _frames(server: _FakeServer, kind: str) -> List[dict]:
     return [f for f in server.sent if f["type"] == kind]
 
@@ -138,7 +161,7 @@ def test_with_connects_waits_for_begin_and_terminates_on_exit(server):
 
 def test_speak_sends_generate_and_flush_and_yields_the_audio(server):
     with aai.TTSSession() as session:
-        chunks = list(session.speak("Hello there."))
+        chunks = _drain(session.speak("Hello there."))
 
     assert b"".join(chunks) == b"Hello there."
     assert server.sent[:2] == [
@@ -154,8 +177,8 @@ def test_requests_are_pipelined_and_read_in_flush_id_order(server):
         session.generate("Two.")
         second = session.flush()
         assert (first, second) == (0, 1)
-        assert b"".join(session.audio(first)) == b"One. "
-        assert b"".join(session.audio(second)) == b"Two."
+        assert b"".join(_drain(session.audio(first))) == b"One. "
+        assert b"".join(_drain(session.audio(second))) == b"Two."
 
 
 def test_cancel_ends_the_current_request_but_not_a_later_one(server):
@@ -165,11 +188,11 @@ def test_cancel_ends_the_current_request_but_not_a_later_one(server):
         flush_id = session.flush()
         stream = session.audio(flush_id)
         session.cancel()  # barge-in
-        assert list(stream) == []
+        assert _drain(stream) == []
         assert session._next_flush_id == 2
 
         server.answer_flush = True
-        assert b"".join(session.speak("Next.")) == b"Next."
+        assert b"".join(_drain(session.speak("Next."))) == b"Next."
     assert [f["type"] for f in server.sent] == [
         "Generate",
         "Flush",
@@ -190,7 +213,7 @@ def test_cancel_ends_the_iteration_before_the_server_answers(server):
         session.cancel()
         # in-transit audio of the cancelled request is discarded, not yielded
         server.push({"type": "Audio", "audio": "AA==", "flush_id": 0})
-        assert list(stream) == []
+        assert _drain(stream) == []
 
 
 def test_audio_for_an_unflushed_id_raises(server):
@@ -200,8 +223,6 @@ def test_audio_for_an_unflushed_id_raises(server):
 
 
 def test_audio_without_an_id_follows_the_request_being_written(server):
-    import threading
-
     with aai.TTSSession() as session:
         got = []
         reader = threading.Thread(target=lambda: got.extend(session.audio()))
@@ -234,7 +255,7 @@ def test_http_only_options_are_refused_on_a_session(server):
 def test_a_cancel_before_a_request_does_not_end_it(server):
     with aai.TTSSession() as session:
         session.cancel()  # nothing in flight; Cancelled arrives later
-        assert b"".join(session.speak("Hi.")) == b"Hi."
+        assert b"".join(_drain(session.speak("Hi."))) == b"Hi."
 
 
 def test_an_error_before_begin_raises_from_with(mocker):
@@ -284,7 +305,7 @@ def test_an_error_mid_session_raises_from_the_audio_and_reaches_the_handler(serv
                     "retry_after_seconds": 2,
                 }
             )
-            list(session.audio(flush_id))
+            _drain(session.audio(flush_id))
 
     assert exc_info.value.error_code == "at_capacity"
     assert exc_info.value.retry_after == 2
@@ -301,7 +322,7 @@ def test_a_lost_connection_is_a_retryable_error(server):
             server.answer_flush = False
             flush_id = session.flush()
             server.push(ConnectionClosedError(None, None))  # abnormal: no close frame
-            list(session.audio(flush_id))
+            _drain(session.audio(flush_id))
 
     assert exc_info.value.retryable is True
     assert exc_info.value.body == {"close_code": 1006, "reason": ""}
@@ -323,8 +344,8 @@ def test_a_cancel_drops_every_pipelined_request(server):
         first = session.flush()
         second = session.flush()
         session.cancel()
-        assert list(session.audio(first)) == []
-        assert list(session.audio(second)) == []  # also dropped, must not hang
+        assert _drain(session.audio(first)) == []
+        assert _drain(session.audio(second)) == []  # also dropped, must not hang
 
 
 def test_an_unreadable_frame_ends_the_session_with_an_error(server):
@@ -333,7 +354,7 @@ def test_an_unreadable_frame_ends_the_session_with_an_error(server):
             server.answer_flush = False
             flush_id = session.flush()
             server.push({"type": "Audio", "flush_id": "zero"})  # no audio, wrong type
-            list(session.audio(flush_id))
+            _drain(session.audio(flush_id))
 
 
 def test_a_session_object_can_be_reused(mocker):
@@ -341,9 +362,9 @@ def test_a_session_object_can_be_reused(mocker):
     mocker.patch("assemblyai.tts.v1.session.websocket_connect", side_effect=fakes)
     session = aai.TTSSession()
     with session:
-        assert b"".join(session.speak("One.")) == b"One."
+        assert b"".join(_drain(session.speak("One."))) == b"One."
     with session:
-        assert b"".join(session.speak("Two.")) == b"Two."
+        assert b"".join(_drain(session.speak("Two."))) == b"Two."
     assert [f["type"] for f in fakes[1].sent] == ["Generate", "Flush", "Terminate"]
 
 
@@ -360,7 +381,7 @@ def test_unread_audio_is_bounded_and_dropped_oldest_first(server, caplog):
         assert session._queue.full()
         session.generate("y")
         flush_id = session.flush()
-        assert b"".join(session.audio(flush_id)) == b"y"  # still served after the flood
+        assert b"".join(_drain(session.audio(flush_id))) == b"y"  # still served after the flood
     assert session._queue.maxsize == PULL_QUEUE_FRAMES
     assert "dropping audio" in caplog.text
 
@@ -374,7 +395,7 @@ def test_an_audio_handler_receives_the_frames_instead_of_the_queue(server):
         session.generate("Pushed.")
         flush_id = session.flush()
         with pytest.raises(RuntimeError, match="Audio handler"):
-            list(session.audio(flush_id))
+            _drain(session.audio(flush_id))
         session._stopped.wait(0.2)  # let the frames land
 
     assert [e.audio for e in received] == [b"Pushed."]
@@ -388,7 +409,7 @@ def test_word_boundaries_and_cancelled_reach_their_handlers(server):
     with aai.TTSSession(word_boundaries=True) as session:
         session.on(aai.TTSEvents.WordBoundaries, words.append)
         session.on(aai.TTSEvents.Cancelled, cancelled.append)
-        list(session.speak("Hello there."))
+        _drain(session.speak("Hello there."))
         server.push(
             {
                 "type": "WordBoundaries",
@@ -401,7 +422,7 @@ def test_word_boundaries_and_cancelled_reach_their_handlers(server):
         )
         session.cancel()
         session.keep_alive()
-        list(session.speak("Again."))
+        _drain(session.speak("Again."))
 
     assert parse_qs(urlsplit(server.connect.call_args.args[0]).query)[
         "word_boundaries"
