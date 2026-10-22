@@ -370,6 +370,7 @@ def test_an_error_before_begin_raises_from_with(mocker):
     assert err.param == "voice_id"
     assert err.retryable is False
     assert err.body["error_code"] == 3012
+    assert err.body["close_code"] == 3012  # the key a bare close uses too
     assert err.request_id is None  # no Begin, so no session id yet
     assert fake.closed
 

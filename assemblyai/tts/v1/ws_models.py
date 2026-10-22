@@ -169,16 +169,22 @@ def parse_event(data: Dict[str, Any]) -> Any:
 
 
 def error_from_frame(data: Dict[str, Any]) -> TTSError:
-    """The `TTSError` for an `Error` frame; `body` keeps the frame."""
+    """
+    The `TTSError` for an `Error` frame. `body` keeps the frame, plus
+    `close_code`: the code of the close that follows it (the frame's
+    `error_code`), under the same key as for a close without a frame.
+    """
 
     retry_after = data.get("retry_after_seconds")
+    body = dict(data)
+    body.setdefault("close_code", data.get("error_code"))
     return TTSError(
         data.get("error") or "text-to-speech session failed",
         error_code=data.get("error_type"),
         param=data.get("param"),
         retryable=data.get("retryable"),
         retry_after=int(retry_after) if isinstance(retry_after, (int, float)) else None,
-        body=data,
+        body=body,
     )
 
 

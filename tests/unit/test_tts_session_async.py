@@ -231,6 +231,7 @@ async def test_an_error_before_begin_raises_from_async_with(mocker):
             pass
     assert exc_info.value.error_code == "rate_limited"
     assert exc_info.value.retry_after == 17
+    assert exc_info.value.body["close_code"] == 3009
     assert fake.closed
 
 
