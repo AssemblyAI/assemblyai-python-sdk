@@ -15,7 +15,8 @@ from .v1.models import TTSConfig, TTSError
 
 # The route of the WebSocket API; the host comes from `settings.tts_base_url`.
 WS_PATH = "/v1/ws"
-# Characters a single `Generate` frame may carry (Unicode code points).
+# Characters a single `Generate` frame may carry (Unicode code points) when
+# `Begin` does not report the limit in force.
 MAX_GENERATE_CHARS = 2000
 # Audio frames queued for pulling before the oldest is dropped: about 160 s
 # at the API's ~80 ms per frame. Bounds memory when audio is not read, or is
@@ -71,12 +72,29 @@ class PullBuffer:
         return item
 
 
-def check_text_frame(text: object) -> None:
+def max_generate_chars(begin: Any) -> int:
+    """
+    The characters one `Generate` may carry: the limit the session's
+    `Begin` reports (`limits.max_generate_text_length`, where `0` means
+    none), else `MAX_GENERATE_CHARS`.
+    """
+
+    configuration = getattr(begin, "configuration", None) or {}
+    limits = configuration.get("limits")
+    limit = limits.get("max_generate_text_length") if isinstance(limits, dict) else None
+    if isinstance(limit, int) and not isinstance(limit, bool) and limit >= 0:
+        return limit
+    return MAX_GENERATE_CHARS
+
+
+def check_text_frame(text: object, limit: int = MAX_GENERATE_CHARS) -> None:
+    """Refuses what one `Generate` cannot carry; a `limit` of `0` is none."""
+
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, not {type(text).__name__}")
-    if len(text) > MAX_GENERATE_CHARS:
+    if limit and len(text) > limit:
         raise ValueError(
-            f"text is {len(text)} characters, over the {MAX_GENERATE_CHARS}-character "
+            f"text is {len(text)} characters, over the {limit}-character "
             "limit of one Generate frame; split it across several generate() calls"
         )
 

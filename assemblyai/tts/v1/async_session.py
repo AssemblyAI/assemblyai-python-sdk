@@ -12,6 +12,7 @@ from .._base_ws import (
     build_uri,
     check_text_frame,
     handshake_error,
+    max_generate_chars,
     resolve_settings,
 )
 from .models import TTSConfig, TTSError
@@ -235,7 +236,7 @@ class AsyncTTSSession:
     async def generate(self, text: str) -> None:
         """Appends `text` to the current request; see `TTSSession.generate`."""
 
-        check_text_frame(text)
+        check_text_frame(text, max_generate_chars(self.begin))
         await self._send({"type": "Generate", "text": text})
 
     async def flush(self) -> int:

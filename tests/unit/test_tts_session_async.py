@@ -571,6 +571,20 @@ async def test_connect_right_after_close_gave_up_on_a_handler(mocker):
     await session.terminate()
 
 
+@pytest.mark.parametrize(
+    "limit, allowed, refused", [(4000, 4000, 4001), (500, 500, 501)]
+)
+async def test_generate_follows_the_limit_begin_reports(
+    mocker, limit, allowed, refused
+):
+    begin = dict(_BEGIN, configuration={"limits": {"max_generate_text_length": limit}})
+    _connect_to(mocker, _FakeAsyncServer(begin=begin))
+    async with aai.AsyncTTSSession() as session:
+        await session.generate("x" * allowed)
+        with pytest.raises(ValueError, match=f"{limit}-character"):
+            await session.generate("x" * refused)
+
+
 async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)

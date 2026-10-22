@@ -12,6 +12,7 @@ from .._base_ws import (
     build_uri,
     check_text_frame,
     handshake_error,
+    max_generate_chars,
     resolve_settings,
 )
 from .models import TTSConfig, TTSError
@@ -291,9 +292,10 @@ class TTSSession:
         arrived; `flush()` is what concludes the request.
 
         Raises:
-            ValueError: for a text over 2,000 characters (split it).
+            ValueError: for a text over the limit of one `Generate` frame
+                (split it): the limit `Begin` reports, else 2,000 characters.
         """
-        check_text_frame(text)
+        check_text_frame(text, max_generate_chars(self.begin))
         self._send({"type": "Generate", "text": text})
 
     def flush(self) -> int:

@@ -743,6 +743,21 @@ def test_generate_refuses_text_over_one_frame(server):
             session.generate(b"bytes")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "limit, allowed, refused", [(4000, 4000, 4001), (500, 500, 501)]
+)
+def test_generate_follows_the_limit_begin_reports(mocker, limit, allowed, refused):
+    begin = dict(_BEGIN, configuration={"limits": {"max_generate_text_length": limit}})
+    mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect",
+        return_value=_FakeServer(begin=begin),
+    )
+    with aai.TTSSession() as session:
+        session.generate("x" * allowed)
+        with pytest.raises(ValueError, match=f"{limit}-character"):
+            session.generate("x" * refused)
+
+
 def test_the_eu_host_comes_from_the_settings(server):
     client = aai.Client(api_key="test")
     client.settings.tts_base_url = "https://tts.eu.assemblyai.com"
