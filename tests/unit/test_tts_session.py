@@ -547,6 +547,46 @@ def test_an_audio_handler_receives_the_frames_instead_of_the_queue(server):
     assert done[0].audio_duration_ms == 80
 
 
+def test_the_error_reaches_waiters_before_the_error_handler(server):
+    app_saw_error = threading.Event()
+    handler_waited: List[bool] = []
+
+    def on_error(error: aai.TTSError) -> None:
+        handler_waited.append(app_saw_error.wait(5))  # waits on the app
+
+    with pytest.raises(aai.TTSError):
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.Error, on_error)
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(_INPUT_RATE_EXCEEDED)
+            try:
+                _drain(session.audio(flush_id), timeout=3)
+            finally:
+                app_saw_error.set()
+
+    assert handler_waited == [True]
+
+
+def test_waiting_from_a_handler_raises_instead_of_deadlocking(server):
+    refused: List[str] = []
+
+    def speak_next(event: aai.TTSFlushDoneEvent) -> None:
+        for wait in (lambda: list(session.speak("Next.")), session.terminate):
+            try:
+                wait()
+            except RuntimeError as exc:
+                refused.append(str(exc))
+
+    with aai.TTSSession(terminate_timeout=3) as session:
+        session.on(aai.TTSEvents.FlushDone, speak_next)
+        assert b"".join(_drain(session.speak("Hi."))) == b"Hi."
+
+    assert len(refused) == 2
+    assert all("from a session handler" in message for message in refused)
+    assert _frames(server, "Flush") == [{"type": "Flush"}]  # nothing more was sent
+
+
 def test_word_boundaries_and_cancelled_reach_their_handlers(server):
     words = []
     cancelled = []

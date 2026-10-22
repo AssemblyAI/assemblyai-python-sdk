@@ -50,7 +50,9 @@ class AsyncTTSSession:
     Open it with `async with`, which connects and waits for `Begin`.
     `generate()`, `flush()`, `cancel()` and `keep_alive()` are coroutines;
     `speak()` and `audio()` are async iterators of audio bytes. Handlers
-    registered with `on()` may be plain functions or coroutines.
+    registered with `on()` may be plain functions or coroutines; they run on
+    the session's reader task, so, as with `TTSSession`, they may send but
+    not wait on the session (`speak()`, `audio()`, `terminate()`).
 
     Example:
         ```python
@@ -166,6 +168,7 @@ class AsyncTTSSession:
     async def terminate(self) -> Optional[TTSTerminationEvent]:
         """Ends the session cleanly; see `TTSSession.terminate`."""
 
+        self._check_not_in_handler("terminate()")
         if self._ws is None:
             return None
         try:
@@ -249,6 +252,7 @@ class AsyncTTSSession:
     async def speak(self, text: str) -> AsyncIterator[bytes]:
         """Speaks one text and yields its audio; see `TTSSession.speak`."""
 
+        self._check_not_in_handler("speak()")
         await self.generate(text)
         flush_id = await self.flush()
         async for chunk in self.audio(flush_id):
@@ -262,6 +266,7 @@ class AsyncTTSSession:
         play it while another still sends text.
         """
 
+        self._check_not_in_handler("audio()")
         if self._queue is None:
             raise RuntimeError("the session is not open")
         if flush_id is None:
@@ -300,6 +305,16 @@ class AsyncTTSSession:
                     raise self.error
                 return
 
+    def _check_not_in_handler(self, method: str) -> None:
+        """Refuses a method that waits on the reader when the reader, running
+        a handler, is the caller: it would wait for itself."""
+
+        if self._reader is not None and asyncio.current_task() is self._reader:
+            raise RuntimeError(
+                f"{method} cannot be called from a session handler: it waits "
+                "for the session's reader, which runs the handlers"
+            )
+
     def _put(self, item: PullItem) -> None:
         """Queues an item for `audio()`; past the cap the oldest audio drops."""
 
@@ -326,14 +341,17 @@ class AsyncTTSSession:
         return self._queue.popleft()
 
     async def _fail(self, error: TTSError) -> None:
-        if self.error is None:
+        first = self.error is None
+        if first:
             if error.request_id is None and self.begin is not None:
                 error.request_id = self.begin.id
             self.error = error
-            await self._emit(TTSEvents.Error, error)
+        # Waiters learn of the failure before any handler runs.
         self._put(("error", None, self.error))
         self._stopped.set()
         self._begun.set()
+        if first:
+            await self._emit(TTSEvents.Error, error)
 
     async def _send(self, frame: Dict[str, Any]) -> None:
         from websockets.exceptions import ConnectionClosed
@@ -441,15 +459,17 @@ class AsyncTTSSession:
         if self._stopped.is_set():
             return
         code, reason = close_code_and_reason(exc)
+        error = None
         if code != 1000 and self.error is None:
             error = error_from_close(code, reason)
             if self.begin is not None:
                 error.request_id = self.begin.id
             self.error = error
-            await self._emit(TTSEvents.Error, self.error)
         self._stopped.set()
         self._begun.set()
         self._put(("closed", None, None))
+        if error is not None:
+            await self._emit(TTSEvents.Error, error)
 
     async def _emit(self, event: Union[TTSEvents, str], payload: Any) -> None:
         for handler in self._handlers.get(str(event), ()):

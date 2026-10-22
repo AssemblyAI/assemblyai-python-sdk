@@ -63,7 +63,10 @@ class TTSSession:
     pushed to a handler registered with `on(TTSEvents.Audio, ...)`. Register
     handlers for the other events (`FlushDone`, `WordBoundaries`,
     `Cancelled`, `Termination`, `Error`) as needed; a handler takes the event
-    and runs on the session's reader thread.
+    and runs on the session's reader thread. A handler may send
+    (`generate()`, `flush()`, `cancel()`, `keep_alive()`, `close()`) but not
+    wait on the session: `speak()`, `audio()` and `terminate()` raise
+    `RuntimeError` there.
 
     Example:
         ```python
@@ -218,7 +221,11 @@ class TTSSession:
 
         Text sent and not flushed is spoken first. Returns the summary, or
         `None` if the session had already ended or the wait timed out.
+
+        Raises:
+            RuntimeError: from a session handler.
         """
+        self._check_not_in_handler("terminate()")
         if self._ws is None:
             return None
         if not self._stopped.is_set():
@@ -314,7 +321,9 @@ class TTSSession:
 
         Raises:
             TTSError: from the iteration, if the session fails.
+            RuntimeError: from a session handler.
         """
+        self._check_not_in_handler("speak()")
         self.generate(text)
         return self.audio(self.flush())
 
@@ -331,8 +340,10 @@ class TTSSession:
         Raises:
             TTSError: if the session fails before the request completes.
             ValueError: for a `flush_id` no `flush()` has returned.
-            RuntimeError: when an `Audio` handler receives the audio instead.
+            RuntimeError: when an `Audio` handler receives the audio instead,
+                or from a session handler.
         """
+        self._check_not_in_handler("audio()")
         if flush_id is None:
             flush_id = self._next_flush_id  # the request being written now
         elif flush_id > self._next_flush_id:
@@ -370,6 +381,16 @@ class TTSSession:
                 return
 
     # -- internals ---------------------------------------------------------------
+
+    def _check_not_in_handler(self, method: str) -> None:
+        """Refuses a method that waits on the reader when the reader, running
+        a handler, is the caller: it would wait for itself."""
+
+        if self._reader is not None and threading.current_thread() is self._reader:
+            raise RuntimeError(
+                f"{method} cannot be called from a session handler: it waits "
+                "for the session's reader, which runs the handlers"
+            )
 
     def _put(self, item: PullItem) -> None:
         """Queues an item for `audio()`; past the cap the oldest audio drops."""
@@ -470,14 +491,17 @@ class TTSSession:
     def _fail(self, error: TTSError) -> None:
         """Ends the session on an error: handlers, waiters, state."""
 
-        if self.error is None:
+        first = self.error is None
+        if first:
             if error.request_id is None and self.begin is not None:
                 error.request_id = self.begin.id
             self.error = error
-            self._emit(TTSEvents.Error, error)
+        # Waiters learn of the failure before any handler runs.
         self._put(("error", None, self.error))
         self._stopped.set()
         self._begun.set()
+        if first:
+            self._emit(TTSEvents.Error, error)
 
     def _dispatch(self, data: Dict[str, Any]) -> None:
         kind = data.get("type")
@@ -510,15 +534,17 @@ class TTSSession:
         if self._stopped.is_set():
             return
         code, reason = close_code_and_reason(exc)
+        error = None
         if code != 1000 and self.error is None:
             error = error_from_close(code, reason)
             if self.begin is not None:
                 error.request_id = self.begin.id
             self.error = error
-            self._emit(TTSEvents.Error, self.error)
         self._stopped.set()
         self._begun.set()
         self._put(("closed", None, None))
+        if error is not None:
+            self._emit(TTSEvents.Error, error)
 
     def _emit(self, event: Union[TTSEvents, str], payload: Any) -> None:
         for handler in self._handlers.get(str(event), ()):

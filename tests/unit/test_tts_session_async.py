@@ -210,6 +210,53 @@ async def test_handlers_may_be_coroutines(server):
     assert received == [b"Pushed."]
 
 
+async def test_the_error_reaches_waiters_before_the_error_handler(server):
+    app_saw_error = asyncio.Event()
+    handler_waited: List[bool] = []
+
+    async def on_error(error: aai.TTSError) -> None:
+        try:  # waits on the app
+            await asyncio.wait_for(app_saw_error.wait(), 5)
+            handler_waited.append(True)
+        except asyncio.TimeoutError:
+            handler_waited.append(False)
+
+    with pytest.raises(aai.TTSError):
+        async with aai.AsyncTTSSession() as session:
+            session.on(aai.TTSEvents.Error, on_error)
+            server.answer_flush = False
+            flush_id = await session.flush()
+            server.push(_INPUT_RATE_EXCEEDED)
+            try:
+                await _drain(session.audio(flush_id), timeout=3)
+            finally:
+                app_saw_error.set()
+
+    assert handler_waited == [True]
+
+
+async def test_waiting_from_a_handler_raises_instead_of_deadlocking(server):
+    refused: List[str] = []
+
+    async def speak_next(event: aai.TTSFlushDoneEvent) -> None:
+        try:
+            [chunk async for chunk in session.speak("Next.")]
+        except RuntimeError as exc:
+            refused.append(str(exc))
+        try:
+            await session.terminate()
+        except RuntimeError as exc:
+            refused.append(str(exc))
+
+    async with aai.AsyncTTSSession(terminate_timeout=3) as session:
+        session.on(aai.TTSEvents.FlushDone, speak_next)
+        assert b"".join(await _drain(session.speak("Hi."))) == b"Hi."
+
+    assert len(refused) == 2
+    assert all("from a session handler" in message for message in refused)
+    assert [f for f in server.sent if f["type"] == "Flush"] == [{"type": "Flush"}]
+
+
 async def test_a_lost_connection_raises_a_retryable_error(server):
     with pytest.raises(aai.TTSError) as exc_info:
         async with aai.AsyncTTSSession() as session:
