@@ -31,6 +31,17 @@ _TERMINATION = {
 }
 
 
+_INPUT_RATE_EXCEEDED = {
+    "type": "Error",
+    "error_code": 3010,
+    "error": "Text arrived faster than it can be spoken.",
+    "error_type": "input_rate_exceeded",
+    "retryable": False,
+    "param": None,
+    "retry_after_seconds": None,
+}
+
+
 class _FakeAsyncServer:
     def __init__(self, begin: Optional[dict] = _BEGIN, answer_flush: bool = True):
         self.sent: List[dict] = []
@@ -39,13 +50,26 @@ class _FakeAsyncServer:
         self.text = ""
         self.flush_id = 0
         self.answer_flush = answer_flush
+        self.closing: Optional[List[Any]] = None
         if begin is not None:
             self.push(begin)
+
+    def close_on_next_send(self, code: int, error: Optional[dict] = None) -> None:
+        """The API closes the session: the next send raises, and the reader
+        has yet to take in the frames that came first."""
+        self.closing = ([error] if error else []) + [
+            ConnectionClosedError(Close(code, "See Error message for details"), None)
+        ]
 
     def push(self, item: Any) -> None:
         self.inbox.put_nowait(json.dumps(item) if isinstance(item, dict) else item)
 
     async def send(self, raw: str) -> None:
+        if self.closing is not None:
+            closing, self.closing = self.closing, None
+            for item in closing:
+                self.push(item)
+            raise ConnectionClosedError(closing[-1].rcvd, None)
         frame = json.loads(raw)
         self.sent.append(frame)
         kind = frame["type"]
@@ -246,6 +270,27 @@ async def test_a_failure_in_the_reader_still_ends_the_iteration(server, mocker):
             flush_id = await session.flush()
             server.push(ConnectionClosedError(None, None))
             await _drain(session.audio(flush_id))
+
+
+async def test_a_send_the_api_closed_raises_the_sessions_error(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        async with aai.AsyncTTSSession() as session:
+            server.close_on_next_send(3010, _INPUT_RATE_EXCEEDED)
+            await session.generate("Too much, too fast.")
+
+    assert exc_info.value.error_code == "input_rate_exceeded"
+    assert exc_info.value.retryable is False
+    assert exc_info.value is session.error
+
+
+async def test_a_send_on_a_bare_close_raises_a_tts_error(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        async with aai.AsyncTTSSession() as session:
+            server.close_on_next_send(1012)
+            await session.flush()
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.body["close_code"] == 1012
 
 
 async def test_a_cancel_drops_every_pipelined_request(server):

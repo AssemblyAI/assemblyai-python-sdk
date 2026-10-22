@@ -395,14 +395,35 @@ class TTSSession:
             return self._queue.popleft()
 
     def _send(self, frame: Dict[str, Any]) -> None:
-        if self._ws is None or self._stopped.is_set():
-            if self.error is not None:
-                raise self.error
-            raise RuntimeError(
-                "the session is not open: use `with` / `async with`, or connect()"
-            )
+        from websockets.exceptions import ConnectionClosed
+
         with self._send_lock:
-            self._ws.send(json.dumps(frame))
+            ws = self._ws
+            if ws is None or self._stopped.is_set():
+                if self.error is not None:
+                    raise self.error
+                raise RuntimeError(
+                    "the session is not open: use `with` / `async with`, or connect()"
+                )
+            try:
+                ws.send(json.dumps(frame))
+            except ConnectionClosed as exc:
+                raise self._closed_error(ws, exc) from exc
+
+    def _closed_error(self, ws: Any, exc: Exception) -> Exception:
+        """
+        What a send on a socket that closed raises: the session's error, once
+        the reader has taken in the frames that arrived before the close.
+        """
+
+        if threading.current_thread() is not self._reader:
+            self._stopped.wait(1)
+        if self.error is not None:
+            return self.error
+        code, reason = close_code_and_reason(exc)
+        if self._ws is not ws or code == 1000:  # closed by close() or cleanly
+            return RuntimeError("the session is not open")
+        return error_from_close(code, reason)
 
     def _read_loop(self) -> None:
         try:

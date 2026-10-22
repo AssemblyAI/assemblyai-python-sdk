@@ -327,13 +327,37 @@ class AsyncTTSSession:
         self._begun.set()
 
     async def _send(self, frame: Dict[str, Any]) -> None:
-        if self._ws is None or self._stopped.is_set():
+        from websockets.exceptions import ConnectionClosed
+
+        ws = self._ws
+        if ws is None or self._stopped.is_set():
             if self.error is not None:
                 raise self.error
             raise RuntimeError(
                 "the session is not open: use `with` / `async with`, or connect()"
             )
-        await self._ws.send(json.dumps(frame))
+        try:
+            await ws.send(json.dumps(frame))
+        except ConnectionClosed as exc:
+            raise await self._closed_error(ws, exc) from exc
+
+    async def _closed_error(self, ws: Any, exc: Exception) -> Exception:
+        """
+        What a send on a socket that closed raises: the session's error, once
+        the reader has taken in the frames that arrived before the close.
+        """
+
+        if asyncio.current_task() is not self._reader:
+            try:
+                await asyncio.wait_for(self._stopped.wait(), timeout=1)
+            except asyncio.TimeoutError:
+                pass
+        if self.error is not None:
+            return self.error
+        code, reason = close_code_and_reason(exc)
+        if self._ws is not ws or code == 1000:  # closed by close() or cleanly
+            return RuntimeError("the session is not open")
+        return error_from_close(code, reason)
 
     async def _read_loop(self) -> None:
         try:
