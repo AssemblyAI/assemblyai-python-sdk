@@ -42,7 +42,7 @@ aai.settings.api_key = "your-key"
 - `aai.AsyncTranscript` — What `AsyncTranscriber` returns. Same fields as `Transcript`, coroutine methods
 - `aai.AsyncClient` — Shared `httpx.AsyncClient` pool for one or more `AsyncTranscriber`s
 - `assemblyai.prerecorded.v2` — Canonical module for both transcribers, matching the `/v2/transcript` API. The top-level `aai.*` names re-export it
-- `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`
+- `aai.TranscriptionConfig` — All transcription options: `speech_models`, `speaker_labels`, `sentiment_analysis`, `entity_detection`, `auto_chapters`, `content_safety`, `language_detection`, `summarization`, `word_boost`, `disfluencies`, `speech_understanding`
 - `aai.Transcript` — Result object with `.text`, `.status`, `.utterances`, `.words`, `.chapters`, `.entities`, `.sentiment_analysis`. Methods: `get_sentences()`, `get_paragraphs()`, `export_subtitles_srt()`, `export_subtitles_vtt()`
 - `aai.SyncTranscriber` — Synchronous pre-recorded transcription: audio in, transcript out, one request (no polling). Methods: `transcribe()`, `transcribe_live()`, `open_live()`, `transcribe_async()`, `warm()`
 - `aai.AsyncSyncTranscriber` — Asyncio counterpart of `SyncTranscriber`. Same input types, config, result, and errors; `transcribe()`, `transcribe_live()` and `warm()` are coroutines; `open_live()` returns an `AsyncLiveSession`. Owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one
