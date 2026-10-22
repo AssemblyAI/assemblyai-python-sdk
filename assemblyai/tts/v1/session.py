@@ -161,8 +161,8 @@ class TTSSession:
         self._queue_ready = threading.Condition()
         self._next_flush_id = 0
         self._cancel_ids: List[int] = []
-        # Requests with a lower flush_id than this were dropped by a Cancel.
-        self._cancelled_before = 0
+        # Requests up to this flush_id were dropped by a Cancel (-1: none).
+        self._cancelled_before = -1
         self._drop_warned = False
         self.begin = None
         self.termination = None
@@ -401,7 +401,9 @@ class TTSSession:
         while True:
             if self._queue is not connection:
                 return
-            if flush_id < self._cancelled_before:  # dropped by a Cancel
+            # A Cancel drops every request before it and the text being
+            # written, whose id it takes.
+            if flush_id <= self._cancelled_before:
                 return
             item = self._get(timeout=0.5)
             if item is None:
@@ -418,7 +420,7 @@ class TTSSession:
                 if ident == flush_id:
                     return
             elif kind == "cancelled":
-                if ident > flush_id:  # a Cancel sent after this request
+                if ident >= flush_id:  # a Cancel sent after this request
                     return
             elif kind == "error":
                 raise self._surfaced()
