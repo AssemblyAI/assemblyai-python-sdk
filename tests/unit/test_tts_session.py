@@ -786,6 +786,20 @@ def test_api_key_argument_is_used_without_touching_the_shared_settings(server):
     assert aai.settings.api_key == "test"
 
 
+@pytest.mark.parametrize("configuration", [None, "missing"])
+def test_a_begin_without_configuration_opens_the_session(mocker, configuration):
+    begin = {k: v for k, v in _BEGIN.items() if k != "configuration"}
+    if configuration != "missing":
+        begin["configuration"] = configuration
+    mocker.patch(
+        "assemblyai.tts.v1.session.websocket_connect",
+        return_value=_FakeServer(begin=begin),
+    )
+    with aai.TTSSession() as session:
+        assert session.begin is not None and session.begin.configuration == {}
+        assert b"".join(_drain(session.speak("Hi."))) == b"Hi."
+
+
 def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)

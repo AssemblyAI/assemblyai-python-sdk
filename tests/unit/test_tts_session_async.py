@@ -585,6 +585,17 @@ async def test_generate_follows_the_limit_begin_reports(
             await session.generate("x" * refused)
 
 
+@pytest.mark.parametrize("configuration", [None, "missing"])
+async def test_a_begin_without_configuration_opens_the_session(mocker, configuration):
+    begin = {k: v for k, v in _BEGIN.items() if k != "configuration"}
+    if configuration != "missing":
+        begin["configuration"] = configuration
+    _connect_to(mocker, _FakeAsyncServer(begin=begin))
+    async with aai.AsyncTTSSession() as session:
+        assert session.begin is not None and session.begin.configuration == {}
+        assert b"".join(await _drain(session.speak("Hi."))) == b"Hi."
+
+
 async def test_missing_key_is_a_clear_error(monkeypatch):
     monkeypatch.delenv("ASSEMBLYAI_API_KEY", raising=False)
     monkeypatch.setattr(aai.settings, "api_key", None)

@@ -81,9 +81,10 @@ class TTSBeginEvent(BaseModel):
     expires_at: int
     "Unix time in seconds at which the session's maximum duration ends."
 
-    configuration: Dict[str, Any]
+    configuration: Dict[str, Any] = Field(default_factory=dict)
     """The session as created: the effective connect parameters, `model`,
-    `voice_id`, `session_ttl_sec`, `limits` and more. An open set."""
+    `voice_id`, `session_ttl_sec`, `limits` and more. An open set; empty
+    when the API sends none."""
 
 
 class TTSAudioEvent(BaseModel):
@@ -156,7 +157,9 @@ def parse_event(data: Dict[str, Any]) -> Any:
             flush_id=data["flush_id"], audio=base64.b64decode(data["audio"])
         )
     if kind == "Begin":
-        return _parse(TTSBeginEvent, data)
+        return _parse(
+            TTSBeginEvent, {**data, "configuration": data.get("configuration") or {}}
+        )
     if kind == "FlushDone":
         return _parse(TTSFlushDoneEvent, data)
     if kind == "WordBoundaries":
