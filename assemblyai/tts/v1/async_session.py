@@ -152,6 +152,9 @@ class AsyncTTSSession:
         except asyncio.TimeoutError:
             await self.close()
             raise TTSError("The session did not begin in time") from None
+        except BaseException:  # cancelled: leave no socket or reader behind
+            await self.close()
+            raise
         if self.error is not None:
             await self.close()
             raise self.error
@@ -165,18 +168,20 @@ class AsyncTTSSession:
 
         if self._ws is None:
             return None
-        if not self._stopped.is_set():
-            try:
-                await self._send({"type": "Terminate"})
-            except Exception:
-                pass
-            try:
-                await asyncio.wait_for(
-                    self._stopped.wait(), timeout=self._terminate_timeout
-                )
-            except asyncio.TimeoutError:
-                pass
-        await self.close()
+        try:
+            if not self._stopped.is_set():
+                try:
+                    await self._send({"type": "Terminate"})
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(
+                        self._stopped.wait(), timeout=self._terminate_timeout
+                    )
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            await self.close()
         return self.termination
 
     async def close(self) -> None:
@@ -187,18 +192,22 @@ class AsyncTTSSession:
             self._stopped.set()
         if self._begun is not None:
             self._begun.set()
-        if ws is not None:
-            try:
-                await ws.close()
-            except Exception:
-                pass
         if self._queue is not None:
             self._put(("closed", None, None))
         reader = self._reader
-        if reader is not None and reader is not asyncio.current_task():
-            try:
-                await asyncio.wait_for(reader, timeout=self._terminate_timeout)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+        if reader is asyncio.current_task():
+            reader = None
+        try:
+            if ws is not None:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            if reader is not None and not reader.done():
+                await asyncio.wait({reader}, timeout=self._terminate_timeout)
+        finally:
+            # Also when the caller is cancelled, which then propagates.
+            if reader is not None and not reader.done():
                 reader.cancel()
 
     async def __aenter__(self) -> "AsyncTTSSession":

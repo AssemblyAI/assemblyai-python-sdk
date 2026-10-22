@@ -50,6 +50,7 @@ class _FakeAsyncServer:
         self.text = ""
         self.flush_id = 0
         self.answer_flush = answer_flush
+        self.answer_terminate = True
         self.closing: Optional[List[Any]] = None
         if begin is not None:
             self.push(begin)
@@ -92,7 +93,7 @@ class _FakeAsyncServer:
             self.flush_id += 1
             self.text = ""
             self.push({"type": "Cancelled", "audio_duration_seconds": 0.1})
-        elif kind == "Terminate":
+        elif kind == "Terminate" and self.answer_terminate:
             self.push(_TERMINATION)
             self.push(ConnectionClosedOK(Close(1000, "Session ended"), None))
 
@@ -344,6 +345,64 @@ async def test_a_session_object_can_be_reused(mocker):
         assert b"".join(await _drain(session.speak("One."))) == b"One."
     async with session:
         assert b"".join(await _drain(session.speak("Two."))) == b"Two."
+
+
+async def test_a_cancelled_connect_leaves_nothing_open(mocker):
+    slow = _FakeAsyncServer(begin=None)  # Begin never comes
+    fakes = [slow, _FakeAsyncServer()]
+
+    async def connect(uri, additional_headers):
+        return fakes.pop(0)
+
+    mocker.patch(
+        "assemblyai.tts.v1.async_session.websocket_connect_async", side_effect=connect
+    )
+    session = aai.AsyncTTSSession()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(session.connect(), 0.3)
+
+    assert slow.closed
+    assert session._reader is not None and session._reader.done()
+    begin = await asyncio.wait_for(session.connect(), 5)  # not "already connected"
+    assert begin.id == "sess-1"
+    await session.close()
+
+
+async def test_a_cancelled_terminate_still_closes(server):
+    server.answer_terminate = False
+    session = aai.AsyncTTSSession(terminate_timeout=30)
+    await session.connect()
+    ending = asyncio.create_task(session.terminate())
+    await asyncio.sleep(0.05)
+    ending.cancel()
+    await asyncio.wait({ending}, timeout=5)
+
+    assert ending.cancelled()
+    assert server.closed
+    assert session._ws is None
+
+
+async def test_a_cancelled_close_propagates_the_cancellation(server):
+    in_handler = asyncio.Event()
+
+    async def busy_handler(event):
+        in_handler.set()
+        await asyncio.sleep(30)
+
+    session = aai.AsyncTTSSession(terminate_timeout=30)
+    await session.connect()
+    session.on(aai.TTSEvents.FlushDone, busy_handler)
+    await session.flush()
+    await asyncio.wait_for(in_handler.wait(), 5)
+
+    closing = asyncio.create_task(session.close())
+    await asyncio.sleep(0.05)  # close() now waits for the busy reader
+    closing.cancel()
+    await asyncio.wait({closing}, timeout=5)
+
+    assert closing.cancelled()
+    await asyncio.sleep(0)
+    assert session._reader is not None and session._reader.done()
 
 
 async def test_missing_key_is_a_clear_error(monkeypatch):
