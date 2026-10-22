@@ -109,8 +109,9 @@ class TTSSession:
                 session begins, so such a session connects once: to
                 reconnect, mint a new token and build a new session.
             word_boundaries: Whether the server sends `WordBoundaries` frames.
-            inactivity_timeout: Seconds (5 to 120) after which an idle session
-                is closed; `None` for the account's default.
+            inactivity_timeout: Seconds (5 to 120) with no frame either way
+                after which the API closes the session; `None` keeps the
+                API's 120 s.
             connect_timeout: Seconds to wait for the handshake and `Begin`.
             terminate_timeout: Seconds to wait for `Termination` on exit.
 
@@ -327,7 +328,11 @@ class TTSSession:
             self._send({"type": "Cancel"})
 
     def keep_alive(self) -> None:
-        """Resets the inactivity timer between sparse requests."""
+        """
+        Restarts the API's idle timer. Send one at least once per
+        `inactivity_timeout` while the session waits, which includes the
+        time already received audio takes to play.
+        """
 
         self._send({"type": "KeepAlive"})
 
