@@ -11,6 +11,7 @@ from .ws_models import (
     TTSBeginEvent,
     TTSEvents,
     TTSTerminationEvent,
+    close_code_and_reason,
     error_from_close,
     error_from_frame,
     parse_event,
@@ -323,6 +324,18 @@ class AsyncTTSSession:
         await self._ws.send(json.dumps(frame))
 
     async def _read_loop(self) -> None:
+        try:
+            await self._read_frames()
+        except Exception as exc:  # a failure in the reader itself
+            await self._fail(TTSError(f"The session's reader failed: {exc!r}"))
+        finally:
+            # However the reader ended, nothing may wait for it any longer.
+            if not self._stopped.is_set():
+                self._stopped.set()
+                self._begun.set()
+                self._put(("closed", None, None))
+
+    async def _read_frames(self) -> None:
         from websockets.exceptions import ConnectionClosed
 
         ws = self._ws
@@ -382,9 +395,7 @@ class AsyncTTSSession:
     async def _on_closed(self, exc: Exception) -> None:
         if self._stopped.is_set():
             return
-        # `.code` is 1006 for an abnormal close, where `.rcvd` is None.
-        code = getattr(exc, "code", None)
-        reason = getattr(exc, "reason", "") or ""
+        code, reason = close_code_and_reason(exc)
         if code != 1000 and self.error is None:
             error = error_from_close(code, reason)
             if self.begin is not None:

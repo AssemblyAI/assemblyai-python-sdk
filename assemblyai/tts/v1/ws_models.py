@@ -7,7 +7,7 @@ registered with `TTSSession.on()`.
 
 import base64
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
 
 try:
     # pydantic v2 import (`model_validator` exists only in v2)
@@ -34,8 +34,12 @@ __all__ = [
 ]
 
 # Close codes after which the same session parameters can succeed on a new
-# connection: lost connection, a transient check failure, a server restart.
-_RETRYABLE_CLOSE_CODES = frozenset({1006, 1011, 1012})
+# connection, for a close that came without an `Error` frame: a lost
+# connection, a transient check failure, a server restart, a server-side
+# failure, an expired session and the account's session limit.
+_RETRYABLE_CLOSE_CODES = frozenset({1006, 1011, 1012, 3005, 3008, 3009})
+# The code of a connection that ended without a close frame.
+_ABNORMAL_CLOSURE = 1006
 
 _M = TypeVar("_M", bound=BaseModel)
 
@@ -178,9 +182,23 @@ def error_from_frame(data: Dict[str, Any]) -> TTSError:
     )
 
 
+def close_code_and_reason(exc: BaseException) -> Tuple[int, str]:
+    """
+    The code and reason of the close frame the API sent, from the exception
+    that ended the connection; `1006` and no reason when none arrived.
+    """
+
+    rcvd = getattr(exc, "rcvd", None)
+    if rcvd is None:
+        return _ABNORMAL_CLOSURE, ""
+    return int(rcvd.code), rcvd.reason or ""
+
+
 def error_from_close(code: Optional[int], reason: str) -> TTSError:
     """The `TTSError` for a connection closed without a clean `Termination`."""
 
+    if code is None:
+        code = _ABNORMAL_CLOSURE
     text = f"Connection closed (code={code})"
     if reason:
         text = f"{text}: {reason}"

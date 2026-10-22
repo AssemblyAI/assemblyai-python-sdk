@@ -329,6 +329,57 @@ def test_a_lost_connection_is_a_retryable_error(server):
     assert len(errors) == 1
 
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")
+@pytest.mark.parametrize(
+    "code, retryable",
+    [
+        (1011, True),
+        (1012, True),
+        (3005, True),
+        (3008, True),
+        (3009, True),
+        (3006, False),
+        (3010, False),
+    ],
+)
+def test_a_close_without_an_error_frame_is_retryable_by_its_code(
+    server, code, retryable
+):
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(ConnectionClosedError(Close(code, "Upstream failed"), None))
+            _drain(session.audio(flush_id))
+
+    assert exc_info.value.retryable is retryable
+    assert exc_info.value.body == {"close_code": code, "reason": "Upstream failed"}
+
+
+def test_a_socket_error_is_a_retryable_lost_connection(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(OSError("Connection reset by peer"))
+            _drain(session.audio(flush_id))
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.body == {"close_code": 1006, "reason": ""}
+
+
+def test_a_failure_in_the_reader_still_ends_the_iteration(server, mocker):
+    mocker.patch(
+        "assemblyai.tts.v1.session.error_from_close", side_effect=RuntimeError("bug")
+    )
+    with pytest.raises(aai.TTSError, match="reader failed"):
+        with aai.TTSSession() as session:
+            server.answer_flush = False
+            flush_id = session.flush()
+            server.push(ConnectionClosedError(None, None))
+            _drain(session.audio(flush_id))
+
+
 def test_a_send_after_a_failure_raises_the_stored_error(server):
     with pytest.raises(aai.TTSError) as exc_info:
         with aai.TTSSession() as session:
@@ -381,7 +432,9 @@ def test_unread_audio_is_bounded_and_dropped_oldest_first(server, caplog):
         assert session._queue.full()
         session.generate("y")
         flush_id = session.flush()
-        assert b"".join(_drain(session.audio(flush_id))) == b"y"  # still served after the flood
+        assert (
+            b"".join(_drain(session.audio(flush_id))) == b"y"
+        )  # still served after the flood
     assert session._queue.maxsize == PULL_QUEUE_FRAMES
     assert "dropping audio" in caplog.text
 

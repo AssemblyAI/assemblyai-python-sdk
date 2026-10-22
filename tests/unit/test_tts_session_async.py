@@ -196,6 +196,58 @@ async def test_a_lost_connection_raises_a_retryable_error(server):
     assert exc_info.value.body["close_code"] == 1006
 
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")
+@pytest.mark.parametrize(
+    "code, retryable",
+    [
+        (1011, True),
+        (1012, True),
+        (3005, True),
+        (3008, True),
+        (3009, True),
+        (3006, False),
+        (3010, False),
+    ],
+)
+async def test_a_close_without_an_error_frame_is_retryable_by_its_code(
+    server, code, retryable
+):
+    with pytest.raises(aai.TTSError) as exc_info:
+        async with aai.AsyncTTSSession() as session:
+            server.answer_flush = False
+            flush_id = await session.flush()
+            server.push(ConnectionClosedError(Close(code, "Upstream failed"), None))
+            await _drain(session.audio(flush_id))
+
+    assert exc_info.value.retryable is retryable
+    assert exc_info.value.body == {"close_code": code, "reason": "Upstream failed"}
+
+
+async def test_a_socket_error_is_a_retryable_lost_connection(server):
+    with pytest.raises(aai.TTSError) as exc_info:
+        async with aai.AsyncTTSSession() as session:
+            server.answer_flush = False
+            flush_id = await session.flush()
+            server.push(OSError("Connection reset by peer"))
+            await _drain(session.audio(flush_id))
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.body == {"close_code": 1006, "reason": ""}
+
+
+async def test_a_failure_in_the_reader_still_ends_the_iteration(server, mocker):
+    mocker.patch(
+        "assemblyai.tts.v1.async_session.error_from_close",
+        side_effect=RuntimeError("bug"),
+    )
+    with pytest.raises(aai.TTSError, match="reader failed"):
+        async with aai.AsyncTTSSession() as session:
+            server.answer_flush = False
+            flush_id = await session.flush()
+            server.push(ConnectionClosedError(None, None))
+            await _drain(session.audio(flush_id))
+
+
 async def test_a_cancel_drops_every_pipelined_request(server):
     server.answer_flush = False
     async with aai.AsyncTTSSession() as session:
