@@ -134,9 +134,12 @@ def stream_completion(
             raise _error_from_response(response)
 
         for line in response.iter_lines():
-            if not line.startswith("data: "):
+            if not line.startswith("data:"):
                 continue
-            payload = line[len("data: ") :].strip()
+            # The space after an SSE field's colon is optional.
+            payload = line[len("data:") :].strip()
+            if not payload:
+                continue
             if payload == "[DONE]":
                 break
             yield models.LLMGatewayCompletionChunk.parse_obj(json.loads(payload))
