@@ -101,7 +101,7 @@ class AsyncTTSSession:
         self._queue_ready: Any = None
         self._next_flush_id = 0
         self._cancel_ids: List[int] = []
-        self._cancelled_before = 0
+        self._cancelled_before = -1
         self._drop_warned = False
         self.begin: Optional[TTSBeginEvent] = None
         self.termination: Optional[TTSTerminationEvent] = None
@@ -139,7 +139,7 @@ class AsyncTTSSession:
         self._queue_ready = asyncio.Event()
         self._next_flush_id = 0
         self._cancel_ids = []
-        self._cancelled_before = 0
+        self._cancelled_before = -1
         self._drop_warned = False
         self.begin = None
         self.termination = None
@@ -306,7 +306,9 @@ class AsyncTTSSession:
         while True:
             if self._queue is not connection:
                 return
-            if flush_id < self._cancelled_before:  # dropped by a Cancel
+            # A Cancel drops every request before it and the text being
+            # written, whose id it takes.
+            if flush_id <= self._cancelled_before:
                 return
             item = await self._get(timeout=0.5)
             if item is None:
@@ -323,7 +325,7 @@ class AsyncTTSSession:
                 if ident == flush_id:
                     return
             elif kind == "cancelled":
-                if ident > flush_id:
+                if ident >= flush_id:
                     return
             elif kind == "error":
                 raise self._surfaced()

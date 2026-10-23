@@ -995,3 +995,25 @@ def test_a_send_that_meets_a_close_does_not_hold_the_lock_while_waiting(server):
             session.generate("late")
     assert exc_info.value.error_code == "input_rate_exceeded"
     assert blocked_for.get("s", 0) < 0.5
+
+
+def test_cancel_ends_a_reader_following_the_request_being_written(server):
+    import threading
+
+    server.answer_flush = False
+    with aai.TTSSession() as session:
+        got: list = []
+        reader = threading.Thread(target=lambda: got.extend(session.audio()))
+        reader.start()  # no id: follows the text being written
+        session.generate("Interrupted before the flush.")
+        session.cancel()
+        reader.join(timeout=3)
+        assert not reader.is_alive()  # ended at once instead of hanging
+        assert got == []
+        server.answer_flush = True
+        assert b"".join(session.speak("Next.")) == b"Next."
+
+
+def test_the_first_request_is_not_dropped_by_the_initial_watermark(server):
+    with aai.TTSSession() as session:
+        assert b"".join(session.speak("Zero.")) == b"Zero."

@@ -683,3 +683,19 @@ async def test_a_stale_audio_iterator_ends_when_the_session_reconnects(mocker):
     assert [c async for c in stale] == []
     assert b"".join([c async for c in session.speak("NEW")]) == b"NEW"
     await session.terminate()
+
+
+async def test_cancel_ends_a_reader_following_the_request_being_written(server):
+    server.answer_flush = False
+    async with aai.AsyncTTSSession() as session:
+        reading = asyncio.ensure_future(_collect(session.audio()))
+        await asyncio.sleep(0)  # let the reader start before the text
+        await session.generate("Interrupted before the flush.")
+        await session.cancel()
+        assert await asyncio.wait_for(reading, 3) == []
+        server.answer_flush = True
+        assert b"".join([c async for c in session.speak("Next.")]) == b"Next."
+
+
+async def _collect(iterator):
+    return [chunk async for chunk in iterator]
