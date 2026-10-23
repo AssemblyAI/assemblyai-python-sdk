@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import stat
 from types import TracebackType
 from typing import (
     AsyncIterator,
@@ -39,7 +38,7 @@ _DEFAULT_MAX_CONCURRENCY = 8
 
 def _peek_length(stream: BinaryIO) -> Optional[int]:
     """
-    Returns the bytes left in `stream`, or `None` if the size is unknown.
+    Returns the logical bytes left in `stream`, or `None` if the size is unknown.
 
     A known size lets the upload send `Content-Length`. Pipes and sockets
     cannot report a size.
@@ -47,21 +46,10 @@ def _peek_length(stream: BinaryIO) -> Optional[int]:
 
     try:
         offset = stream.tell()
+        length = stream.seek(0, os.SEEK_END)
+        stream.seek(offset)
     except (AttributeError, OSError, ValueError):
-        offset = 0
-
-    try:
-        stat_result = os.fstat(stream.fileno())
-        if not stat.S_ISREG(stat_result.st_mode):
-            # A pipe or terminal reports st_size 0, which is not its length.
-            raise OSError
-        length = stat_result.st_size
-    except (AttributeError, OSError, ValueError):
-        try:
-            length = stream.seek(0, os.SEEK_END)
-            stream.seek(offset)
-        except (AttributeError, OSError, ValueError):
-            return None
+        return None
 
     return max(length - offset, 0)
 
@@ -219,7 +207,7 @@ class AsyncTranscriber(_BaseTranscriber):
         Returns: The URL of the uploaded audio file.
         """
 
-        content, headers = _upload_request(data)
+        content, headers = await _run_in_thread(_upload_request, data)
 
         return await async_api.upload_file(
             self._client.http_client,
