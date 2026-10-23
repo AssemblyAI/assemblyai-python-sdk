@@ -320,6 +320,31 @@ def test_a_refused_stream_releases_its_connection():
     assert body.closed
 
 
+class _CutJsonBody(httpx.SyncByteStream):
+    closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield b'{"code": '
+        raise httpx.ReadError("connection reset")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_refused_stream_releases_its_connection_if_its_body_fails():
+    # httpx closes a fully read body itself; a cut body is released only by
+    # the stream. Holding the error keeps `cm` alive, so GC cannot do it.
+    body = _CutJsonBody()
+    with httpx.Client(transport=_transport(body, status=503)) as http:
+        speech = api.stream_speech(
+            http, base_url="https://tts.test", body={"text": "Hi."}, timeout=5.0
+        )
+        with pytest.raises(httpx.ReadError) as exc_info:
+            speech.read()
+        assert body.closed
+        assert "connection reset" in str(exc_info.value)
+
+
 def test_a_client_built_from_api_key_is_closed_with_the_instance():
     with aai.TextToSpeech(api_key="k") as tts:
         http = tts.client.http_client
