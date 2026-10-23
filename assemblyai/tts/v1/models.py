@@ -254,7 +254,10 @@ class TTSResponseInfo(BaseModel):
 
     billed_characters: Optional[int] = None
     """The characters the request bills. On a stream, the value as the stream
-    started: a body cut by a server failure bills nothing."""
+    started: a body cut by a server failure bills nothing, one cut by the
+    API's 600-second limit (`session_expired`) bills only the text whose
+    audio had been generated, and one cut by a client reading too slowly
+    (`audio_backlog`) bills every character."""
 
     audio_duration_ms: Optional[int] = None
     """The duration of the audio in milliseconds, on a complete response:
