@@ -304,3 +304,55 @@ async def test_a_shared_client_is_left_open_on_aclose(httpx_mock: HTTPXMock):
 async def test_wrong_config_type_is_a_type_error():
     with pytest.raises(TypeError):
         aai.AsyncTextToSpeech(config=aai.DictationConfig())  # type: ignore[arg-type]
+
+
+async def test_the_tts_pool_keeps_idle_connections_120_s():
+    client = aai.AsyncClient(settings=aai.Settings(api_key="test"))
+    pool = client.tts_http_client
+
+    # A pool of its own, speaking HTTP/1.1, holding idle connections 120 s
+    assert pool is not client.http_client
+    assert pool is client.tts_http_client
+    assert pool._transport._pool._keepalive_expiry == 120.0  # type: ignore[attr-defined]
+    assert pool._transport._pool._http2 is False  # type: ignore[attr-defined]
+    # while the pool of the other APIs keeps httpx's default
+    assert client.http_client._transport._pool._keepalive_expiry == 5.0  # type: ignore[attr-defined]
+    await client.aclose()
+
+
+async def test_requests_go_through_the_tts_pool(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    _mock_ok(httpx_mock)
+    client = aai.AsyncClient(api_key="test")
+    assert client._tts_http_client is None  # built on first use only
+    # The pool of the other APIs is not needed
+    await client.http_client.aclose()
+
+    async with aai.AsyncTextToSpeech(client=client) as tts:
+        await tts.synthesize("Hi.")
+        async with tts.stream("Hi.") as speech:
+            await speech.aread()
+
+    assert len(httpx_mock.get_requests()) == 2
+    assert client.last_response is not None
+    assert str(client.last_response.request.url) == SPEECH_URL
+    await client.aclose()
+
+
+async def test_aclose_closes_both_pools(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    await tts.synthesize("Hi.")
+    pools = (tts.client.http_client, tts.client.tts_http_client)
+
+    await tts.aclose()
+
+    assert all(pool.is_closed for pool in pools)
+
+
+async def test_a_client_closed_before_it_spoke_fails_as_a_closed_pool_does():
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    await tts.aclose()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await tts.synthesize("Hi.")

@@ -21,6 +21,10 @@ class TextToSpeech:
 
     Requests go to `settings.tts_base_url`, `https://tts.us.assemblyai.com`
     by default; set `https://tts.eu.assemblyai.com` to keep them in the EU.
+    They share the client's Text-to-Speech pool (`Client.tts_http_client`),
+    which keeps an idle connection `settings.tts_keepalive_expiry` seconds
+    (120 by default), so a request within that time of the previous one
+    reuses its connection.
 
     Example:
         ```python
@@ -114,7 +118,7 @@ class TextToSpeech:
         body = request_body(text, config or self._config)
 
         return api.synthesize(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=synthesize_timeout(self._client.settings),
@@ -147,17 +151,20 @@ class TextToSpeech:
         body = request_body(text, config or self._config)
 
         return api.stream_speech(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=self._client.settings.tts_http_timeout,
         )
 
     def close(self) -> None:
-        """Closes the HTTP pool this instance owns. A shared `client` is left open."""
+        """Closes the HTTP pools this instance owns. A shared `client` is left open."""
 
         if self._owns_client:
-            self._client.http_client.close()
+            try:
+                self._client.http_client.close()
+            finally:
+                self._client._close_tts_http_client()
 
     def __enter__(self) -> "TextToSpeech":
         return self

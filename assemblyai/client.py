@@ -36,6 +36,21 @@ def _build_limits(settings: types.Settings) -> httpx.Limits:
     )
 
 
+def _build_tts_limits(settings: types.Settings) -> httpx.Limits:
+    """
+    Builds the limits of the Text-to-Speech pool: no cap on connections, as
+    from `_build_limits`, and idle connections kept
+    `settings.tts_keepalive_expiry` seconds. Shared with `AsyncClient`.
+    """
+
+    return httpx.Limits(keepalive_expiry=settings.tts_keepalive_expiry)
+
+
+# What httpx raises from a request on a closed client, raised as well when a
+# client closed before it built its Text-to-Speech pool is asked for that pool.
+_CLOSED_CLIENT_ERROR = "Cannot send a request, as the client has been closed."
+
+
 _MISSING_API_KEY_ERROR = (
     "Please provide an API key: set the ASSEMBLYAI_API_KEY environment variable, "
     "set aai.settings.api_key, or pass api_key= to the transcriber or client."
@@ -79,13 +94,20 @@ class Client:
         def _store_response(response):
             self._last_response = response
 
+        self._event_hooks = {"response": [_store_response]}
         self._http_client = httpx.Client(
             base_url=self.settings.base_url,
             headers=_build_headers(self._settings),
             timeout=self.settings.http_timeout,
             limits=_build_limits(self._settings),
-            event_hooks={"response": [_store_response]},
+            event_hooks=self._event_hooks,
         )
+
+        # Built by `tts_http_client` on first use, so a client that never
+        # speaks pays nothing for it.
+        self._tts_http_client: Optional[httpx.Client] = None
+        self._tts_http_client_closed = False
+        self._tts_http_client_lock = threading.Lock()
 
     @property
     def last_response(self) -> Optional[httpx.Response]:
@@ -118,6 +140,48 @@ class Client:
         """
 
         return self._http_client
+
+    @property
+    def tts_http_client(self) -> httpx.Client:
+        """
+        The HTTP client of the Text-to-Speech API, built on first use.
+
+        A connection pool of its own, whose idle connections stay
+        `settings.tts_keepalive_expiry` seconds (120 by default): a voice
+        agent's next sentence reuses the connection of the previous one
+        instead of opening a new one. `http_client` and its
+        `settings.keepalive_expiry` are unaffected. Responses update
+        `last_response` as those of `http_client` do.
+
+        Raises:
+            RuntimeError: if the pool was closed before it was ever built.
+        """
+
+        client = self._tts_http_client
+        if client is None:
+            with self._tts_http_client_lock:
+                client = self._tts_http_client
+                if client is None:
+                    if self._tts_http_client_closed:
+                        raise RuntimeError(_CLOSED_CLIENT_ERROR)
+                    client = self._tts_http_client = httpx.Client(
+                        base_url=self._settings.tts_base_url,
+                        headers=_build_headers(self._settings),
+                        timeout=self._settings.tts_http_timeout,
+                        limits=_build_tts_limits(self._settings),
+                        event_hooks=self._event_hooks,
+                    )
+
+        return client
+
+    def _close_tts_http_client(self) -> None:
+        """Closes the Text-to-Speech pool, and keeps it from being built later."""
+
+        with self._tts_http_client_lock:
+            self._tts_http_client_closed = True
+            client = self._tts_http_client
+        if client is not None:
+            client.close()
 
     @classmethod
     def get_default(cls, api_key_required: bool = True):

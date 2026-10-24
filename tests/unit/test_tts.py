@@ -4,9 +4,12 @@ Every entry point posts one JSON body to `/v1/speech` on the TTS host and
 reads audio back; the response headers carry the metadata.
 """
 
+import http.server
 import json
+import threading
+import time
 import warnings
-from typing import Iterator
+from typing import Iterator, List
 
 import httpx
 import pytest
@@ -662,3 +665,176 @@ def test_swapped_text_and_config_is_named():
 def test_a_dict_config_is_a_type_error_not_an_attribute_error():
     with pytest.raises(TypeError, match="TTSConfig"):
         aai.TextToSpeech().synthesize("Hi.", {"voice_id": "aai-jane"})  # type: ignore[arg-type]
+
+
+def _keepalive_expiry(http: httpx.Client) -> float:
+    """The idle time of `http`'s connection pool (httpcore's own field)."""
+
+    return http._transport._pool._keepalive_expiry  # type: ignore[attr-defined]
+
+
+def test_the_tts_pool_keeps_idle_connections_120_s_by_default():
+    assert aai.Settings().tts_keepalive_expiry == 120.0
+
+    client = aai.Client(settings=aai.Settings(api_key="test"))
+    pool = client.tts_http_client
+
+    # A pool of its own, speaking HTTP/1.1, holding idle connections 120 s
+    assert pool is not client.http_client
+    assert pool is client.tts_http_client
+    assert _keepalive_expiry(pool) == 120.0
+    assert pool._transport._pool._http2 is False  # type: ignore[attr-defined]
+    # while the pool of the other APIs keeps httpx's default
+    assert _keepalive_expiry(client.http_client) == 5.0
+
+
+def test_the_tts_keepalive_expiry_is_a_setting():
+    settings = aai.Settings(api_key="test", tts_keepalive_expiry=30.0)
+    assert _keepalive_expiry(aai.Client(settings=settings).tts_http_client) == 30.0
+
+    with pytest.raises(ValueError):
+        aai.Settings(tts_keepalive_expiry=-1.0)
+
+
+def test_the_tts_pool_is_built_on_first_use_only(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    client = aai.Client(api_key="test")
+    tts = aai.TextToSpeech(client=client)
+    assert client._tts_http_client is None  # a client that never speaks
+
+    tts.synthesize("Hi.")
+
+    assert client._tts_http_client is not None
+
+
+def test_requests_go_through_the_tts_pool(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    _mock_ok(httpx_mock)
+    client = aai.Client(api_key="test")
+    tts = aai.TextToSpeech(client=client)
+    # The pool of the other APIs is not needed
+    client.http_client.close()
+
+    tts.synthesize("Hi.")
+    with tts.stream("Hi.") as speech:
+        speech.read()
+
+    assert len(httpx_mock.get_requests()) == 2
+    # and responses still update last_response
+    assert client.last_response is not None
+    assert str(client.last_response.request.url) == SPEECH_URL
+
+
+def test_concurrent_first_requests_build_one_tts_pool():
+    client = aai.Client(api_key="test")
+    callers = 8
+    start = threading.Barrier(callers)
+    pools: List[httpx.Client] = []
+
+    def take() -> None:
+        start.wait()
+        pools.append(client.tts_http_client)
+
+    threads = [threading.Thread(target=take) for _ in range(callers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(pools) == callers
+    assert all(pool is pools[0] for pool in pools)
+
+
+def test_closing_an_owned_client_closes_its_tts_pool(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    with aai.TextToSpeech(api_key="k") as tts:
+        tts.synthesize("Hi.")
+        pool = tts.client.tts_http_client
+    assert pool.is_closed
+
+    # an instance closed before it ever spoke fails as a closed pool does
+    unused = aai.TextToSpeech(api_key="k")
+    unused.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        unused.synthesize("Hi.")
+
+    # and the shared default client's pool stays open
+    shared = aai.TextToSpeech()
+    pool = shared.client.tts_http_client
+    shared.close()
+    assert not pool.is_closed
+
+
+class _CountingServer(http.server.ThreadingHTTPServer):
+    """An HTTP/1.1 server answering every POST with 20 ms of audio, counting
+    the TCP connections it accepts."""
+
+    daemon_threads = True
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _AudioHandler)
+        self.connections = 0
+
+    def get_request(self):  # type: ignore[no-untyped-def]
+        request = super().get_request()
+        self.connections += 1
+        return request
+
+
+class _AudioHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # keeps connections open between requests
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["content-length"]))
+        self.send_response(200)
+        for name, value in _OK_HEADERS.items():
+            self.send_header(name, value)
+        self.send_header("content-length", str(len(_AUDIO)))
+        self.end_headers()
+        self.wfile.write(_AUDIO)
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+@pytest.fixture
+def counting_server() -> Iterator[_CountingServer]:
+    server = _CountingServer()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def test_a_request_within_the_tts_keepalive_expiry_reuses_the_connection(
+    counting_server: _CountingServer,
+):
+    # Given: a Text-to-Speech pool that keeps idle connections 1 s
+    host, port = counting_server.server_address[:2]
+    settings = aai.Settings(
+        api_key="test", tts_base_url=f"http://{host}:{port}", tts_keepalive_expiry=1.0
+    )
+    client = aai.Client(settings=settings)
+    tts = aai.TextToSpeech(client=client)
+
+    try:
+        # When: two requests follow each other
+        tts.synthesize("One.")
+        tts.synthesize("Two.")
+
+        # Then: the second reuses the first one's connection
+        assert counting_server.connections == 1
+
+        # When: the next request comes after the connection's idle time
+        time.sleep(1.5)
+        with tts.stream("Three.") as speech:
+            assert speech.read() == _AUDIO
+
+        # Then: it opens a new connection
+        assert counting_server.connections == 2
+    finally:
+        client.tts_http_client.close()

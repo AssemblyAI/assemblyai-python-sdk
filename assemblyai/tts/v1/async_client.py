@@ -101,7 +101,7 @@ class AsyncTextToSpeech:
         body = request_body(text, config or self._config)
 
         return await async_api.synthesize(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=synthesize_timeout(self._client.settings),
@@ -129,7 +129,7 @@ class AsyncTextToSpeech:
         body = request_body(text, config or self._config)
 
         return async_api.stream_speech(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=self._client.settings.tts_http_timeout,

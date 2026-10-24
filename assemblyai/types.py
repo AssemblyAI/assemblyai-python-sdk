@@ -171,6 +171,9 @@ class Settings(BaseSettings):
     tts_synthesize_http_timeout: float = 610.0
     "The read timeout of buffered Text-to-Speech requests (`synthesize()`), whose one read waits for the complete audio. A little over the API's own 600-second limit on a request, so a request that reaches it gets the API's `504 session_expired` as a `TTSError`, not a client timeout."
 
+    tts_keepalive_expiry: float = Field(default=120.0, ge=0.0)
+    "Seconds an idle connection stays in the Text-to-Speech HTTP pool (`TextToSpeech`/`AsyncTextToSpeech`), a pool of its own, so `keepalive_expiry` and the other APIs are unaffected. A voice agent's turns are often more than httpx's default 5 seconds apart; a request within this time of the previous one reuses its connection and skips the TCP and TLS handshakes (a few milliseconds in the API's region, two network round trips from farther away). Well under the hour the API keeps an idle connection open, so the client closes an idle connection before the API does."
+
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
 
