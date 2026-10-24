@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import inspect
 import shutil
@@ -5,6 +6,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import time
 import warnings
 from typing import Iterator, List, Optional, Tuple
 
@@ -21,6 +23,10 @@ from assemblyai.streaming.v3 import (
     _tls,
 )
 from assemblyai.streaming.v3.client import websocket_connect
+from assemblyai.tts.v1.async_session import (
+    websocket_connect_async as tts_websocket_connect_async,
+)
+from assemblyai.tts.v1.session import websocket_connect as tts_websocket_connect
 
 # websockets 13 renamed the sync ``connect()`` / ``serve()`` TLS parameter
 # from ``ssl_context`` to ``ssl``.
@@ -341,3 +347,126 @@ def test_client_connect_passes_no_tls_context_for_ws(mocker: MockFixture):
     [(uri, kwargs)] = calls
     assert uri.startswith("ws://localhost:8080/v3/ws?")
     assert not {"ssl", "ssl_context"} & kwargs.keys()
+
+
+def test_shared_tls_context_is_built_once(monkeypatch: pytest.MonkeyPatch):
+    # Given: no shared context built yet
+    monkeypatch.setattr(_tls, "_shared_context", None)
+    built: List[ssl.SSLContext] = []
+    create_tls_context = _tls._create_tls_context
+
+    def counting_create_tls_context() -> ssl.SSLContext:
+        context = create_tls_context()
+        built.append(context)
+        return context
+
+    monkeypatch.setattr(_tls, "_create_tls_context", counting_create_tls_context)
+
+    # When: asking for it twice
+    first = _tls._shared_tls_context()
+    second = _tls._shared_tls_context()
+
+    # Then: one context was built and both calls return it, with the SDK
+    # context's socket class and verification
+    assert built == [first]
+    assert second is first
+    assert first.sslsocket_class is _tls._WriteFirstSSLSocket
+    assert first.verify_mode == ssl.CERT_REQUIRED
+    assert first.check_hostname is True
+
+
+def test_shared_tls_context_is_built_once_by_concurrent_first_callers(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Given: no shared context yet, and a build slow enough for every thread
+    # to ask before it finishes
+    monkeypatch.setattr(_tls, "_shared_context", None)
+    built: List[ssl.SSLContext] = []
+    create_tls_context = _tls._create_tls_context
+
+    def slow_create_tls_context() -> ssl.SSLContext:
+        time.sleep(0.05)
+        context = create_tls_context()
+        built.append(context)
+        return context
+
+    monkeypatch.setattr(_tls, "_create_tls_context", slow_create_tls_context)
+    callers = 8
+    start = threading.Barrier(callers)
+    got: List[ssl.SSLContext] = []
+
+    def call() -> None:
+        start.wait()
+        got.append(_tls._shared_tls_context())
+
+    # When: several threads ask for it at once
+    threads = [threading.Thread(target=call) for _ in range(callers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    # Then: one context was built, and every thread got it
+    assert len(built) == 1
+    assert len(got) == callers
+    assert all(context is built[0] for context in got)
+
+
+@pytest.fixture
+def trusting_shared_context(
+    monkeypatch: pytest.MonkeyPatch, client_context: ssl.SSLContext
+) -> ssl.SSLContext:
+    """The SDK context trusting the test certificate, as the process's shared
+    context."""
+    monkeypatch.setattr(_tls, "_shared_context", client_context)
+    return client_context
+
+
+def test_tts_sessions_share_one_context_over_wss(
+    server_context: ssl.SSLContext, trusting_shared_context: ssl.SSLContext
+):
+    # Given: a TLS 1.3 websockets echo server
+    with _websocket_server(server_context) as port:
+        for _ in range(2):
+            # When: a Text-to-Speech session connects over wss://
+            connection = tts_websocket_connect(
+                f"wss://{_HOST}:{port}/v1/ws", open_timeout=10
+            )
+
+            # Then: the handshake completes over a write-first socket of the
+            # shared context, on every connect
+            with connection:
+                assert isinstance(connection.socket, _tls._WriteFirstSSLSocket)
+                assert connection.socket.context is trusting_shared_context
+                assert connection.socket.version() == "TLSv1.3"
+                connection.send("ping")
+                assert connection.recv(timeout=10) == "ping"
+
+
+def test_async_tts_sessions_share_one_context_over_wss(
+    server_context: ssl.SSLContext, trusting_shared_context: ssl.SSLContext
+):
+    # Given: a TLS 1.3 websockets echo server
+    async def connect_twice(port: int) -> List[Tuple[object, Optional[str], str]]:
+        seen = []
+        for _ in range(2):
+            # When: an asyncio Text-to-Speech session connects over wss://
+            connection = await asyncio.wait_for(
+                tts_websocket_connect_async(f"wss://{_HOST}:{port}/v1/ws", {}),
+                timeout=10,
+            )
+            try:
+                ssl_object = connection.transport.get_extra_info("ssl_object")
+                await connection.send("ping")
+                echoed = await asyncio.wait_for(connection.recv(), timeout=10)
+                seen.append((ssl_object.context, ssl_object.version(), echoed))
+            finally:
+                await connection.close()
+        return seen
+
+    with _websocket_server(server_context) as port:
+        seen = asyncio.run(connect_twice(port))
+
+    # Then: both handshakes completed with the shared context, which asyncio
+    # uses through wrap_bio() whatever its socket class
+    assert seen == [(trusting_shared_context, "TLSv1.3", "ping")] * 2
