@@ -5,6 +5,7 @@ the asyncio twin's behaviour: same route, same audio and headers, same errors,
 plus pool ownership.
 """
 
+import asyncio
 import json
 from typing import AsyncIterator
 
@@ -13,7 +14,9 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai import client as client_module
 from assemblyai.tts.v1 import async_api
+from tests.unit.tts_http_server import serving
 
 pytestmark = pytest.mark.asyncio
 
@@ -356,3 +359,63 @@ async def test_a_client_closed_before_it_spoke_fails_as_a_closed_pool_does():
 
     with pytest.raises(RuntimeError, match="closed"):
         await tts.synthesize("Hi.")
+
+
+async def test_the_tts_pool_is_built_with_the_text_to_speech_not_with_the_client():
+    client = aai.AsyncClient(api_key="test")
+    assert client._tts_http_client is None  # a client that never speaks
+
+    aai.AsyncTextToSpeech(client=client)
+
+    # Built before the first request, which then does not wait for it, with
+    # the TLS context every TTS pool of the process shares
+    assert client._tts_http_client is not None
+    pool = client._tts_http_client._transport._pool  # type: ignore[attr-defined]
+    assert pool._ssl_context is client_module._shared_tts_ssl_context()
+    await client.aclose()
+
+
+async def test_a_closed_client_builds_no_pool_and_its_first_request_raises():
+    client = aai.AsyncClient(api_key="test")
+    await client.aclose()
+
+    tts = aai.AsyncTextToSpeech(client=client)
+    assert client._tts_http_client is None
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await tts.synthesize("Hi.")
+
+
+async def test_a_connection_the_server_closed_while_idle_is_not_reused():
+    # Given: a server (or load balancer) that closes each connection 0.2 s
+    # after its response, well before the pool's 120 s idle time runs out
+    with serving(_AUDIO, _OK_HEADERS, close_after=0.2) as server:
+        settings = aai.Settings(
+            api_key="test", tts_base_url=server.url, tts_keepalive_expiry=120.0
+        )
+        async with aai.AsyncClient(settings=settings) as client:
+            tts = aai.AsyncTextToSpeech(client=client)
+            await tts.synthesize("One.")
+
+            # When: the next request comes after the server closed it
+            await asyncio.sleep(0.5)
+            response = await tts.synthesize("Two.")
+
+            # Then: it succeeds on a new connection, with no
+            # RemoteProtocolError from sending on the closed one
+            assert response.audio == _AUDIO
+            assert server.connections == 2
+
+
+async def test_a_forked_child_drops_the_inherited_tts_pool():
+    client = aai.AsyncClient(api_key="test")
+    parent_pool = client.tts_http_client
+
+    # What runs in a child right after os.fork()
+    client_module._forget_tts_pools_in_child()
+
+    # The child builds a pool of its own on its next request
+    assert client._tts_http_client is None
+    assert client.tts_http_client is not parent_pool
+    await parent_pool.aclose()
+    await client.aclose()

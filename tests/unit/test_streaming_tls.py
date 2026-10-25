@@ -42,9 +42,9 @@ _HOST = "127.0.0.1"
 @pytest.fixture(scope="module")
 def tls_cert(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str]:
     """A throwaway self-signed certificate and key for ``127.0.0.1``."""
-    openssl = shutil.which("openssl")
-    if openssl is None:
-        pytest.skip("the openssl CLI is needed to generate a test certificate")
+    openssl = shutil.which("openssl") or pytest.skip(
+        "the openssl CLI is needed to generate a test certificate"
+    )
     directory = tmp_path_factory.mktemp("tls")
     cert = str(directory / "cert.pem")
     key = str(directory / "key.pem")
