@@ -122,8 +122,8 @@ class AsyncClient:
         The HTTP client of the Text-to-Speech API, built when an
         `AsyncTextToSpeech` takes this client or on first use.
 
-        A connection pool of its own, whose idle connections stay
-        `settings.tts_keepalive_expiry` seconds (120 by default); see
+        A connection pool of its own, whose idle connections stay 120
+        seconds by default (see `settings.tts_keepalive_expiry`); see
         `Client.tts_http_client`. `aclose()` closes it with `http_client`.
 
         Raises:

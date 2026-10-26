@@ -39,14 +39,34 @@ def _build_limits(settings: types.Settings) -> httpx.Limits:
     )
 
 
+# Seconds the Text-to-Speech pool keeps an idle connection when neither
+# `tts_keepalive_expiry` nor `keepalive_expiry` is set.
+_DEFAULT_TTS_KEEPALIVE_EXPIRY = 120.0
+
+
+def _tts_keepalive_expiry(settings: types.Settings) -> float:
+    """
+    Returns the seconds the Text-to-Speech pool keeps an idle connection:
+    `settings.tts_keepalive_expiry` when set, else 120, or
+    `settings.keepalive_expiry` when that is set lower (someone who lowered
+    it because their network drops idle connections gets the same here).
+    """
+
+    if settings.tts_keepalive_expiry is not None:
+        return settings.tts_keepalive_expiry
+    if settings.keepalive_expiry is not None:
+        return min(settings.keepalive_expiry, _DEFAULT_TTS_KEEPALIVE_EXPIRY)
+    return _DEFAULT_TTS_KEEPALIVE_EXPIRY
+
+
 def _build_tts_limits(settings: types.Settings) -> httpx.Limits:
     """
     Builds the limits of the Text-to-Speech pool: no cap on connections, as
     from `_build_limits`, and idle connections kept
-    `settings.tts_keepalive_expiry` seconds. Shared with `AsyncClient`.
+    `_tts_keepalive_expiry(settings)` seconds. Shared with `AsyncClient`.
     """
 
-    return httpx.Limits(keepalive_expiry=settings.tts_keepalive_expiry)
+    return httpx.Limits(keepalive_expiry=_tts_keepalive_expiry(settings))
 
 
 # What httpx raises from a request on a closed client, raised as well when a
@@ -101,21 +121,18 @@ def _forget_tts_pools_in_child() -> None:
     Text-to-Speech pool the child inherited, so the child's next request
     builds a pool of its own.
 
-    An inherited pool holds the parent's idle connections, kept up to
-    `tts_keepalive_expiry` seconds (120 by default): a request made before
-    the fork, such as a warm-up in a `gunicorn --preload` app, leaves one
-    there. Processes sending on one connection at once garble each other's
-    responses. The pools are dropped rather than closed: another thread of the
-    parent may have held a pool's lock at the moment of the fork, and an async
-    pool needs its event loop. Each process closes its own socket descriptors,
-    so the parent's connections stay intact.
+    An inherited pool holds the parent's idle connections, kept up to 120
+    seconds by default: a request made before the fork, such as a warm-up in
+    a `gunicorn --preload` app, leaves one there. Processes sending on one
+    connection at once garble each other's responses. The pools are dropped
+    rather than closed: another thread of the parent may have held a pool's
+    lock at the moment of the fork, and an async pool needs its event loop.
+    Each process closes its own socket descriptors, so the parent's
+    connections stay intact.
 
     Dropping relies on httpx not closing a client when it is garbage
     collected, which holds from httpx 0.22, the floor in `setup.py`. httpx
     0.19 to 0.21 close it in `Client.__del__`, which takes the pool's lock.
-    Keeping the dropped pools referenced would not help there: the child's
-    interpreter would close them at exit, and its copies of the parent's
-    sockets would stay open until then.
     """
 
     for holder in list(_TTS_POOL_HOLDERS):
@@ -223,13 +240,12 @@ class Client:
         The HTTP client of the Text-to-Speech API, built when a
         `TextToSpeech` takes this client or on first use.
 
-        A connection pool of its own, whose idle connections stay
-        `settings.tts_keepalive_expiry` seconds (120 by default): a voice
+        A connection pool of its own, whose idle connections stay 120
+        seconds by default (see `settings.tts_keepalive_expiry`): a voice
         agent's next sentence reuses the connection of the previous one
-        instead of opening a new one. `http_client` and its
-        `settings.keepalive_expiry` are unaffected. Responses update
-        `last_response` as those of `http_client` do. `close()` closes it
-        with `http_client`.
+        instead of opening a new one. `http_client` is unaffected.
+        Responses update `last_response` as those of `http_client` do.
+        `close()` closes it with `http_client`.
 
         Raises:
             RuntimeError: if the pool was closed before it was ever built.

@@ -22,9 +22,9 @@ class TextToSpeech:
     Requests go to `settings.tts_base_url`, `https://tts.us.assemblyai.com`
     by default; set `https://tts.eu.assemblyai.com` to keep them in the EU.
     They share the client's Text-to-Speech pool (`Client.tts_http_client`),
-    which keeps an idle connection `settings.tts_keepalive_expiry` seconds
-    (120 by default), so a request within that time of the previous one
-    reuses its connection.
+    which keeps an idle connection 120 seconds by default
+    (`settings.tts_keepalive_expiry`), so a request within that time of the
+    previous one reuses its connection.
 
     Example:
         ```python

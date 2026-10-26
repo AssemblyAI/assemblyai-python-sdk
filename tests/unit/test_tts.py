@@ -14,7 +14,7 @@ import time
 import warnings
 import weakref
 from pathlib import Path
-from typing import Iterator, List
+from typing import Iterator, List, Optional
 
 import httpx
 import pytest
@@ -687,7 +687,7 @@ def _ssl_context(http: httpx.Client) -> ssl.SSLContext:
 
 
 def test_the_tts_pool_keeps_idle_connections_120_s_by_default():
-    assert aai.Settings().tts_keepalive_expiry == 120.0
+    assert aai.Settings().tts_keepalive_expiry is None
 
     client = aai.Client(settings=aai.Settings(api_key="test"))
     pool = client.tts_http_client
@@ -707,6 +707,35 @@ def test_the_tts_keepalive_expiry_is_a_setting():
 
     with pytest.raises(ValueError):
         aai.Settings(tts_keepalive_expiry=-1.0)
+
+
+@pytest.mark.parametrize(
+    "keepalive_expiry, tts_keepalive_expiry, expected",
+    [
+        # Given a keepalive_expiry lowered because the network drops idle
+        # connections, the TTS pool keeps them no longer either
+        (2.0, None, 2.0),
+        # Given one raised past 120 s, the TTS pool keeps its own 120 s
+        (300.0, None, 120.0),
+        # Given tts_keepalive_expiry as well, it wins either way
+        (2.0, 30.0, 30.0),
+        (300.0, 30.0, 30.0),
+    ],
+)
+def test_the_tts_pool_follows_a_shorter_keepalive_expiry(
+    keepalive_expiry: float, tts_keepalive_expiry: Optional[float], expected: float
+):
+    settings = aai.Settings(
+        api_key="test",
+        keepalive_expiry=keepalive_expiry,
+        tts_keepalive_expiry=tts_keepalive_expiry,
+    )
+    client = aai.Client(settings=settings)
+
+    assert _keepalive_expiry(client.tts_http_client) == expected
+    # and the pool of the other APIs keeps keepalive_expiry
+    assert _keepalive_expiry(client.http_client) == keepalive_expiry
+    client.close()
 
 
 def test_the_tts_pool_is_built_with_the_text_to_speech_not_with_the_client():

@@ -326,6 +326,17 @@ async def test_the_tts_pool_keeps_idle_connections_120_s():
     await client.aclose()
 
 
+async def test_the_tts_pool_follows_a_shorter_keepalive_expiry():
+    # Given a keepalive_expiry lowered because the network drops idle
+    # connections
+    settings = aai.Settings(api_key="test", keepalive_expiry=2.0)
+    client = aai.AsyncClient(settings=settings)
+
+    # The TTS pool keeps them no longer either
+    assert client.tts_http_client._transport._pool._keepalive_expiry == 2.0  # type: ignore[attr-defined]
+    await client.aclose()
+
+
 async def test_requests_go_through_the_tts_pool(httpx_mock: HTTPXMock):
     _mock_ok(httpx_mock)
     _mock_ok(httpx_mock)

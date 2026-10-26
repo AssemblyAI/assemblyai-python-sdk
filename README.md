@@ -894,7 +894,7 @@ except aai.DictationError as error:
 
 `aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: the `voice_id` (a voice of the AssemblyAI voice library by its slug: `aai-jane` by default, `aai-alba`, `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera` and hundreds more; or a voice cloned by your account, by its UUID or slug), the `model_id` (`assemblyai-tts-1`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
 
-Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone. They share a connection pool of their own that keeps an idle connection for `aai.settings.tts_keepalive_expiry` seconds (120 by default), so a request that follows the previous one within that time, such as a voice agent's next sentence, reuses its connection instead of opening a new one. `aai.settings.keepalive_expiry` does not apply to this pool: if you lowered it because your network drops idle connections, lower `tts_keepalive_expiry` as well. A client you pass as `client=` stays yours to close: `client.close()` closes both of its pools.
+Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone. They share a connection pool of their own that keeps an idle connection for 120 seconds by default, so a request that follows the previous one within that time, such as a voice agent's next sentence, reuses its connection instead of opening a new one. If you set `aai.settings.keepalive_expiry` shorter than that, this pool uses it too; `aai.settings.tts_keepalive_expiry` sets this pool's idle time on its own. A client you pass as `client=` stays yours to close: `client.close()` closes both of its pools.
 
 <details>
   <summary>Synthesize a WAV file</summary>
@@ -2042,7 +2042,7 @@ aai.settings.dictation_http_timeout = 300.0
 aai.settings.tts_base_url = "https://tts.eu.assemblyai.com"
 aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation
 aai.settings.tts_synthesize_http_timeout = 610.0  # synthesize(): the wait for the whole clip
-aai.settings.tts_keepalive_expiry = 120.0  # seconds an idle connection stays in the TTS pool (keepalive_expiry does not apply to it)
+aai.settings.tts_keepalive_expiry = 120.0  # seconds an idle connection stays in the TTS pool (unset: 120, or keepalive_expiry when shorter)
 ```
 
 Set these before creating a client: `aai.TextToSpeech()` (like every client) copies the settings when it is built, so a later change applies to the next instance, not to an existing one. Every setting can also come from the environment with the `ASSEMBLYAI_` prefix, such as `ASSEMBLYAI_TTS_BASE_URL`.
