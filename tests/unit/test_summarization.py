@@ -138,3 +138,50 @@ def test_summarization_params_excluded_when_disabled(httpx_mock: HTTPXMock):
     # Check that transcript was properly parsed from JSON response
     assert transcript.error is None
     assert transcript.summary is None
+
+
+@pytest.mark.parametrize(
+    "speaker_separation_param",
+    [
+        {"multichannel": True},
+        {"speaker_labels": True},
+        {"dual_channel": True},
+    ],
+    ids=["multichannel", "speaker_labels", "dual_channel"],
+)
+def test_conversational_summary_with_speaker_separation(
+    httpx_mock: HTTPXMock, speaker_separation_param: dict
+):
+    """
+    Tests that `summary_model=conversational` is accepted together with any of
+    the valid speaker-separation flags (`multichannel`, `speaker_labels`,
+    `dual_channel`) without a client-side error.
+
+    Regression test for https://github.com/AssemblyAI/assemblyai-node-sdk/issues/71 —
+    `multichannel=True` was previously undocumented as a valid alternative to
+    `speaker_labels`/`dual_channel` for conversational summaries.
+    """
+    mock_response = factories.generate_dict_factory(SummarizationResponseFactory)()
+    request_body, transcript = test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response,
+        aai.TranscriptionConfig(
+            summarization=True,
+            summary_model=aai.SummarizationModel.conversational,
+            summary_type=aai.SummarizationType.bullets,
+            **speaker_separation_param,  # type: ignore[arg-type]
+        ),
+    )
+
+    # The SDK must not raise before submitting
+    assert request_body.get("summarization") is True
+    assert request_body.get("summary_model") == aai.SummarizationModel.conversational
+    assert request_body.get("summary_type") == aai.SummarizationType.bullets
+
+    # The speaker-separation flag must be forwarded to the API
+    for key, value in speaker_separation_param.items():
+        assert request_body.get(key) == value
+
+    # Response must be parsed correctly
+    assert transcript.error is None
+    assert transcript.summary == mock_response["summary"]
