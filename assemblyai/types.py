@@ -132,7 +132,7 @@ class Settings(BaseSettings):
     "The default HTTP timeout for general requests"
 
     keepalive_expiry: Optional[float] = None
-    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording."
+    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording. Text-to-Speech requests keep idle connections 120 seconds, or this long when it is shorter; `tts_keepalive_expiry` overrides both."
 
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
@@ -170,6 +170,9 @@ class Settings(BaseSettings):
 
     tts_synthesize_http_timeout: float = 610.0
     "The read timeout of buffered Text-to-Speech requests (`synthesize()`), whose one read waits for the complete audio. A little over the API's own 600-second limit on a request, so a request that reaches it gets the API's `504 session_expired` as a `TTSError`, not a client timeout."
+
+    tts_keepalive_expiry: Optional[float] = Field(default=None, ge=0.0)
+    "Seconds an idle connection stays in the Text-to-Speech HTTP pool (`TextToSpeech`/`AsyncTextToSpeech`), a pool of its own. None (the default) keeps it 120 seconds, or `keepalive_expiry` when you set that shorter. A voice agent's turns are often more than httpx's default 5 seconds apart; a request within this time of the previous one reuses its connection and skips the TCP and TLS handshakes (a few milliseconds in the API's region, at least two network round trips from farther away). The client never reuses a connection that has been idle longer than this: lower it if a proxy or NAT on your network closes idle connections sooner."
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"

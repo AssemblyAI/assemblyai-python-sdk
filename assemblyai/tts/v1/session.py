@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+from urllib.parse import urlsplit
 
 from ... import _audio
 from ... import client as _client
@@ -35,20 +36,29 @@ _Handler = Callable[[Any], None]
 
 
 def websocket_connect(uri: str, **kwargs: Any) -> Any:
-    """Opens a sync websocket; the streaming client's seam, imported lazily so
-    `import assemblyai` does not load websockets. Tests patch this name."""
+    """Opens a sync websocket, importing websockets lazily so `import
+    assemblyai` does not load it. Tests patch this name.
+
+    `wss://` connects use the process's shared TLS context
+    (`_shared_tls_context()`): the streaming client's write-first context,
+    built by the first connect, so later connects skip loading the CA
+    certificates.
+    """
 
     import inspect
 
     from websockets.sync.client import connect as _ws_connect
 
-    from ...streaming.v3.client import websocket_connect as _connect
+    from ...streaming.v3._tls import _shared_tls_context
+    from ...streaming.v3.client import _WS_SSL_KW
 
     # websockets 17 deprecates a bare connect() unless `legacy=True` (older
     # releases have no such parameter).
     if "legacy" in inspect.signature(_ws_connect).parameters:
         kwargs["legacy"] = True
-    return _connect(uri, **kwargs)
+    if urlsplit(uri).scheme == "wss":
+        kwargs[_WS_SSL_KW] = _shared_tls_context()
+    return _ws_connect(uri, **kwargs)
 
 
 class TTSSession:

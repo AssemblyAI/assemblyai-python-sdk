@@ -22,7 +22,7 @@ setup(
     package_data={"assemblyai": ["py.typed"]},
     zip_safe=False,
     install_requires=[
-        "httpx>=0.19.0",
+        "httpx>=0.22.0",
         "pydantic>=2.0; python_version>='3.14'",
         "pydantic>=1.10.17; python_version<'3.14'",
         "pydantic-settings>=2.0; python_version>='3.14'",

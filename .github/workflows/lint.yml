@@ -59,7 +59,8 @@ jobs:
 
   mypy:
     needs: []
-    runs-on: ubuntu-latest
+    # actions/setup-python has Python 3.9 builds up to Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
       # Get all changed and modified files.
