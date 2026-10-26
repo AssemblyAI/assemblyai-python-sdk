@@ -1259,13 +1259,11 @@ class TranscriptionConfig:
             keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.
             domain: The domain to use for the transcription (e.g. 'medical-v1').
         """
-        self._raw_transcription_config = (
-            raw_transcription_config
-            if raw_transcription_config is not None
-            else RawTranscriptionConfig()
-        )
+        # The explicit arguments are applied to a fresh config first. Applying them
+        # straight onto `raw_transcription_config` would overwrite each of its
+        # values with the argument's `None` default.
+        self._raw_transcription_config = RawTranscriptionConfig()
 
-        # explicit configurations have higher priority if `raw_transcription_config` has been passed as well
         self.language_code = language_code
         self.language_codes = language_codes
         self.punctuate = punctuate
@@ -1319,6 +1317,13 @@ class TranscriptionConfig:
         self.keyterms_prompt_options = keyterms_prompt_options  # type: ignore[assignment]
         self.speech_understanding = speech_understanding  # type: ignore[assignment]
         self.domain = domain
+
+        if raw_transcription_config is not None:
+            # explicit configurations have higher priority if `raw_transcription_config` has been passed as well
+            for field, value in self._raw_transcription_config:
+                if value is not None:
+                    setattr(raw_transcription_config, field, value)
+            self._raw_transcription_config = raw_transcription_config
 
     @property
     def raw(self) -> RawTranscriptionConfig:

@@ -577,3 +577,51 @@ def test_metadata_not_present():
     transcript_response = aai.types.TranscriptResponse(**mock_transcript_response)
 
     assert transcript_response.metadata is None
+
+
+def test_config_from_response_with_custom_spelling():
+    """
+    Tests that `transcript.config` rebuilds a config whose response echoes
+    `custom_spelling` in its API shape, a list of from/to objects.
+    """
+
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    mock_transcript_response["custom_spelling"] = [
+        {"from": ["k8s", "kube"], "to": "Kubernetes"}
+    ]
+
+    transcript = aai.Transcript.from_response(
+        client=aai.Client.get_default(),
+        response=aai.types.TranscriptResponse(**mock_transcript_response),
+    )
+
+    assert transcript.config.custom_spelling == {"Kubernetes": ["k8s", "kube"]}
+
+
+def test_config_from_response_with_language_detection_results():
+    """
+    Tests that `transcript.config` rebuilds a config whose response carries
+    `language_detection_results`, which is not a `TranscriptionConfig` argument.
+    """
+
+    mock_transcript_response = factories.generate_dict_factory(
+        factories.TranscriptCompletedResponseFactory
+    )()
+    mock_transcript_response["language_detection"] = True
+    mock_transcript_response["language_detection_results"] = {
+        "code_switching_languages": [{"language_code": "es", "confidence": 0.4}]
+    }
+
+    transcript = aai.Transcript.from_response(
+        client=aai.Client.get_default(),
+        response=aai.types.TranscriptResponse(**mock_transcript_response),
+    )
+
+    config = transcript.config
+
+    assert config.language_detection is True
+    results = config.language_detection_results
+    assert results is not None and results.code_switching_languages is not None
+    assert results.code_switching_languages[0].language_code == "es"
