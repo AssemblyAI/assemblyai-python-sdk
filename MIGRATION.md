@@ -222,8 +222,6 @@ transcriber.warm()  # while the clip is still being recorded
 
 `AsyncSyncTranscriber.warm()` is the awaitable equivalent.
 
-Text-to-Speech requests (`aai.TextToSpeech`, `aai.AsyncTextToSpeech`) use a pool of their own, kept by `settings.tts_keepalive_expiry` (120 seconds by default), and `keepalive_expiry` does not apply to them. If you lowered `keepalive_expiry` because your network drops idle connections, lower `tts_keepalive_expiry` as well.
-
 ### Pass `pathlib.Path` directly
 
 Local files can be a `Path`, a `str` path, raw `bytes`/`bytearray`, or an open binary file — no `str()` wrapping needed:
