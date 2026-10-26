@@ -90,7 +90,9 @@ def _resolve_audio(
     elif hasattr(data, "read"):
         audio = data.read()
         name = getattr(data, "name", None)
-        if name:
+        # `name` is a file descriptor (an int) for anonymous files such as
+        # `tempfile.TemporaryFile()`, so only a str is a usable path.
+        if isinstance(name, str) and name:
             filename = os.path.basename(name)
             suffix = os.path.splitext(name)[1].lower()
     else:
