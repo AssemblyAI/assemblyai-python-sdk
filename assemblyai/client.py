@@ -109,6 +109,13 @@ def _forget_tts_pools_in_child() -> None:
     parent may have held a pool's lock at the moment of the fork, and an async
     pool needs its event loop. Each process closes its own socket descriptors,
     so the parent's connections stay intact.
+
+    Dropping relies on httpx not closing a client when it is garbage
+    collected, which holds from httpx 0.22, the floor in `setup.py`. httpx
+    0.19 to 0.21 close it in `Client.__del__`, which takes the pool's lock.
+    Keeping the dropped pools referenced would not help there: the child's
+    interpreter would close them at exit, and its copies of the parent's
+    sockets would stay open until then.
     """
 
     for holder in list(_TTS_POOL_HOLDERS):

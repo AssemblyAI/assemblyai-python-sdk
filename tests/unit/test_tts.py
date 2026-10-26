@@ -4,12 +4,16 @@ Every entry point posts one JSON body to `/v1/speech` on the TTS host and
 reads audio back; the response headers carry the metadata.
 """
 
+import gc
 import json
 import os
+import re
 import ssl
 import threading
 import time
 import warnings
+import weakref
+from pathlib import Path
 from typing import Iterator, List
 
 import httpx
@@ -949,3 +953,52 @@ def test_a_forked_child_does_not_share_the_parents_tts_connections():
             assert server.connections == 2
         finally:
             client.close()
+
+
+def test_a_forked_child_drops_the_inherited_tts_pool_without_closing_it(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Closing a pool takes its lock, which another thread of the parent may
+    # have held at the fork, so a child that closes it can wait forever.
+    closed: List[str] = []
+    close = httpx.Client.close
+
+    def recording_close(self: httpx.Client) -> None:
+        closed.append(repr(self))
+        close(self)
+
+    with serving(_AUDIO, _OK_HEADERS) as server:
+        settings = aai.Settings(api_key="test", tts_base_url=server.url)
+        client = aai.Client(settings=settings)
+        tts = aai.TextToSpeech(client=client)
+        try:
+            # Given: a pool that has sent a request and holds an idle
+            # connection, as a warm-up before the fork leaves it
+            tts.synthesize("Warm-up.")
+            inherited = weakref.ref(client.tts_http_client)
+            monkeypatch.setattr(httpx.Client, "close", recording_close)
+
+            # When: the fork handler runs in the child, and the pool it
+            # dropped is collected
+            with warnings.catch_warnings():
+                # The collected pool's sockets warn that nothing closed them.
+                warnings.simplefilter("ignore", ResourceWarning)
+                client_module._forget_tts_pools_in_child()
+                gc.collect()
+
+            # Then: nothing closed the pool, and it is gone
+            assert closed == []
+            assert inherited() is None
+        finally:
+            monkeypatch.undo()
+            client.close()
+
+
+def test_the_httpx_floor_excludes_releases_that_close_a_collected_client():
+    # httpx 0.19 to 0.21 close a client in `Client.__del__`, so on them the
+    # pool the fork handler drops would take its lock when it is collected.
+    setup_py = (Path(__file__).parents[2] / "setup.py").read_text()
+    floor = re.search(r'"httpx>=([0-9.]+)"', setup_py)
+
+    assert floor is not None
+    assert tuple(int(part) for part in floor.group(1).split(".")) >= (0, 22)

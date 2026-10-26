@@ -6,7 +6,10 @@ plus pool ownership.
 """
 
 import asyncio
+import gc
 import json
+import warnings
+import weakref
 from typing import AsyncIterator
 
 import httpx
@@ -418,4 +421,27 @@ async def test_a_forked_child_drops_the_inherited_tts_pool():
     assert client._tts_http_client is None
     assert client.tts_http_client is not parent_pool
     await parent_pool.aclose()
+    await client.aclose()
+
+
+async def test_a_forked_child_drops_the_inherited_tts_pool_without_a_warning():
+    # Given: an open pool, as one that has sent a request before the fork is
+    client = aai.AsyncClient(api_key="test")
+    pool = client.tts_http_client
+    await pool.__aenter__()
+    inherited = weakref.ref(pool)
+    del pool
+    gc.collect()  # leaves only the pool to collect below
+
+    # When: the fork handler runs in the child, and the pool it dropped is
+    # collected
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.simplefilter("ignore", ResourceWarning)
+        client_module._forget_tts_pools_in_child()
+        gc.collect()
+
+    # Then: the pool is gone, with no warning about an unclosed client
+    assert inherited() is None
+    assert [str(warning.message) for warning in caught] == []
     await client.aclose()
