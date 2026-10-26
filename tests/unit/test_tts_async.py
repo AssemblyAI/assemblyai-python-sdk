@@ -5,7 +5,11 @@ the asyncio twin's behaviour: same route, same audio and headers, same errors,
 plus pool ownership.
 """
 
+import asyncio
+import gc
 import json
+import warnings
+import weakref
 from typing import AsyncIterator
 
 import httpx
@@ -13,7 +17,9 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai import client as client_module
 from assemblyai.tts.v1 import async_api
+from tests.unit.tts_http_server import serving
 
 pytestmark = pytest.mark.asyncio
 
@@ -304,3 +310,149 @@ async def test_a_shared_client_is_left_open_on_aclose(httpx_mock: HTTPXMock):
 async def test_wrong_config_type_is_a_type_error():
     with pytest.raises(TypeError):
         aai.AsyncTextToSpeech(config=aai.DictationConfig())  # type: ignore[arg-type]
+
+
+async def test_the_tts_pool_keeps_idle_connections_120_s():
+    client = aai.AsyncClient(settings=aai.Settings(api_key="test"))
+    pool = client.tts_http_client
+
+    # A pool of its own, speaking HTTP/1.1, holding idle connections 120 s
+    assert pool is not client.http_client
+    assert pool is client.tts_http_client
+    assert pool._transport._pool._keepalive_expiry == 120.0  # type: ignore[attr-defined]
+    assert pool._transport._pool._http2 is False  # type: ignore[attr-defined]
+    # while the pool of the other APIs keeps httpx's default
+    assert client.http_client._transport._pool._keepalive_expiry == 5.0  # type: ignore[attr-defined]
+    await client.aclose()
+
+
+async def test_the_tts_pool_follows_a_shorter_keepalive_expiry():
+    # Given a keepalive_expiry lowered because the network drops idle
+    # connections
+    settings = aai.Settings(api_key="test", keepalive_expiry=2.0)
+    client = aai.AsyncClient(settings=settings)
+
+    # The TTS pool keeps them no longer either
+    assert client.tts_http_client._transport._pool._keepalive_expiry == 2.0  # type: ignore[attr-defined]
+    await client.aclose()
+
+
+async def test_requests_go_through_the_tts_pool(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    _mock_ok(httpx_mock)
+    client = aai.AsyncClient(api_key="test")
+    assert client._tts_http_client is None  # built on first use only
+    # The pool of the other APIs is not needed
+    await client.http_client.aclose()
+
+    async with aai.AsyncTextToSpeech(client=client) as tts:
+        await tts.synthesize("Hi.")
+        async with tts.stream("Hi.") as speech:
+            await speech.aread()
+
+    assert len(httpx_mock.get_requests()) == 2
+    assert client.last_response is not None
+    assert str(client.last_response.request.url) == SPEECH_URL
+    await client.aclose()
+
+
+async def test_aclose_closes_both_pools(httpx_mock: HTTPXMock):
+    _mock_ok(httpx_mock)
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    await tts.synthesize("Hi.")
+    pools = (tts.client.http_client, tts.client.tts_http_client)
+
+    await tts.aclose()
+
+    assert all(pool.is_closed for pool in pools)
+
+
+async def test_a_client_closed_before_it_spoke_fails_as_a_closed_pool_does():
+    tts = aai.AsyncTextToSpeech(api_key="k")
+    await tts.aclose()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await tts.synthesize("Hi.")
+
+
+async def test_the_tts_pool_is_built_with_the_text_to_speech_not_with_the_client():
+    client = aai.AsyncClient(api_key="test")
+    assert client._tts_http_client is None  # a client that never speaks
+
+    aai.AsyncTextToSpeech(client=client)
+
+    # Built before the first request, which then does not wait for it, with
+    # the TLS context every TTS pool of the process shares
+    assert client._tts_http_client is not None
+    pool = client._tts_http_client._transport._pool  # type: ignore[attr-defined]
+    assert pool._ssl_context is client_module._shared_tts_ssl_context()
+    await client.aclose()
+
+
+async def test_a_closed_client_builds_no_pool_and_its_first_request_raises():
+    client = aai.AsyncClient(api_key="test")
+    await client.aclose()
+
+    tts = aai.AsyncTextToSpeech(client=client)
+    assert client._tts_http_client is None
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await tts.synthesize("Hi.")
+
+
+async def test_a_connection_the_server_closed_while_idle_is_not_reused():
+    # Given: a server (or load balancer) that closes each connection 0.2 s
+    # after its response, well before the pool's 120 s idle time runs out
+    with serving(_AUDIO, _OK_HEADERS, close_after=0.2) as server:
+        settings = aai.Settings(
+            api_key="test", tts_base_url=server.url, tts_keepalive_expiry=120.0
+        )
+        async with aai.AsyncClient(settings=settings) as client:
+            tts = aai.AsyncTextToSpeech(client=client)
+            await tts.synthesize("One.")
+
+            # When: the next request comes after the server closed it
+            await asyncio.sleep(0.5)
+            response = await tts.synthesize("Two.")
+
+            # Then: it succeeds on a new connection, with no
+            # RemoteProtocolError from sending on the closed one
+            assert response.audio == _AUDIO
+            assert server.connections == 2
+
+
+async def test_a_forked_child_drops_the_inherited_tts_pool():
+    client = aai.AsyncClient(api_key="test")
+    parent_pool = client.tts_http_client
+
+    # What runs in a child right after os.fork()
+    client_module._forget_tts_pools_in_child()
+
+    # The child builds a pool of its own on its next request
+    assert client._tts_http_client is None
+    assert client.tts_http_client is not parent_pool
+    await parent_pool.aclose()
+    await client.aclose()
+
+
+async def test_a_forked_child_drops_the_inherited_tts_pool_without_a_warning():
+    # Given: an open pool, as one that has sent a request before the fork is
+    client = aai.AsyncClient(api_key="test")
+    pool = client.tts_http_client
+    await pool.__aenter__()
+    inherited = weakref.ref(pool)
+    del pool
+    gc.collect()  # leaves only the pool to collect below
+
+    # When: the fork handler runs in the child, and the pool it dropped is
+    # collected
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.simplefilter("ignore", ResourceWarning)
+        client_module._forget_tts_pools_in_child()
+        gc.collect()
+
+    # Then: the pool is gone, with no warning about an unclosed client
+    assert inherited() is None
+    assert [str(warning.message) for warning in caught] == []
+    await client.aclose()

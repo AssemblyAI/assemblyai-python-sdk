@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
+from urllib.parse import urlsplit
 
 from ... import _audio
 from ... import async_client as _async_client
@@ -37,12 +38,23 @@ _Handler = Callable[[Any], Any]
 def websocket_connect_async(
     uri: str, additional_headers: Dict[str, Optional[str]]
 ) -> Any:
-    """Opens an asyncio websocket; the streaming client's seam, imported
-    lazily so `import assemblyai` does not load websockets. Tests patch this."""
+    """Opens an asyncio websocket with whichever websockets client the
+    streaming client uses, importing it lazily so `import assemblyai` does
+    not load websockets. Tests patch this.
 
-    from ...streaming.v3.async_client import websocket_connect_async as _connect
+    `wss://` connects use the process's shared TLS context
+    (`_shared_tls_context()`), built by the first connect. Given no context,
+    asyncio would build a new one, loading the CA certificates, for every
+    connection.
+    """
 
-    return _connect(uri, additional_headers=additional_headers)
+    from ...streaming.v3._tls import _shared_tls_context
+    from ...streaming.v3.async_client import _WS_HEADER_KW, _ws_connect
+
+    kwargs: Dict[str, Any] = {_WS_HEADER_KW: additional_headers}
+    if urlsplit(uri).scheme == "wss":
+        kwargs["ssl"] = _shared_tls_context()
+    return _ws_connect(uri, **kwargs)
 
 
 class AsyncTTSSession:

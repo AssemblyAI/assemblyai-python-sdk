@@ -65,6 +65,9 @@ class AsyncTextToSpeech:
         self._owns_client = client is None or api_key is not None
         self._client = _async_client._resolve_client(client, api_key)
         self.config = config or TTSConfig()
+        # Build the client's TTS pool now, so the first request does not wait
+        # for it. A closed client builds none; its first request raises.
+        self._client._ensure_tts_http_client()
 
     @property
     def config(self) -> TTSConfig:
@@ -101,7 +104,7 @@ class AsyncTextToSpeech:
         body = request_body(text, config or self._config)
 
         return await async_api.synthesize(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=synthesize_timeout(self._client.settings),
@@ -129,7 +132,7 @@ class AsyncTextToSpeech:
         body = request_body(text, config or self._config)
 
         return async_api.stream_speech(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=self._client.settings.tts_http_timeout,
