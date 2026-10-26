@@ -21,6 +21,10 @@ class TextToSpeech:
 
     Requests go to `settings.tts_base_url`, `https://tts.us.assemblyai.com`
     by default; set `https://tts.eu.assemblyai.com` to keep them in the EU.
+    They share the client's Text-to-Speech pool (`Client.tts_http_client`),
+    which keeps an idle connection 120 seconds by default
+    (`settings.tts_keepalive_expiry`), so a request within that time of the
+    previous one reuses its connection.
 
     Example:
         ```python
@@ -51,7 +55,9 @@ class TextToSpeech:
         Creates a `TextToSpeech`.
 
         Args:
-            client: The HTTP client to use. Defaults to the shared default client.
+            client: The HTTP client to use. Defaults to the shared default
+                client. A client you pass stays yours to close: `client.close()`
+                closes both of its pools.
             config: Default options. A per-call `config` replaces it whole,
                 so repeat the voice_id in a per-call config.
             api_key: The API key to authenticate with. Builds a `Client` for
@@ -69,6 +75,9 @@ class TextToSpeech:
         self._owns_client = api_key is not None
         self._client = _client._resolve_client(client, api_key)
         self.config = config or TTSConfig()
+        # Build the client's TTS pool now, so the first request does not wait
+        # for it. A closed client builds none; its first request raises.
+        self._client._ensure_tts_http_client()
 
     @property
     def config(self) -> TTSConfig:
@@ -114,7 +123,7 @@ class TextToSpeech:
         body = request_body(text, config or self._config)
 
         return api.synthesize(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=synthesize_timeout(self._client.settings),
@@ -147,17 +156,20 @@ class TextToSpeech:
         body = request_body(text, config or self._config)
 
         return api.stream_speech(
-            self._client.http_client,
+            self._client.tts_http_client,
             base_url=self._client.settings.tts_base_url,
             body=body,
             timeout=self._client.settings.tts_http_timeout,
         )
 
     def close(self) -> None:
-        """Closes the HTTP pool this instance owns. A shared `client` is left open."""
+        """
+        Closes the HTTP pools this instance owns. A `client` you passed is
+        left open: `client.close()` closes both of its pools.
+        """
 
         if self._owns_client:
-            self._client.http_client.close()
+            self._client.close()
 
     def __enter__(self) -> "TextToSpeech":
         return self

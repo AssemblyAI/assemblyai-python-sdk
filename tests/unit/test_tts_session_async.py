@@ -3,8 +3,9 @@
 import asyncio
 import base64
 import json
+import ssl
 from types import SimpleNamespace
-from typing import Any, AsyncIterable, List, Optional
+from typing import Any, AsyncIterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -13,6 +14,8 @@ from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.frames import Close
 
 import assemblyai as aai
+from assemblyai.streaming.v3 import _tls
+from assemblyai.streaming.v3.async_client import _WS_HEADER_KW
 
 pytestmark = pytest.mark.asyncio
 
@@ -699,3 +702,55 @@ async def test_cancel_ends_a_reader_following_the_request_being_written(server):
 
 async def _collect(iterator):
     return [chunk async for chunk in iterator]
+
+
+def _record_websockets_connect(mocker) -> List[Tuple[str, dict]]:
+    """Replaces the websockets asyncio connect, under the session's seam, with
+    a recorder that answers every connect with a new `_FakeAsyncServer`."""
+
+    calls: List[Tuple[str, dict]] = []
+
+    async def connect(uri: str, **kwargs: Any) -> _FakeAsyncServer:
+        calls.append((uri, kwargs))
+        return _FakeAsyncServer()
+
+    mocker.patch("assemblyai.streaming.v3.async_client._ws_connect", new=connect)
+    return calls
+
+
+async def test_sessions_over_wss_share_the_process_tls_context(mocker):
+    # Given: websockets' connect recorded, and the default https:// host
+    calls = _record_websockets_connect(mocker)
+
+    # When: two sessions connect one after the other
+    for text in ("One.", "Two."):
+        async with aai.AsyncTTSSession() as session:
+            got = b"".join([c async for c in session.speak(text)])
+            assert got == text.encode()
+
+    # Then: both connected over wss:// with the one shared context, which
+    # spares asyncio building a new default context per connection
+    assert len(calls) == 2
+    shared = _tls._shared_tls_context()
+    for uri, kwargs in calls:
+        assert uri.startswith("wss://tts.us.assemblyai.com/v1/ws?")
+        assert kwargs["ssl"] is shared
+        assert kwargs[_WS_HEADER_KW]["Authorization"] == "test"
+    assert isinstance(shared, ssl.SSLContext)
+    assert shared.verify_mode == ssl.CERT_REQUIRED
+    assert shared.check_hostname is True
+
+
+async def test_a_session_over_ws_passes_no_tls_context(mocker, monkeypatch):
+    # Given: a plain http:// host, which a session reaches over ws://
+    monkeypatch.setattr(aai.settings, "tts_base_url", "http://localhost:8080")
+    calls = _record_websockets_connect(mocker)
+
+    # When: a session connects
+    async with aai.AsyncTTSSession():
+        pass
+
+    # Then: no TLS argument is passed, which websockets rejects for ws://
+    [(uri, kwargs)] = calls
+    assert uri.startswith("ws://localhost:8080/v1/ws?")
+    assert "ssl" not in kwargs
