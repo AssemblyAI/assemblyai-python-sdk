@@ -19,6 +19,8 @@ WS_PATH = "/v1/ws"
 # Characters a single `Generate` frame may carry (Unicode code points) when
 # `Begin` does not report the limit in force.
 MAX_GENERATE_CHARS = 2000
+# The unspoken characters the API holds by default before `Begin` reports one.
+DEFAULT_TEXT_MAX_BUFFER_CHARS = 8000
 # Audio frames queued for pulling before the oldest is dropped: about 160 s
 # at the API's ~80 ms per frame. Bounds memory when audio is not read, or is
 # read more slowly than it arrives.
@@ -62,6 +64,21 @@ class PullBuffer:
                 return True
         return False
 
+    def purge_before(self, cancel_id: int) -> None:
+        """Removes queued audio frames belonging to cancelled requests."""
+        if not self._items:
+            return
+        new_items: Deque[PullItem] = deque()
+        audio_count = 0
+        for item in self._items:
+            if item[0] == "audio" and item[1] is not None and item[1] <= cancel_id:
+                continue
+            if item[0] == "audio":
+                audio_count += 1
+            new_items.append(item)
+        self._items = new_items
+        self._audio = audio_count
+
     def popleft(self) -> Optional[PullItem]:
         """Removes and returns the oldest item; `None` when there is none."""
 
@@ -86,6 +103,21 @@ def max_generate_chars(begin: Any) -> int:
     if isinstance(limit, int) and not isinstance(limit, bool) and limit >= 0:
         return limit
     return MAX_GENERATE_CHARS
+
+
+def max_buffer_chars(begin: Any) -> int:
+    """
+    The unspoken characters the API holds: the limit the session's
+    `Begin` reports (`limits.text_max_buffer_chars`, where `0` means
+    none), else `DEFAULT_TEXT_MAX_BUFFER_CHARS`.
+    """
+
+    configuration = getattr(begin, "configuration", None) or {}
+    limits = configuration.get("limits")
+    limit = limits.get("text_max_buffer_chars") if isinstance(limits, dict) else None
+    if isinstance(limit, int) and not isinstance(limit, bool) and limit >= 0:
+        return limit
+    return DEFAULT_TEXT_MAX_BUFFER_CHARS
 
 
 def check_text_frame(text: object, limit: int = MAX_GENERATE_CHARS) -> None:

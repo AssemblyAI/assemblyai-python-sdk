@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 from urllib.parse import urlsplit
 
@@ -14,6 +15,7 @@ from .._base_ws import (
     check_session_config,
     check_text_frame,
     handshake_error,
+    max_buffer_chars,
     max_generate_chars,
     resolve_settings,
 )
@@ -114,6 +116,8 @@ class AsyncTTSSession:
         self._next_flush_id = 0
         self._cancel_ids: List[int] = []
         self._cancelled_before = -1
+        self._done_through = -1
+        self._last_heard_at = 0.0
         self._drop_warned = False
         self.begin: Optional[TTSBeginEvent] = None
         self.termination: Optional[TTSTerminationEvent] = None
@@ -152,6 +156,8 @@ class AsyncTTSSession:
         self._next_flush_id = 0
         self._cancel_ids = []
         self._cancelled_before = -1
+        self._done_through = -1
+        self._last_heard_at = 0.0
         self._drop_warned = False
         self.begin = None
         self.termination = None
@@ -203,12 +209,18 @@ class AsyncTTSSession:
                     await self._send({"type": "Terminate"})
                 except Exception:
                     pass
-                try:
-                    await asyncio.wait_for(
-                        self._stopped.wait(), timeout=self._terminate_timeout
-                    )
-                except asyncio.TimeoutError:
-                    pass
+                timeout = self._terminate_timeout
+                while not self._stopped.is_set():
+                    quiet = time.monotonic() - self._last_heard_at
+                    remaining = timeout - quiet
+                    if remaining <= 0:
+                        break
+                    try:
+                        await asyncio.wait_for(
+                            self._stopped.wait(), timeout=min(remaining, 0.25)
+                        )
+                    except asyncio.TimeoutError:
+                        pass
         finally:
             await self.close()
         return self.termination
@@ -272,6 +284,8 @@ class AsyncTTSSession:
         self._next_flush_id += 1
         self._cancel_ids.append(cancel_id)
         self._cancelled_before = max(self._cancelled_before, cancel_id)
+        if self._queue is not None:
+            self._queue.purge_before(self._cancelled_before)
         await self._send({"type": "Cancel"})
 
     async def keep_alive(self) -> None:
@@ -287,6 +301,13 @@ class AsyncTTSSession:
 
         self._check_not_in_handler("speak()")
         check_text_frame(text, 0)
+        backlog = max_buffer_chars(self.begin)
+        if backlog and len(text) > backlog:
+            raise ValueError(
+                f"text is {len(text)} characters, over the {backlog} unspoken characters "
+                "the API holds before it ends the session; split it and speak() each part "
+                "once the previous part's audio is read, or pace it with generate()"
+            )
         limit = max_generate_chars(self.begin) or max(len(text), 1)
         for start in range(0, len(text), limit):
             await self.generate(text[start : start + limit])
@@ -294,7 +315,7 @@ class AsyncTTSSession:
         async for chunk in self.audio(flush_id):
             yield chunk
 
-    async def audio(self, flush_id: Optional[int] = None) -> AsyncIterator[bytes]:
+    def audio(self, flush_id: Optional[int] = None) -> AsyncIterator[bytes]:
         """
         Yields the audio of request `flush_id`; see `TTSSession.audio`.
 
@@ -309,12 +330,19 @@ class AsyncTTSSession:
             flush_id = self._next_flush_id  # the request being written now
         elif flush_id > self._next_flush_id:
             raise ValueError(f"flush_id {flush_id} has not been flushed yet")
+        if flush_id <= self._done_through:
+            raise ValueError(
+                f"flush_id {flush_id} was already read: read each request once, in order"
+            )
         if TTSEvents.Audio.value in self._handlers:
             raise RuntimeError(
                 "audio goes to the registered Audio handler; pull with audio() "
                 "or speak() only without one"
             )
         connection = self._queue  # this connection's; a reconnect makes a new one
+        return self._iter_audio(flush_id, connection)
+
+    async def _iter_audio(self, flush_id: int, connection: Any) -> AsyncIterator[bytes]:
         while True:
             if self._queue is not connection:
                 return
@@ -334,6 +362,7 @@ class AsyncTTSSession:
                 if ident == flush_id:
                     yield payload
             elif kind == "done":
+                self._done_through = max(self._done_through, ident)
                 if ident == flush_id:
                     return
             elif kind == "cancelled":
@@ -478,6 +507,7 @@ class AsyncTTSSession:
                     return
 
     async def _dispatch(self, data: Dict[str, Any]) -> None:
+        self._last_heard_at = time.monotonic()
         kind = data.get("type")
         if kind == "Error":
             await self._fail(error_from_frame(data))
@@ -489,6 +519,9 @@ class AsyncTTSSession:
             self.begin = event
             self._begun.set()
         elif kind == "Audio":
+            # Discard in-flight audio frames belonging to cancelled requests
+            if event.flush_id <= self._cancelled_before:
+                return
             if TTSEvents.Audio.value not in self._handlers:
                 self._put(("audio", event.flush_id, event.audio))
         elif kind == "FlushDone":
