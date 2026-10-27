@@ -132,7 +132,7 @@ class Settings(BaseSettings):
     "The default HTTP timeout for general requests"
 
     keepalive_expiry: Optional[float] = None
-    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording."
+    "Seconds an idle connection is kept in the HTTP pool before being closed. None uses httpx's default (5s). Raise it (e.g. to 120) so a connection opened by `SyncTranscriber.warm()` stays reusable across an in-progress recording. Text-to-Speech requests keep idle connections 120 seconds, or this long when it is shorter; `tts_keepalive_expiry` overrides both."
 
     base_url: str = "https://api.assemblyai.com"
     "The base URL for the AssemblyAI API"
@@ -161,6 +161,18 @@ class Settings(BaseSettings):
 
     llm_gateway_http_timeout: float = 30.0
     "The HTTP timeout for LLM Gateway requests"
+
+    tts_base_url: str = "https://tts.us.assemblyai.com"
+    "The base URL for the Text-to-Speech API (used by `TextToSpeech`/`AsyncTextToSpeech`). Set `https://tts.eu.assemblyai.com` to keep requests in the EU data zone."
+
+    tts_http_timeout: float = 30.0
+    "The HTTP timeout for streamed Text-to-Speech requests (`stream()`). Like every httpx timeout it bounds each socket operation (connecting, the wait for the first audio, each read), not the response as a whole. Buffered requests (`synthesize()`) use it to connect and send."
+
+    tts_synthesize_http_timeout: float = 610.0
+    "The read timeout of buffered Text-to-Speech requests (`synthesize()`), whose one read waits for the complete audio. A little over the API's own 600-second limit on a request, so a request that reaches it gets the API's `504 session_expired` as a `TTSError`, not a client timeout."
+
+    tts_keepalive_expiry: Optional[float] = Field(default=None, ge=0.0)
+    "Seconds an idle connection stays in the Text-to-Speech HTTP pool (`TextToSpeech`/`AsyncTextToSpeech`), a pool of its own. None (the default) keeps it 120 seconds, or `keepalive_expiry` when you set that shorter. A voice agent's turns are often more than httpx's default 5 seconds apart; a request within this time of the previous one reuses its connection and skips the TCP and TLS handshakes (a few milliseconds in the API's region, at least two network round trips from farther away). The client never reuses a connection that has been idle longer than this: lower it if a proxy or NAT on your network closes idle connections sooner."
 
     polling_interval: float = Field(default=3.0, gt=0.0)
     "The default polling interval for long-running requests (e.g. polling the `Transcript`'s status)"
@@ -743,6 +755,24 @@ class CustomFormattingRequest(BaseModel):
     "Custom email format pattern (e.g., 'username@domain.com')"
 
 
+class SummarizationRequest(BaseModel):
+    """
+    Summarization configuration for speech understanding
+    """
+
+    summary_type: Literal["bullets", "paragraph"]
+    "The format of the summary"
+
+    headline_length: Optional[int] = None
+    "Target word count for each chapter headline (5-15, default: 10)"
+
+    approximate_chapters: Optional[int] = None
+    "Override: Approximate number of chapters to split the transcript into"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "How much effort to spend on this task (default: 'low')"
+
+
 class SpeechUnderstandingFeatureRequests(BaseModel):
     """
     Speech understanding feature requests
@@ -756,6 +786,9 @@ class SpeechUnderstandingFeatureRequests(BaseModel):
 
     custom_formatting: Optional[CustomFormattingRequest] = None
     "Custom formatting configuration"
+
+    summarization: Optional[SummarizationRequest] = None
+    "Summarization configuration"
 
 
 class SpeechUnderstandingRequest(BaseModel):
@@ -815,6 +848,48 @@ class TranslationResponse(BaseModel):
     "Status of the translation feature"
 
 
+class SummarizationSection(BaseModel):
+    """
+    A summarized section of the transcript
+    """
+
+    start: int
+    "Start of the section, in milliseconds"
+
+    end: int
+    "End of the section, in milliseconds"
+
+    text: Optional[str] = None
+    "Section summary, when summary_type is 'paragraph'"
+
+    bullets: Optional[List[str]] = None
+    "Section summary, when summary_type is 'bullets'"
+
+    headline: Optional[str] = None
+    "Short headline describing the section"
+
+
+class SummarizationResponse(BaseModel):
+    """
+    Summarization response containing the chapter summaries
+    """
+
+    status: str
+    "Status of the summarization feature"
+
+    summary: Optional[List[SummarizationSection]] = None
+    "Per-section summaries"
+
+    block_summary: Optional[str] = None
+    "Single summary covering the whole transcript"
+
+    summary_type: Optional[Literal["bullets", "paragraph"]] = None
+    "The summary type that was used"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "The effort level that was used"
+
+
 class SpeechUnderstandingFeatureResponses(BaseModel):
     """
     Speech understanding feature responses grouped together
@@ -828,6 +903,9 @@ class SpeechUnderstandingFeatureResponses(BaseModel):
 
     custom_formatting: Optional[CustomFormattingResponse] = None
     "Custom formatting results"
+
+    summarization: Optional[SummarizationResponse] = None
+    "Summarization results"
 
 
 class SpeechUnderstandingResponse(BaseModel):

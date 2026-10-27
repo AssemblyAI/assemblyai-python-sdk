@@ -164,7 +164,10 @@ def _config_to_json(config: Any, *, exclude: Tuple[str, ...] = ()) -> Optional[d
 
     Returns: the JSON-ready dict, or `None` when nothing is set.
     """
-    data = config.dict(exclude_none=True)
+    if hasattr(config, "model_dump"):
+        data = config.model_dump(exclude_none=True)
+    else:
+        data = config.dict(exclude_none=True)
     for field in exclude:
         data.pop(field, None)
     return data or None

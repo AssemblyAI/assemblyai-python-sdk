@@ -137,6 +137,34 @@ async def test_client_connect_with_token(mocker: MockFixture):
     await client.disconnect()
 
 
+async def test_client_connect_with_speaker_labels_revision_interval(
+    mocker: MockFixture,
+):
+    # Given: speaker_labels plus a mid-stream revision cadence
+    fake_ws = _FakeAsyncWebSocket()
+    fake_connect = _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: connecting
+    await client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+            speaker_labels=True,
+            speaker_labels_revision_interval_ms=120_000,
+        )
+    )
+
+    # Then: the query string carries the GA param name and value
+    assert "speaker_labels=True" in fake_connect.uri
+    assert "speaker_labels_revision_interval_ms=120000" in fake_connect.uri
+
+    await client.disconnect()
+
+
 async def test_stream_bytes_writes_to_socket(mocker: MockFixture):
     fake_ws = _FakeAsyncWebSocket()
     _patch_connect(mocker, fake_ws)

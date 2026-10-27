@@ -4,6 +4,7 @@ The request and response shapes of `dictation.assemblyai.com`, plus the error
 the transcribers raise, live here alongside the client that uses them.
 """
 
+from enum import Enum
 from typing import List, Optional
 
 try:
@@ -23,6 +24,7 @@ __all__ = [
     "DictationConfig",
     "DictationError",
     "DictationResponse",
+    "DictationRewriteMode",
     "DictationWord",
 ]
 
@@ -54,6 +56,20 @@ _DICTATION_MAX_KEYTERMS_PROMPT_LEN = 8000
 _DICTATION_MAX_KEYTERMS_COUNT = 100
 _DICTATION_MAX_LLM_INSTRUCTION_LEN = 2048
 _DICTATION_MAX_STT_PROMPT_LEN = 6000
+
+
+class DictationRewriteMode(str, Enum):
+    """Model tier that runs the transcript rewrite."""
+
+    fast = "fast"
+    "The default: the lowest-latency rewrite."
+
+    smart = "smart"
+    """Follows detailed formatting instructions more reliably, at higher
+    latency."""
+
+    def __str__(self):
+        return self.value
 
 
 class DictationConfig(BaseModel):
@@ -107,6 +123,11 @@ class DictationConfig(BaseModel):
     """Instruction for a follow-up LLM pass over the transcript, e.g.
     "Format this as a SOAP note." The rewritten text comes back as
     `llm_response`; the raw transcript stays in `text`. Max 2048 characters."""
+
+    rewrite_mode: Optional[DictationRewriteMode] = None
+    """Model tier that runs the rewrite: `fast` or `smart`. `smart` follows
+    detailed formatting instructions more reliably at higher latency. Defaults
+    to None, which leaves the server default (`fast`)."""
 
     if pydantic_v2:
         model_config = ConfigDict(extra="forbid")

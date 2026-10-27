@@ -779,6 +779,15 @@ if result.llm_error:
 
 The instruction is capped at 2048 characters.
 
+`rewrite_mode` picks the model tier that runs the rewrite. `fast` is the default; `smart` follows detailed formatting instructions more reliably, at higher latency:
+
+```python
+config = aai.DictationConfig(
+    llm_instruction="Lowercase unless a name, no final punctuation.",
+    rewrite_mode=aai.DictationRewriteMode.smart,
+)
+```
+
 </details>
 
 <details>
@@ -794,6 +803,7 @@ config = aai.DictationConfig(
     stt_prompt="A doctor dictating a visit note.", # what the audio is about; ≤6000 chars
     keyterms_prompt=["AssemblyAI", "Universal"], # bias the decoder; ≤100 terms / 8000 chars
     llm_instruction="Fix punctuation only.",     # optional LLM pass
+    rewrite_mode="smart",                        # rewrite model tier: "fast" (default) or "smart"
 )
 
 result = aai.DictationTranscriber().transcribe_live("./note.wav", config=config)
@@ -879,6 +889,206 @@ except aai.DictationError as error:
 </details>
 
 ---
+
+### **Text-to-Speech Examples**
+
+`aai.TextToSpeech` speaks one text per HTTP request on the Text-to-Speech API. `synthesize()` returns the complete audio; `stream()` returns it as the API generates it, so playback can start long before the sentence ends. A text is 1 to 5,000 characters. Options go in a `TTSConfig`: the `voice_id` (a voice of the AssemblyAI voice library by its slug: `aai-jane` by default, `aai-alba`, `aai-anna`, `aai-charles`, `aai-eve`, `aai-george`, `aai-jean`, `aai-mary`, `aai-michael`, `aai-paul`, `aai-vera` and hundreds more; or a voice cloned by your account, by its UUID or slug), the `model_id` (`assemblyai-tts-1`), the `language` (`english`, `spanish`, `german`, `french`, `italian`, `portuguese`), the `sample_rate` (8000, 16000, 22050, 24000 by default, 44100, 48000), the `encoding` (`pcm_s16le` by default, `pcm_mulaw`/`pcm_alaw` for telephony, `mp3`) and the `container` (`raw` or `wav`). A per-call `TTSConfig` replaces the client's default config whole. Voices are created and managed in the AssemblyAI dashboard.
+
+Requests go to `aai.settings.tts_base_url`, `https://tts.us.assemblyai.com` by default; set it to `https://tts.eu.assemblyai.com` to keep them in the EU data zone. They share a connection pool of their own that keeps an idle connection for 120 seconds by default, so a request that follows the previous one within that time, such as a voice agent's next sentence, reuses its connection instead of opening a new one. If you set `aai.settings.keepalive_expiry` shorter than that, this pool uses it too; `aai.settings.tts_keepalive_expiry` sets this pool's idle time on its own. A client you pass as `client=` stays yours to close: `client.close()` closes both of its pools.
+
+<details>
+  <summary>Synthesize a WAV file</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+tts = aai.TextToSpeech()
+
+response = tts.synthesize(
+    "Hello from AssemblyAI.",
+    aai.TTSConfig(voice_id="aai-jane", container=aai.TTSContainer.wav),
+)
+# A config given per call replaces the client's default config whole.
+
+with open("hello.wav", "wb") as out:
+    out.write(response.audio)
+
+print(response.model, response.voice_id, response.audio_duration_ms, "ms")
+```
+
+`synthesize()` waits for the whole audio (`aai.settings.tts_synthesize_http_timeout`, 610 s by default, just over the API's 600-second limit on a request), so an API refusal is always a `TTSError`, never a cut response, and the WAV header carries real sizes. Network failures raise httpx exceptions, as everywhere in the SDK. Python's `wave` module reads PCM WAV only; a mu-law or A-law WAV needs another reader, or use `container="raw"` for telephony codecs. The response headers are on the result: `request_id`, `region`, `model`, `voice_id`, `language`, `encoding`, `sample_rate`, `container`, `bit_rate`, `billed_characters` and `audio_duration_ms`.
+
+</details>
+
+<details>
+  <summary>Stream audio as it is generated</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+tts = aai.TextToSpeech(config=aai.TTSConfig(voice_id="aai-alba"))
+
+with tts.stream("Streaming straight to the speakers.") as speech:
+    print("speaking with", speech.info.model, "at", speech.info.sample_rate, "Hz")
+    for chunk in speech:
+        play(chunk)  # raw 24 kHz 16-bit mono PCM
+```
+
+`stream()` itself sends nothing: entering the `with` block (or the first read) sends the request and returns once the API has sent the first audio, usually well under a second. Chunk sizes vary and are not aligned to samples or frames: for 16-bit PCM carry an odd trailing byte over to the next chunk, and re-frame into fixed-size frames (20 ms of 8 kHz mu-law is 160 bytes) if your sink needs them. Breaking out of the loop early (a barge-in) drops that connection, so the next request pays a new TLS handshake, about 100 ms more to its first audio. The API commits to `200` with the first audio, so a failure after that cuts the body instead of changing the status: the loop then raises a `TTSError` with `retryable=True`, and the whole request should be retried.
+
+</details>
+
+<details>
+  <summary>Telephony audio and a cloned voice</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+telephony = aai.TTSConfig(
+    voice_id="01a0da61-138c-77c7-ab98-421431ed74e8",  # a voice cloned in the dashboard
+    encoding=aai.TTSEncoding.pcm_mulaw,
+    sample_rate=8000,
+)
+
+with aai.TextToSpeech(config=telephony).stream("Your appointment is confirmed.") as speech:
+    for chunk in speech:
+        send_to_call(chunk)
+```
+
+</details>
+
+<details>
+  <summary>Handle errors and retries</summary>
+
+```python
+import time
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"  # or the ASSEMBLYAI_API_KEY environment variable
+
+tts = aai.TextToSpeech()
+
+try:
+    response = tts.synthesize("Hello.", aai.TTSConfig(voice_id="aai-nobody"))
+except aai.TTSError as e:
+    print(e.status_code, e.error_code, e.param, e.request_id)  # 422 voice_not_found voice_id ...
+    if e.retryable:
+        time.sleep(e.retry_after or 1)
+```
+
+`error_code` is the API's stable code (`invalid_parameter`, `invalid_request` for a voice the model does not speak, `voice_not_found`, `biometric_terms_not_accepted` (403: accept the biometric data terms in the dashboard, then retry), `rate_limited`, `at_capacity`, `auth_unavailable` (503, retryable), ...); branch on it rather than on the message. `body` holds the whole error envelope for the fields some codes add. `retryable` and `retry_after` (seconds) say whether and when to send the same request again.
+
+</details>
+
+<details>
+  <summary>Asyncio</summary>
+
+```python
+import asyncio
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+
+async def main():
+    async with aai.AsyncTextToSpeech() as tts:
+        response = await tts.synthesize("Hello from AssemblyAI.")
+        print(len(response.audio), "bytes")
+
+        async with tts.stream("And streamed.") as speech:
+            async for chunk in speech:
+                await play(chunk)  # your own coroutine
+
+
+asyncio.run(main())
+```
+
+`AsyncTextToSpeech` owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one.
+
+</details>
+
+<details>
+  <summary>Stream text in and audio out over a WebSocket session (voice agents)</summary>
+
+`aai.TTSSession` keeps one connection open and speaks text as it is written, so an LLM's reply can be voiced sentence by sentence with no per-request handshake. `speak()` sends one text and yields its audio; `generate()` / `flush()` do the same in two steps, so tokens can be sent as they arrive; `cancel()` is the barge-in. Leaving the `with` block ends the session cleanly and `session.termination` holds the summary (`None` if the session failed instead).
+
+A session streams raw `pcm_s16le` (the default), `pcm_mulaw` or `pcm_alaw` at the config's `sample_rate`; `mp3`, a `wav` container and `bit_rate` are HTTP-only and are refused. Chunk sizes vary and are not aligned to frames, so re-frame for a fixed-size sink (20 ms of 8 kHz mu-law is 160 bytes). `word_boundaries=True` and `inactivity_timeout=<seconds>` are arguments of the session, not of `TTSConfig`; word boundaries are off unless asked for. A session that fails raises `TTSError` wherever the app meets it first: the `audio()` iteration, the next send, or, for an app that pushes audio to a handler and never reads, the end of the `with` block.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for sentence in llm_reply_sentences():
+        for chunk in session.speak(sentence):  # raw 24 kHz 16-bit mono PCM
+            play(chunk)
+
+print("spoken:", session.termination)  # the session's summary
+```
+
+Streaming the text in as it is generated, with a barge-in:
+
+```python
+with aai.TTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    for token in llm_tokens():
+        session.generate(token)  # joined exactly as sent: include the spaces
+    request = session.flush()  # the request's flush_id; audio may start before this
+
+    for chunk in session.audio(request):
+        if user_started_talking():
+            session.cancel()  # ends this iteration at once; the server drops the rest
+            break
+        play(chunk)
+```
+
+Audio starts before `flush()` once whole sentences have arrived. To play it while the text is still being sent, read `session.audio()` with no id from another thread (or task): it follows the request being written, and ends at that request's `FlushDone`. Requests can be pipelined: call `flush()` again before reading the previous request's audio, then read each `audio(flush_id)` in order. Every `flush()` and every `cancel()` takes the next `flush_id`, so ids skip one after a cancel.
+
+Limits: a `Generate` frame takes at most 2,000 characters by default (`session.begin.configuration["limits"]["max_generate_text_length"]` has the limit in force; split longer text across calls), and the API accepts text at about 100 characters per second after an initial 1,500, holding at most 8,000 unspoken characters; sending far ahead of the speech ends the session with `input_rate_exceeded`, so pace text to the audio. The session ends after an hour, or after `inactivity_timeout` seconds (5 to 120, default 120) with no frame either way; send `keep_alive()` between sparse requests. Audio the SDK has already received does not hold the session open: the API counts idle time from the last frame it sent or received, so playing buffered audio, or waiting for the user, counts as idle. Send `keep_alive()` at least once per idle window during both. `session.begin` holds the `Begin` frame with the session id and the server's configuration and limits.
+
+Register handlers for the other frames with `session.on(event, handler)`, where `handler(event)` runs on the session's reader thread: `TTSEvents.Begin`, `TTSEvents.FlushDone`, `TTSEvents.WordBoundaries`, `TTSEvents.Cancelled`, `TTSEvents.Termination` and `TTSEvents.Error` (each delivers the matching `TTS...Event`, or the `TTSError`). Registering a `TTSEvents.Audio` handler switches audio from the pull iterators to the handler; `speak()` and `audio()` then raise. A handler may send (`generate()`, `flush()`, `cancel()`, `keep_alive()`, `close()`) but must not wait on the session: the reader that runs the handler is what `speak()`, `audio()` and `terminate()` wait for, so they raise `RuntimeError` there. Hand the work to another thread (or task) instead. Word timings (`word_boundaries=True`) arrive once per request after its `FlushDone`, usually after its `audio()` iteration has ended; their `start`/`end` count from the start of the session's audio, so subtract the event's `audio_start_ms` for a time within the request.
+
+A refusal of the session raises `TTSError` from the `with`; a failure mid-session raises it from the next `audio()` iteration or send, and reaches the `Error` handler. On a session `status_code` is `None` (there is no HTTP status), `request_id` is the session id and `body["close_code"]` is the WebSocket close code (`biometric_terms_not_accepted` is a `3006`, `auth_unavailable` a retryable `1011`); `retryable=True` means a new session can succeed, such as after an `inactivity_timeout`.
+
+Once the API has ended a session (an `inactivity_timeout`, say), the same `TTSSession` object opens a new one with `with session:` or `session.connect()`.
+
+For a session opened on a user's device, pass a temporary token instead of the key: `aai.TTSSession(token=token)` (mint it server-side on `https://token.assemblyai.com/v1/token?product=tts&expires_in_seconds=60`, which answers `{"token": ..., "expires_in_seconds": 60}`). The API spends the token when the session begins, so a token opens one session: to reconnect, mint a new token and build a new `TTSSession` with it.
+
+The asyncio twin is `aai.AsyncTTSSession`:
+
+```python
+async with aai.AsyncTTSSession(config=aai.TTSConfig(voice_id="aai-jane")) as session:
+    async for chunk in session.speak("Hello there."):
+        await play(chunk)
+    await session.generate("Streamed ")
+    await session.generate("in.")
+    request = await session.flush()
+    async for chunk in session.audio(request):
+        await play(chunk)
+```
+
+</details>
+
+<details>
+  <summary>Renew a cloned voice's consent</summary>
+
+A voice cloned by your account expires 60 days after its biometric consent was last given. Its owner renews it by sending `extend_biometric_consent=True` with a request that uses the voice; `voice_expires_at` on the response shows the new expiry. The account must have accepted the biometric data terms in the dashboard, or the request is refused with `biometric_terms_not_accepted`.
+
+```python
+response = tts.synthesize(
+    "Consent renewed.",
+    aai.TTSConfig(voice_id="<your cloned voice's UUID>", extend_biometric_consent=True),
+)
+print(response.voice_expires_at)  # Unix seconds
+```
+
+</details>
 
 ### **Asyncio Examples**
 
@@ -1827,7 +2037,15 @@ aai.settings.sync_live_http_timeout = 180.0
 # to outlast the final segment's inference plus the LLM pass.
 aai.settings.dictation_base_url = "https://dictation.assemblyai.com"
 aai.settings.dictation_http_timeout = 300.0
+
+# Text-to-Speech: the host (US by default, EU below) and the timeouts
+aai.settings.tts_base_url = "https://tts.eu.assemblyai.com"
+aai.settings.tts_http_timeout = 30.0  # stream(): each socket operation
+aai.settings.tts_synthesize_http_timeout = 610.0  # synthesize(): the wait for the whole clip
+aai.settings.tts_keepalive_expiry = 120.0  # seconds an idle connection stays in the TTS pool (unset: 120, or keepalive_expiry when shorter)
 ```
+
+Set these before creating a client: `aai.TextToSpeech()` (like every client) copies the settings when it is built, so a later change applies to the next instance, not to an existing one. Every setting can also come from the environment with the `ASSEMBLYAI_` prefix, such as `ASSEMBLYAI_TTS_BASE_URL`.
 
 </details>
 
@@ -1947,6 +2165,7 @@ All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streami
 | `aai.AssemblyAIError` | Base exception for all AssemblyAI errors. | `status_code: Optional[int]` |
 | `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
+| `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`) or a session is refused or fails (`aai.TTSSession`, where `status_code` is `None`, `request_id` is the session id and `body["close_code"]` is the WebSocket close code). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[Dict[str, Optional[str]]]]`, `body: Optional[dict]` |
 | `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
