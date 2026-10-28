@@ -134,9 +134,7 @@ class DictationLiveSession:
         """
         with self._lock:
             if self._aborted:
-                raise RuntimeError(
-                    "the live session was aborted; there is no result"
-                )
+                raise RuntimeError("the live session was aborted; there is no result")
 
         self.close()
 
