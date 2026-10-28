@@ -18,7 +18,7 @@ from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from assemblyai._multipart import _STREAM_READ_SIZE
-from assemblyai.sync.v1 import api, async_api
+from assemblyai.sync.v1 import api, async_api, client as sync_client
 
 aai.settings.api_key = "test"
 
@@ -584,6 +584,50 @@ def test_live_session_rejects_writes_after_close(monkeypatch):
             session.write(b"RIFF")
 
         session.result()
+
+
+def test_live_session_rejects_write_that_loses_race_with_close(monkeypatch):
+    # Given a writer paused during byte conversion after its initial state check
+    seen = _fake_live(monkeypatch, api, _drain)
+    conversion_started = threading.Event()
+    resume_conversion = threading.Event()
+    original_as_bytes = sync_client._as_bytes
+
+    def pause_conversion(chunk):
+        conversion_started.set()
+        assert resume_conversion.wait(timeout=2.0)
+        return original_as_bytes(chunk)
+
+    monkeypatch.setattr(sync_client, "_as_bytes", pause_conversion)
+    errors = []
+
+    with aai.SyncTranscriber() as transcriber:
+        session = transcriber.open_live()
+        assert seen["called"].wait(timeout=2.0)
+
+        def write_audio():
+            try:
+                session.write(b"final-audio-frame")
+            except Exception as error:
+                errors.append(error)
+
+        writer = threading.Thread(target=write_audio)
+        writer.start()
+        try:
+            assert conversion_started.wait(timeout=2.0)
+
+            # When close wins before the writer queues its audio
+            session.close()
+            session.result()
+        finally:
+            resume_conversion.set()
+            writer.join(timeout=2.0)
+
+    # Then the write reports that the session closed and no audio is stranded
+    assert not writer.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert seen["chunks"] == []
 
 
 def test_live_session_rejects_text_at_write_time(monkeypatch):
