@@ -8,21 +8,23 @@ httpx, so a body read after the call sees a spent generator or a closed file.
 
 import email
 import io
+import json
 import threading
-from typing import List, Optional
+import time
+from typing import Iterable, List, Optional, cast
 
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai._multipart import _STREAM_READ_SIZE
+from assemblyai.dictation.v1 import api
 from assemblyai.dictation.v1.models import (
     _DICTATION_MAX_KEYTERMS_COUNT,
     _DICTATION_MAX_KEYTERMS_PROMPT_LEN,
     _DICTATION_MAX_STT_PROMPT_LEN,
 )
-from assemblyai._multipart import _STREAM_READ_SIZE
-from assemblyai.dictation.v1 import api
 
 aai.settings.api_key = "test"
 
@@ -111,14 +113,14 @@ def test_public_names_are_the_dictation_models_classes():
 
 def test_there_is_no_buffered_transcribe():
     # Given the two clients
-    # Then neither exposes the buffered entry points: the live route is the
-    # only one the Dictation API markets, and the only one this client opens
+    # Then neither exposes a buffered entry point: every dictation starts on
+    # the live route, and the buffered route is only its fallback past the
+    # 120 s cap
     for cls in (aai.DictationTranscriber, aai.AsyncDictationTranscriber):
         assert not hasattr(cls, "transcribe")
         assert not hasattr(cls, "transcribe_async")
         assert hasattr(cls, "transcribe_live")
         assert hasattr(cls, "open_live")
-    assert not hasattr(api, "ENDPOINT_TRANSCRIBE")
     assert not hasattr(api, "transcribe")
 
 
@@ -681,9 +683,12 @@ def test_problem_details_envelope_maps_to_dictation_error(httpx_mock: HTTPXMock)
         json={"status": 413, "title": "Audio Too Large", "detail": "too long"},
     )
 
-    # When streaming, then the snake_cased title becomes the error_code
+    # When streaming without the buffered fallback (which would retry this
+    # one), then the snake_cased title becomes the error_code
     with pytest.raises(aai.DictationError) as exc_info:
-        aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"))
+        aai.DictationTranscriber(fallback_to_buffered=False).transcribe_live(
+            _chunks(b"RIFF")
+        )
 
     error = exc_info.value
     assert error.status_code == 413
@@ -819,11 +824,13 @@ def test_dictation_settings_defaults():
     assert settings.dictation_http_timeout == 300.0
 
 
-def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
-    """No entry point on this client posts to `/v1/transcribe`.
+def test_the_buffered_endpoint_is_not_requested_within_the_cap(
+    httpx_mock: HTTPXMock,
+):
+    """No entry point posts to `/v1/transcribe` while the live request succeeds.
 
-    The service still serves the buffered route, but the live route is the
-    only one this client opens, whichever way audio is submitted.
+    The buffered route is only the fallback for a live 413 past the 120 s cap;
+    whichever way audio is submitted, a dictation within it goes live only.
     """
     for _ in range(4):  # one per request; older pytest-httpx has no is_reusable
         _mock_ok(httpx_mock)
@@ -1051,3 +1058,426 @@ def test_live_session_surfaces_server_errors(httpx_mock: HTTPXMock):
             session.result()
 
     assert exc.value.error_code == "capacity_exceeded"
+
+
+# --- buffered fallback past the live 120 s cap --------------------------------
+
+# The live endpoint's answer to audio past its cap, verbatim from production.
+_LIVE_CAP = {"error": "audio exceeds 120000 ms", "error_code": "audio_too_large"}
+
+_BUFFERED_OK = {
+    **_OK_RESPONSE,
+    "audio_duration_ms": 130000,
+    "session_id": "4f0c1d7e-buffered",
+}
+
+_PCM = aai.DictationConfig(sample_rate=16000, channels=1)
+
+
+class _CapTransport(httpx.BaseTransport):
+    """
+    A transport scripted like the Dictation API around the live 120 s cap.
+
+    The live request's body is read for `live_pieces` pieces — the multipart
+    head is the first — or whole when it is None, and then answered with
+    `live_status`/`live_json`. Stopping part-way is what httpcore does when
+    the server answers while the upload is still in flight: it stops pulling
+    the body and returns the response. The buffered request is read whole and
+    answered with `buffered_status`/`buffered_json`.
+    """
+
+    def __init__(
+        self,
+        *,
+        live_status: int = 413,
+        live_json: Optional[dict] = None,
+        live_pieces: Optional[int] = None,
+        buffered_status: int = 200,
+        buffered_json: Optional[dict] = None,
+        gate: Optional[threading.Event] = None,
+    ) -> None:
+        self.live_status = live_status
+        self.live_json = _LIVE_CAP if live_json is None else live_json
+        self.live_pieces = live_pieces
+        self.buffered_status = buffered_status
+        self.buffered_json = _BUFFERED_OK if buffered_json is None else buffered_json
+        self.gate = gate
+        self.live_request: Optional[httpx.Request] = None
+        self.live_body = b""
+        self.body_read = threading.Event()
+        self.answered = threading.Event()
+        self.buffered: List[tuple] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/transcribe/live":
+            self.live_request = request
+            pieces: List[bytes] = []
+            for piece in cast(Iterable[bytes], request.stream):
+                pieces.append(piece)
+                if self.live_pieces is not None and len(pieces) >= self.live_pieces:
+                    break
+            self.live_body = b"".join(pieces)
+            self.body_read.set()
+            if self.gate is not None:
+                self.gate.wait(timeout=5.0)
+            self.answered.set()
+            return httpx.Response(self.live_status, json=self.live_json)
+
+        body = b"".join(cast(Iterable[bytes], request.stream))
+        self.buffered.append((request, body))
+        return httpx.Response(self.buffered_status, json=self.buffered_json)
+
+
+def _transcriber_over(transport: httpx.BaseTransport, **kwargs):
+    """A `DictationTranscriber` whose client sends through `transport`."""
+
+    client = aai.Client()
+    client.http_client.close()
+    client._http_client = httpx.Client(
+        transport=transport, headers=dict(client.http_client.headers)
+    )
+    return aai.DictationTranscriber(client=client, **kwargs)
+
+
+def _body_parts(content_type: str, body: bytes):
+    raw = b"Content-Type: " + content_type.encode() + b"\r\n\r\n"
+    message = email.message_from_bytes(raw + body)
+
+    return {
+        part.get_param("name", header="content-disposition"): part
+        for part in message.get_payload()
+    }
+
+
+def _audio_head(body: bytes) -> bytes:
+    """The audio part's headers as the live body carried them."""
+
+    start = body.index(b'name="audio"')
+    return body[start : body.index(b"\r\n\r\n", start)]
+
+
+def _assert_buffered(transport: _CapTransport, audio: bytes, config: dict) -> None:
+    """The fallback posted `audio` whole, framed exactly like the live upload."""
+
+    assert len(transport.buffered) == 1
+    request, body = transport.buffered[0]
+    assert str(request.url) == BUFFERED_URL
+    assert request.headers["content-length"] == str(len(body))
+    assert "transfer-encoding" not in request.headers
+    assert request.headers["authorization"] == "test"
+
+    parts = _body_parts(request.headers["content-type"], body)
+    assert list(parts) == ["config", "audio"]
+    assert json.loads(parts["config"].get_payload(decode=True)) == config
+    assert parts["audio"].get_payload(decode=True) == audio
+    # Same filename and Content-Type on the audio part as the live upload
+    assert _audio_head(body) == _audio_head(transport.live_body)
+
+
+def test_fallback_is_on_by_default_and_can_be_turned_off():
+    assert aai.DictationTranscriber().fallback_to_buffered is True
+    assert (
+        aai.DictationTranscriber(fallback_to_buffered=False).fallback_to_buffered
+        is False
+    )
+
+
+@pytest.mark.parametrize("fallback", [True, False])
+def test_fallback_leaves_the_success_path_unchanged(fallback):
+    # Given a dictation within the cap, which the live endpoint answers 200
+    transport = _CapTransport(live_status=200, live_json=_OK_RESPONSE)
+
+    # When it is sent with the fallback on or off
+    result = _transcriber_over(
+        transport, fallback_to_buffered=fallback
+    ).transcribe_live(_chunks(b"\x01\x02", b"\x03\x04"), config=_PCM)
+
+    # Then it is the live result, from the live route only, with the same
+    # chunked body either way
+    assert result.session_id == _OK_RESPONSE["session_id"]
+    assert transport.buffered == []
+    assert transport.live_request.headers["transfer-encoding"] == "chunked"
+    parts = _body_parts(
+        transport.live_request.headers["content-type"], transport.live_body
+    )
+    assert parts["audio"].get_payload(decode=True) == b"\x01\x02\x03\x04"
+
+
+def test_live_cap_mid_upload_falls_back_with_all_the_audio():
+    # Given the live endpoint answering 413 audio_too_large after the head and
+    # the first chunk, while the producer is still recording
+    transport = _CapTransport(live_pieces=2)
+    pulled = []
+
+    def producer():
+        for chunk in (b"A" * 4, b"B" * 4, b"C" * 4, b"D" * 4):
+            pulled.append((chunk[:1], transport.answered.is_set()))
+            yield chunk
+
+    # When the dictation runs
+    result = _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    # Then the producer went on being read after the 413 until it ended
+    assert pulled == [(b"A", False), (b"B", True), (b"C", True), (b"D", True)]
+    # And the whole recording went to the buffered endpoint once, with the
+    # same config, and its result came back like a live one
+    _assert_buffered(
+        transport,
+        b"A" * 4 + b"B" * 4 + b"C" * 4 + b"D" * 4,
+        {"sample_rate": 16000, "channels": 1},
+    )
+    assert isinstance(result, aai.DictationResponse)
+    assert result.session_id == _BUFFERED_OK["session_id"]
+    assert result.audio_duration_ms == 130000
+
+
+def test_live_cap_after_the_whole_body_falls_back():
+    # Given a 413 that arrives only once the whole body was sent — what
+    # production does over HTTP/1.1, where it reads the body to the end first
+    transport = _CapTransport()
+
+    # When the dictation runs
+    result = _transcriber_over(transport).transcribe_live(
+        _chunks(b"RIFF", b"wav-1", b"wav-2"),
+        config=aai.DictationConfig(language_codes=["en"]),
+    )
+
+    # Then the buffered request carries the same audio and config
+    _assert_buffered(transport, b"RIFFwav-1wav-2", {"language_codes": ["en"]})
+    assert result.session_id == _BUFFERED_OK["session_id"]
+
+
+def test_live_cap_drains_the_rest_of_a_file_object():
+    # Given a file object the live upload had read only part of
+    audio = bytes(range(256)) * ((3 * _STREAM_READ_SIZE) // 256 + 1)
+    transport = _CapTransport(live_pieces=2)
+
+    # When the dictation runs
+    _transcriber_over(transport).transcribe_live(io.BytesIO(audio), config=_PCM)
+
+    # Then the rest of the file was read into the buffered request
+    _assert_buffered(transport, audio, {"sample_rate": 16000, "channels": 1})
+
+
+def test_fallback_disabled_raises_the_live_413_as_before():
+    # Given a transcriber built without the fallback
+    transport = _CapTransport(live_pieces=2)
+    pulled = []
+
+    def producer():
+        for chunk in (b"A", b"B", b"C"):
+            pulled.append(chunk)
+            yield chunk
+
+    # When the live endpoint answers 413 mid-upload
+    with pytest.raises(aai.DictationError) as exc:
+        _transcriber_over(transport, fallback_to_buffered=False).transcribe_live(
+            producer(), config=_PCM
+        )
+
+    # Then the live error is raised, the producer is not read further and
+    # nothing is retried
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert "120000 ms" in str(exc.value)
+    assert pulled == [b"A"]
+    assert transport.buffered == []
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [
+        (413, {"error": "body too large", "error_code": "payload_too_large"}),
+        (413, {"status": 413, "title": "Request Entity Too Large"}),
+        (413, {"detail": "too large"}),
+        (401, {"detail": "Invalid API key"}),
+        (429, {"status": 429, "title": "Too Many Requests", "detail": "slow down"}),
+        (500, {"error": "boom", "error_code": "audio_too_large"}),
+        (503, {"status": 503, "title": "Capacity Exceeded"}),
+    ],
+)
+def test_other_failures_do_not_fall_back(status, body):
+    # Given a live failure other than 413 audio_too_large
+    transport = _CapTransport(live_status=status, live_json=body, live_pieces=2)
+
+    # When the dictation runs, then that error is raised as before and
+    # nothing is retried
+    with pytest.raises(aai.DictationError) as exc:
+        _transcriber_over(transport).transcribe_live(_chunks(b"A", b"B"), config=_PCM)
+
+    assert exc.value.status_code == status
+    assert transport.buffered == []
+
+
+@pytest.mark.parametrize(
+    "status, body, code",
+    [
+        (
+            413,
+            {"error": "audio exceeds 1200000 ms", "error_code": "audio_too_large"},
+            "audio_too_large",
+        ),
+        (500, {"status": 500, "title": "Internal Error"}, "internal_error"),
+    ],
+)
+def test_a_failed_fallback_raises_its_own_error(status, body, code):
+    # Given a buffered request that fails too
+    transport = _CapTransport(buffered_status=status, buffered_json=body)
+
+    # When the dictation runs
+    with pytest.raises(aai.DictationError) as exc:
+        _transcriber_over(transport).transcribe_live(_chunks(b"A"), config=_PCM)
+
+    # Then the buffered request's error is raised, not the live 413
+    assert len(transport.buffered) == 1
+    assert exc.value.status_code == status
+    assert exc.value.error_code == code
+    assert "120000 ms" not in str(exc.value)
+
+
+def test_the_copy_is_capped_while_draining(monkeypatch):
+    # Given a copy cap of 10 bytes and a producer that keeps recording
+    monkeypatch.setattr(api, "BUFFERED_MAX_BYTES", 10)
+    transport = _CapTransport(live_pieces=2)
+    pulled = []
+
+    def producer():
+        for _ in range(100):
+            pulled.append(1)
+            yield b"x" * 4
+
+    # When the live request hits the cap and the producer is drained
+    with pytest.raises(aai.DictationError) as exc:
+        _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    # Then draining stops once the copy passes the cap, with a 413
+    # audio_too_large, and nothing is sent
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert len(pulled) == 3
+    assert transport.buffered == []
+
+
+def test_buffered_max_bytes_matches_the_buffered_endpoint():
+    assert api.BUFFERED_MAX_BYTES == 256 * 1024 * 1024
+    assert api.ENDPOINT_TRANSCRIBE == "/v1/transcribe"
+
+
+def test_a_producer_error_while_draining_propagates_without_fallback():
+    # Given a producer that fails after the live 413
+    transport = _CapTransport(live_pieces=2)
+
+    def producer():
+        yield b"A"
+        raise ValueError("microphone unplugged")
+
+    # When the dictation runs, then the producer's error propagates unchanged
+    # and nothing is sent
+    with pytest.raises(ValueError, match="microphone unplugged"):
+        _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    assert transport.buffered == []
+
+
+def test_open_live_falls_back_with_audio_written_after_the_413():
+    # Given a session whose live request is answered 413 after the first chunk
+    transport = _CapTransport(live_pieces=2)
+
+    with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A" * 4)
+        assert transport.answered.wait(timeout=5.0)
+
+        # When the speaker keeps talking, then stops
+        session.write(b"B" * 4)
+        session.write(b"C" * 4)
+        session.close()
+        result = session.result()
+
+    # Then the buffered request carries everything written, and its result is
+    # the session's
+    _assert_buffered(
+        transport, b"A" * 4 + b"B" * 4 + b"C" * 4, {"sample_rate": 16000, "channels": 1}
+    )
+    assert result.session_id == _BUFFERED_OK["session_id"]
+
+
+def test_open_live_abort_after_the_413_sends_no_fallback():
+    # Given a session whose live request was answered 413 mid-recording
+    transport = _CapTransport(live_pieces=2)
+
+    with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A")
+        assert transport.answered.wait(timeout=5.0)
+        session.write(b"B")
+
+        # When it is aborted while the producer is being drained
+        session.abort()
+
+        # Then no buffered request is made and there is no result
+        assert transport.buffered == []
+        with pytest.raises(RuntimeError, match="aborted"):
+            session.result()
+
+
+def test_open_live_abort_after_close_sends_no_fallback():
+    # Given a closed session whose live 413 has not arrived yet
+    gate = threading.Event()
+    transport = _CapTransport(gate=gate)
+
+    with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A")
+        session.close()
+        assert transport.body_read.wait(timeout=5.0)
+
+        # When it is aborted before the 413 comes back
+        aborter = threading.Thread(target=session.abort)
+        aborter.start()
+        while not session._aborted:
+            time.sleep(0.001)
+        gate.set()
+        aborter.join(timeout=5.0)
+
+        # Then the fallback is not sent
+        assert transport.answered.is_set()
+        assert transport.buffered == []
+        with pytest.raises(RuntimeError, match="aborted"):
+            session.result()
+
+
+def test_the_copy_is_capped_during_the_live_upload_too(monkeypatch):
+    # Given a copy cap of 10 bytes, and a live endpoint that reads the whole
+    # body before answering — as production does
+    monkeypatch.setattr(api, "BUFFERED_MAX_BYTES", 10)
+    transport = _CapTransport()
+    pulled = []
+
+    def producer():
+        for _ in range(100):
+            pulled.append(1)
+            yield b"x" * 4
+
+    # When the copy passes the cap while the live request is still uploading
+    with pytest.raises(aai.DictationError) as exc:
+        _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    # Then the upload stops there with a 413 audio_too_large; memory stays
+    # bounded rather than growing until the speaker stops
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert len(pulled) == 3
+    assert transport.buffered == []
+
+
+def test_the_copy_cap_does_not_apply_without_the_fallback(monkeypatch):
+    # Given no fallback, so no copy is kept
+    monkeypatch.setattr(api, "BUFFERED_MAX_BYTES", 10)
+    transport = _CapTransport(live_status=200, live_json=_OK_RESPONSE)
+
+    # When more than the cap is uploaded, then it goes out as before
+    _transcriber_over(transport, fallback_to_buffered=False).transcribe_live(
+        _chunks(*([b"x" * 4] * 10)), config=_PCM
+    )
+    assert transport.live_body.count(b"x") == 40

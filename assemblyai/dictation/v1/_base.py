@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import os
-from typing import AsyncIterable, BinaryIO, Iterable, Mapping, Optional, Tuple, Union
+from typing import (
+    AsyncIterable,
+    BinaryIO,
+    Callable,
+    Iterable,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urlparse
 
 from ... import _audio
@@ -19,11 +28,11 @@ __all__ = [
     "resolve_source",
 ]
 
-# Audio for a dictation request. The live endpoint is the only one this
-# client opens, so it takes every shape audio comes in: a producer that is
-# still recording (an iterable of chunks, or a file object read as it fills)
-# and audio that is already complete (bytes, or a local path), which goes out
-# over the same connection as a single chunk.
+# Audio for a dictation request. Every request starts on the live endpoint, so
+# it takes every shape audio comes in: a producer that is still recording (an
+# iterable of chunks, or a file object read as it fills) and audio that is
+# already complete (bytes, or a local path), which goes out over the same
+# connection as a single chunk.
 AudioSource = Union[
     str, bytes, bytearray, "os.PathLike[str]", BinaryIO, Iterable[bytes]
 ]
@@ -162,16 +171,19 @@ class _DictationTranscriberImpl:
         client: _client.Client,
         config: DictationConfig,
         owner: str,
+        fallback_to_buffered: bool,
     ) -> None:
         self._client = client
         self.config = config
         self._owner = owner
+        self.fallback_to_buffered = fallback_to_buffered
 
     def transcribe_live(
         self,
         *,
         data: AudioSource,
         config: Optional[DictationConfig],
+        cancelled: Optional[Callable[[], bool]] = None,
     ) -> DictationResponse:
         config = config or self.config
         chunks, filename, content_type = resolve_source(data, config, self._owner)
@@ -184,4 +196,6 @@ class _DictationTranscriberImpl:
             audio_content_type=content_type,
             config=_config_to_json(config),
             timeout=self._client.settings.dictation_http_timeout,
+            fallback_to_buffered=self.fallback_to_buffered,
+            cancelled=cancelled,
         )

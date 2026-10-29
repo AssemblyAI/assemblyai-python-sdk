@@ -26,9 +26,10 @@ class DictationLiveSession:
     arrives in a callback rather than from an iterator you can hand to
     `transcribe_live()`.
 
-    Everything `transcribe_live()` says about the 120 s audio cap, the
-    server-side silence abort and errors surfacing mid-upload applies here
-    unchanged.
+    Everything `transcribe_live()` says about the 120 s audio cap and the
+    buffered fallback past it, the server-side silence abort and errors
+    surfacing mid-upload applies here unchanged. After a fallback, `result()`
+    waits for the whole recording to upload and be transcribed.
 
     Example:
         ```python
@@ -51,18 +52,21 @@ class DictationLiveSession:
     def __init__(
         self,
         start: Callable[
-            [Iterator[bytes]], concurrent.futures.Future[DictationResponse]
+            [Iterator[bytes], Callable[[], bool]],
+            concurrent.futures.Future[DictationResponse],
         ],
     ) -> None:
         """
         Args:
             start: begins the upload from the given producer and returns the
-                future that will hold its outcome. Supplied by the transcriber.
+                future that will hold its outcome. Its second argument reports
+                whether the session has been aborted, so a buffered fallback is
+                never sent for an aborted session. Supplied by the transcriber.
         """
         self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
         self._closed = False
         self._aborted = False
-        self._future = start(self._chunks())
+        self._future = start(self._chunks(), lambda: self._aborted)
 
     def _chunks(self) -> Iterator[bytes]:
         while True:
@@ -130,10 +134,12 @@ class DictationLiveSession:
         Drops the request without a transcript.
 
         The connection is closed and nothing the server may still return is
-        kept; `result()` raises afterwards. Idempotent, and a no-op once the
-        request has completed. Blocks until the worker thread has let go of
-        the connection. After `close()` the upload is already complete, so
-        aborting then waits out the in-flight response instead.
+        kept; `result()` raises afterwards. No buffered fallback request is
+        sent after an abort, and the copy of the audio kept for one is
+        dropped. Idempotent, and a no-op once the request has completed.
+        Blocks until the worker thread has let go of the connection. After
+        `close()` the upload is already complete, so aborting then waits out
+        the in-flight response instead.
         """
         if self._aborted or self._future.done():
             return
@@ -176,6 +182,11 @@ class DictationTranscriber:
     a follow-up LLM pass: set `llm_instruction` on the config and read
     `result.final_text`.
 
+    The live endpoint takes up to 120 s of audio. A longer dictation, up to
+    20 minutes, still succeeds: the transcriber falls back to the buffered
+    endpoint and returns its result the same way. See `fallback_to_buffered`
+    on `__init__` for what that costs and how to turn it off.
+
     Example:
         ```python
         import assemblyai as aai
@@ -197,6 +208,7 @@ class DictationTranscriber:
         config: Optional[DictationConfig] = None,
         max_workers: Optional[int] = None,
         api_key: Optional[str] = None,
+        fallback_to_buffered: bool = True,
     ) -> None:
         """
         Creates a `DictationTranscriber`.
@@ -212,6 +224,22 @@ class DictationTranscriber:
                 transcriber builds its own client from a copy of that client's
                 settings with the key replaced, and the given client is left
                 untouched.
+            fallback_to_buffered: Whether a dictation past the live endpoint's
+                120 s cap falls back to the buffered endpoint. Applies to
+                `transcribe_live()` and `open_live()`. When True (the
+                default), the transcriber keeps an in-memory copy of all the
+                audio it uploads. If the live request is refused with 413
+                `audio_too_large`, it keeps reading the audio source until it
+                ends — the producer's iterator is exhausted, or the session is
+                closed — then posts the whole recording once to
+                `/v1/transcribe` (up to 20 minutes / 256 MB) and returns that
+                result like a live one. After a fallback the result waits for
+                the whole recording to upload and be transcribed, so a long
+                dictation returns more slowly than a live one. The copy costs
+                about 32 KB per second of 16 kHz mono audio (about 38 MB at 20
+                minutes); past 256 MB the copy is dropped and a 413
+                `DictationError` is raised. False keeps no copy and raises the
+                live 413 as before.
 
         Raises:
             TypeError: if `config` is not a `DictationConfig`.
@@ -223,6 +251,7 @@ class DictationTranscriber:
             client=self._client,
             config=config or DictationConfig(),
             owner=type(self).__name__,
+            fallback_to_buffered=fallback_to_buffered,
         )
 
         if not max_workers:
@@ -244,6 +273,11 @@ class DictationTranscriber:
 
         self._impl.config = config
 
+    @property
+    def fallback_to_buffered(self) -> bool:
+        """Whether audio past the live 120 s cap falls back to `/v1/transcribe`."""
+        return self._impl.fallback_to_buffered
+
     def transcribe_live(
         self,
         data: AudioSource,
@@ -261,7 +295,12 @@ class DictationTranscriber:
 
         The caller must keep producing: an upload that goes silent for long
         enough is aborted server-side. Stop by ending the iterator, not by
-        pausing it. The service caps a request at 120 s of audio.
+        pausing it. The live endpoint caps a request at 120 s of audio. Past
+        it, unless the transcriber was built with `fallback_to_buffered=False`,
+        the iterator is read to its end and the whole recording is posted to
+        the buffered endpoint (up to 20 minutes), whose result is returned.
+        That result waits for the whole recording to upload and be
+        transcribed, so a long dictation returns more slowly than a live one.
 
         Args:
             data: An iterable of audio chunks, a binary file object read as it
@@ -278,6 +317,9 @@ class DictationTranscriber:
                 `channels`.
             DictationError: if the request fails. Auth, rate-limit, size and
                 capacity failures can surface part-way through the upload.
+                After a fallback, it is the buffered request's own error (a
+                413 past 20 minutes, say), or a 413 `audio_too_large` once the
+                recording passes 256 MB.
             Exception: anything the producer raises mid-upload propagates
                 unchanged. The connection is dropped and no transcript is
                 returned.
@@ -308,6 +350,11 @@ class DictationTranscriber:
         the callback, then `session.result()` for the transcript once the
         speaker stops. See `DictationLiveSession`.
 
+        Past the live endpoint's 120 s cap the session falls back the way
+        `transcribe_live()` does: keep writing until the speaker stops, and
+        `result()` returns the buffered endpoint's transcript of the whole
+        recording, more slowly than a live result.
+
         Args:
             config: Options for this call. If `None`, the transcriber's default
                 configuration is used. Raw PCM requires `sample_rate` and
@@ -327,8 +374,11 @@ class DictationTranscriber:
         check_config(type(self).__name__, config)
 
         return DictationLiveSession(
-            lambda chunks: self._executor.submit(
-                self._impl.transcribe_live, data=chunks, config=config
+            lambda chunks, cancelled: self._executor.submit(
+                self._impl.transcribe_live,
+                data=chunks,
+                config=config,
+                cancelled=cancelled,
             )
         )
 
