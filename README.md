@@ -682,7 +682,7 @@ except aai.SyncTranscriptError as error:
 
 ### **Dictation Examples**
 
-`aai.DictationTranscriber` is for dictation: a person speaks a short note and gets it back as text, optionally cleaned up or reformatted by an LLM. It has one connection, the live upload — audio is sent as it is spoken, the service transcribes each speech segment as it lands, and when the speaker stops what remains is the final segment and the LLM pass. There is no job id and no polling. Audio must be WAV or raw 16-bit PCM, up to 120 s per request.
+`aai.DictationTranscriber` is for dictation: a person speaks a short note and gets it back as text, optionally cleaned up or reformatted by an LLM. Every dictation starts on the live upload — audio is sent as it is spoken, the service transcribes each speech segment as it lands, and when the speaker stops what remains is the final segment and the LLM pass. There is no job id and no polling. Audio must be WAV or raw 16-bit PCM. The live upload takes up to 120 s; a longer dictation, up to 20 minutes, falls back to the buffered endpoint on its own (see below).
 
 The result is a `DictationResponse`: `text` is the raw transcript, `llm_response` the rewritten text when the LLM pass ran, and `final_text` is the one to show the user — the rewrite when there is one, the raw transcript otherwise.
 
@@ -716,7 +716,7 @@ Leaving the `with` block calls `close()`. If the block raises, the session is ab
 
 This is **not** the streaming API. A session returns one finished transcript when the audio ends; use `aai.RealTimeTranscriber` when you need words back while the speaker is still talking.
 
-The server aborts an upload that goes silent for long, so keep writing until the speaker is done rather than pausing. Errors that would normally arrive at the end (bad key, rate limit, capacity, audio too large) can surface part-way through the upload; `result()` raises them as `DictationError`.
+The server aborts an upload that goes silent for long, so keep writing until the speaker is done rather than pausing. Errors that would normally arrive at the end (bad key, rate limit, capacity) can surface part-way through the upload; `result()` raises them as `DictationError`. Audio past the 120 s live cap is not an error by default: see "Dictate for longer than 2 minutes" below.
 
 </details>
 
@@ -866,6 +866,29 @@ result = await transcriber.transcribe_live(frames(websocket), config=config)
 ```
 
 The transcriber owns an HTTP connection pool: use `async with`, or call `await transcriber.aclose()`. To share one pool between transcribers, pass an `aai.AsyncClient`, which stays yours to close.
+
+</details>
+
+<details>
+  <summary>Dictate for longer than 2 minutes</summary>
+
+The live upload is capped at 120 s of audio. Past it the server answers `413` with `error_code="audio_too_large"`, and by default the transcriber falls back to the buffered endpoint (`/v1/transcribe`, up to 20 minutes / 256 MB) for you: it keeps reading your audio source until it ends — the iterator is exhausted, or the session is closed — then posts the whole recording once, with the same config, and returns that result like a live one. Your code does not change.
+
+The trade-offs:
+
+- **Slower result.** After a fallback the result waits for the whole recording to upload and be transcribed, so a long dictation returns more slowly than a live one, where only the final segment is left once the speaker stops.
+- **Memory.** To have the recording to resend, the transcriber keeps an in-memory copy of all the audio it uploads: about 32 KB per second at 16 kHz mono, so about 38 MB for 20 minutes. Past 256 MB the copy is dropped and a `413` `DictationError` is raised.
+
+Only a `413` `audio_too_large` from the live endpoint falls back; every other error is raised as before. If the buffered request fails too (past 20 minutes, say), its own error is raised. `abort()`, or an exception from your producer, drops the dictation with no fallback request.
+
+To keep dictations live-only and hold no copy of the audio, turn it off:
+
+```python
+transcriber = aai.DictationTranscriber(fallback_to_buffered=False)
+# a dictation past 120 s now raises DictationError(status_code=413, error_code="audio_too_large")
+```
+
+`aai.AsyncDictationTranscriber` takes the same option.
 
 </details>
 

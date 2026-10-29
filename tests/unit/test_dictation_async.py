@@ -8,8 +8,9 @@ producer shapes and the `AsyncDictationLiveSession`.
 import asyncio
 import email
 import io
+import json
 import threading
-from typing import List, Optional
+from typing import AsyncIterable, List, Optional, cast
 
 import httpx
 import pytest
@@ -17,13 +18,14 @@ from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from assemblyai._multipart import _STREAM_READ_SIZE, aiter_chunks
-from assemblyai.dictation.v1 import async_api
+from assemblyai.dictation.v1 import api, async_api
 
 pytestmark = pytest.mark.asyncio
 
 aai.settings.api_key = "test"
 
 LIVE_URL = f"{aai.settings.dictation_base_url}/v1/transcribe/live"
+BUFFERED_URL = f"{aai.settings.dictation_base_url}/v1/transcribe"
 WARM_URL = f"{aai.settings.dictation_base_url}/v1/warm"
 
 _OK_RESPONSE = {
@@ -663,8 +665,10 @@ async def test_live_session_surfaces_server_errors(httpx_mock: HTTPXMock):
     assert exc.value.retry_after == 3
 
 
-async def test_the_buffered_endpoint_is_never_requested(httpx_mock: HTTPXMock):
-    """No entry point on the asyncio client posts to `/v1/transcribe`."""
+async def test_the_buffered_endpoint_is_not_requested_within_the_cap(
+    httpx_mock: HTTPXMock,
+):
+    """No asyncio entry point posts to `/v1/transcribe` while live succeeds."""
     for _ in range(4):  # one per request; older pytest-httpx has no is_reusable
         _mock_ok(httpx_mock)
 
@@ -687,3 +691,338 @@ def test_open_live_needs_a_running_loop():
     # When a session is opened, then the mistake is named rather than deferred
     with pytest.raises(RuntimeError, match="no running event loop"):
         transcriber.open_live()
+
+
+# --- buffered fallback past the live 120 s cap --------------------------------
+
+_LIVE_CAP = {"error": "audio exceeds 120000 ms", "error_code": "audio_too_large"}
+
+_BUFFERED_OK = {
+    **_OK_RESPONSE,
+    "audio_duration_ms": 130000,
+    "session_id": "4f0c1d7e-buffered",
+}
+
+_PCM = aai.DictationConfig(sample_rate=16000, channels=1)
+
+
+class _AsyncCapTransport(httpx.AsyncBaseTransport):
+    """
+    The asyncio twin of `test_dictation._CapTransport`: the live body is read
+    for `live_pieces` pieces (whole when None) and answered with
+    `live_status`/`live_json`, the way httpcore stops pulling a body once the
+    server has answered; the buffered body is read whole and answered with
+    `buffered_status`/`buffered_json`.
+    """
+
+    def __init__(
+        self,
+        *,
+        live_status: int = 413,
+        live_json: Optional[dict] = None,
+        live_pieces: Optional[int] = None,
+        buffered_status: int = 200,
+        buffered_json: Optional[dict] = None,
+        gate: Optional[asyncio.Event] = None,
+    ) -> None:
+        self.live_status = live_status
+        self.live_json = _LIVE_CAP if live_json is None else live_json
+        self.live_pieces = live_pieces
+        self.buffered_status = buffered_status
+        self.buffered_json = _BUFFERED_OK if buffered_json is None else buffered_json
+        self.gate = gate
+        self.live_request: Optional[httpx.Request] = None
+        self.live_body = b""
+        self.body_read = asyncio.Event()
+        self.answered = asyncio.Event()
+        self.buffered: List[tuple] = []
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/transcribe/live":
+            self.live_request = request
+            pieces: List[bytes] = []
+            stream = cast(AsyncIterable[bytes], request.stream).__aiter__()
+            while self.live_pieces is None or len(pieces) < self.live_pieces:
+                try:
+                    pieces.append(await stream.__anext__())
+                except StopAsyncIteration:
+                    break
+            self.live_body = b"".join(pieces)
+            self.body_read.set()
+            if self.gate is not None:
+                await asyncio.wait_for(self.gate.wait(), timeout=5.0)
+            self.answered.set()
+            return httpx.Response(self.live_status, json=self.live_json)
+
+        body = b"".join(
+            [piece async for piece in cast(AsyncIterable[bytes], request.stream)]
+        )
+        self.buffered.append((request, body))
+        return httpx.Response(self.buffered_status, json=self.buffered_json)
+
+
+def _transcriber_over(transport: httpx.AsyncBaseTransport, **kwargs):
+    """An `AsyncDictationTranscriber` whose client sends through `transport`."""
+
+    client = aai.AsyncClient()
+    client._http_client = httpx.AsyncClient(
+        transport=transport, headers=dict(client.http_client.headers)
+    )
+    return aai.AsyncDictationTranscriber(client=client, **kwargs)
+
+
+def _body_parts(content_type: str, body: bytes):
+    raw = b"Content-Type: " + content_type.encode() + b"\r\n\r\n"
+    message = email.message_from_bytes(raw + body)
+
+    return {
+        part.get_param("name", header="content-disposition"): part
+        for part in message.get_payload()
+    }
+
+
+def _audio_head(body: bytes) -> bytes:
+    start = body.index(b'name="audio"')
+    return body[start : body.index(b"\r\n\r\n", start)]
+
+
+def _assert_buffered(transport, audio: bytes, config: dict) -> None:
+    """The fallback posted `audio` whole, framed exactly like the live upload."""
+
+    assert len(transport.buffered) == 1
+    request, body = transport.buffered[0]
+    assert str(request.url) == BUFFERED_URL
+    assert request.headers["content-length"] == str(len(body))
+    assert "transfer-encoding" not in request.headers
+
+    parts = _body_parts(request.headers["content-type"], body)
+    assert list(parts) == ["config", "audio"]
+    assert json.loads(parts["config"].get_payload(decode=True)) == config
+    assert parts["audio"].get_payload(decode=True) == audio
+    assert _audio_head(body) == _audio_head(transport.live_body)
+
+
+async def test_fallback_is_on_by_default_and_can_be_turned_off():
+    assert aai.AsyncDictationTranscriber().fallback_to_buffered is True
+    assert (
+        aai.AsyncDictationTranscriber(fallback_to_buffered=False).fallback_to_buffered
+        is False
+    )
+
+
+@pytest.mark.parametrize("fallback", [True, False])
+async def test_fallback_leaves_the_success_path_unchanged(fallback):
+    # Given a dictation within the cap
+    transport = _AsyncCapTransport(live_status=200, live_json=_OK_RESPONSE)
+
+    # When it is sent with the fallback on or off
+    result = await _transcriber_over(
+        transport, fallback_to_buffered=fallback
+    ).transcribe_live(_achunks(b"\x01\x02", b"\x03\x04"), config=_PCM)
+
+    # Then it is the live result, from the live route only
+    assert result.session_id == _OK_RESPONSE["session_id"]
+    assert transport.buffered == []
+    assert transport.live_request.headers["transfer-encoding"] == "chunked"
+    parts = _body_parts(
+        transport.live_request.headers["content-type"], transport.live_body
+    )
+    assert parts["audio"].get_payload(decode=True) == b"\x01\x02\x03\x04"
+
+
+async def test_live_cap_mid_upload_falls_back_with_all_the_audio():
+    # Given a 413 audio_too_large after the head and the first chunk, while
+    # the async producer is still recording
+    transport = _AsyncCapTransport(live_pieces=2)
+    pulled = []
+
+    async def producer():
+        for chunk in (b"A" * 4, b"B" * 4, b"C" * 4, b"D" * 4):
+            pulled.append((chunk[:1], transport.answered.is_set()))
+            yield chunk
+
+    # When the dictation runs
+    result = await _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    # Then the producer went on being read after the 413, and the whole
+    # recording went to the buffered endpoint once
+    assert pulled == [(b"A", False), (b"B", True), (b"C", True), (b"D", True)]
+    _assert_buffered(
+        transport,
+        b"A" * 4 + b"B" * 4 + b"C" * 4 + b"D" * 4,
+        {"sample_rate": 16000, "channels": 1},
+    )
+    assert result.session_id == _BUFFERED_OK["session_id"]
+    assert result.audio_duration_ms == 130000
+
+
+async def test_live_cap_after_the_whole_body_falls_back():
+    # Given a 413 that arrives once the whole body was sent
+    transport = _AsyncCapTransport()
+
+    # When the dictation runs from a plain iterable
+    result = await _transcriber_over(transport).transcribe_live(
+        [b"RIFF", b"wav-1", b"wav-2"]
+    )
+
+    # Then the buffered request carries the same audio and the empty config
+    _assert_buffered(transport, b"RIFFwav-1wav-2", {})
+    assert result.session_id == _BUFFERED_OK["session_id"]
+
+
+async def test_fallback_disabled_raises_the_live_413_as_before():
+    transport = _AsyncCapTransport(live_pieces=2)
+    pulled = []
+
+    async def producer():
+        for chunk in (b"A", b"B", b"C"):
+            pulled.append(chunk)
+            yield chunk
+
+    with pytest.raises(aai.DictationError) as exc:
+        await _transcriber_over(transport, fallback_to_buffered=False).transcribe_live(
+            producer(), config=_PCM
+        )
+
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert pulled == [b"A"]
+    assert transport.buffered == []
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [
+        (413, {"error": "body too large", "error_code": "payload_too_large"}),
+        (413, {"detail": "too large"}),
+        (429, {"status": 429, "title": "Too Many Requests"}),
+        (500, {"error": "boom", "error_code": "audio_too_large"}),
+    ],
+)
+async def test_other_failures_do_not_fall_back(status, body):
+    transport = _AsyncCapTransport(live_status=status, live_json=body, live_pieces=2)
+
+    with pytest.raises(aai.DictationError) as exc:
+        await _transcriber_over(transport).transcribe_live(
+            _achunks(b"A", b"B"), config=_PCM
+        )
+
+    assert exc.value.status_code == status
+    assert transport.buffered == []
+
+
+async def test_a_failed_fallback_raises_its_own_error():
+    # Given a buffered request refused past its own 20-minute cap
+    transport = _AsyncCapTransport(
+        buffered_status=413,
+        buffered_json={
+            "error": "audio exceeds 1200000 ms",
+            "error_code": "audio_too_large",
+        },
+    )
+
+    with pytest.raises(aai.DictationError) as exc:
+        await _transcriber_over(transport).transcribe_live(_achunks(b"A"), config=_PCM)
+
+    # Then that error is raised, not the live one
+    assert len(transport.buffered) == 1
+    assert "1200000 ms" in str(exc.value)
+
+
+async def test_the_copy_is_capped_while_draining(monkeypatch):
+    monkeypatch.setattr(api, "BUFFERED_MAX_BYTES", 10)
+    transport = _AsyncCapTransport(live_pieces=2)
+    pulled = []
+
+    async def producer():
+        for _ in range(100):
+            pulled.append(1)
+            yield b"x" * 4
+
+    with pytest.raises(aai.DictationError) as exc:
+        await _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert len(pulled) == 3
+    assert transport.buffered == []
+
+
+async def test_open_live_falls_back_with_audio_written_after_the_413():
+    transport = _AsyncCapTransport(live_pieces=2)
+
+    async with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A" * 4)
+        await asyncio.wait_for(transport.answered.wait(), timeout=5.0)
+
+        # When the speaker keeps talking, then stops
+        session.write(b"B" * 4)
+        session.write(b"C" * 4)
+        session.close()
+        result = await session.result()
+
+    _assert_buffered(
+        transport, b"A" * 4 + b"B" * 4 + b"C" * 4, {"sample_rate": 16000, "channels": 1}
+    )
+    assert result.session_id == _BUFFERED_OK["session_id"]
+
+
+async def test_open_live_abort_after_the_413_sends_no_fallback():
+    transport = _AsyncCapTransport(live_pieces=2)
+
+    async with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A")
+        await asyncio.wait_for(transport.answered.wait(), timeout=5.0)
+        session.write(b"B")
+
+        await session.abort()
+
+        assert transport.buffered == []
+        with pytest.raises(RuntimeError, match="aborted"):
+            await session.result()
+
+
+async def test_open_live_abort_after_close_sends_no_fallback():
+    # Given a closed session whose live 413 has not arrived yet
+    gate = asyncio.Event()
+    transport = _AsyncCapTransport(gate=gate)
+
+    async with _transcriber_over(transport) as transcriber:
+        session = transcriber.open_live(_PCM)
+        session.write(b"A")
+        session.close()
+        await asyncio.wait_for(transport.body_read.wait(), timeout=5.0)
+
+        # When it is aborted before the 413 comes back
+        aborter = asyncio.ensure_future(session.abort())
+        await asyncio.sleep(0)
+        assert session._aborted
+        gate.set()
+        await asyncio.wait_for(aborter, timeout=5.0)
+
+        # Then the fallback is not sent
+        assert transport.answered.is_set()
+        assert transport.buffered == []
+        with pytest.raises(RuntimeError, match="aborted"):
+            await session.result()
+
+
+async def test_the_copy_is_capped_during_the_live_upload_too(monkeypatch):
+    monkeypatch.setattr(api, "BUFFERED_MAX_BYTES", 10)
+    transport = _AsyncCapTransport()
+    pulled = []
+
+    async def producer():
+        for _ in range(100):
+            pulled.append(1)
+            yield b"x" * 4
+
+    with pytest.raises(aai.DictationError) as exc:
+        await _transcriber_over(transport).transcribe_live(producer(), config=_PCM)
+
+    assert exc.value.status_code == 413
+    assert exc.value.error_code == "audio_too_large"
+    assert len(pulled) == 3
+    assert transport.buffered == []

@@ -44,9 +44,10 @@ class AsyncDictationLiveSession:
     library's capture thread, say — schedule them with
     `loop.call_soon_threadsafe(session.write, chunk)`.
 
-    Everything `transcribe_live()` says about the 120 s audio cap, the
-    server-side silence abort and errors surfacing mid-upload applies here
-    unchanged.
+    Everything `transcribe_live()` says about the 120 s audio cap and the
+    buffered fallback past it, the server-side silence abort and errors
+    surfacing mid-upload applies here unchanged. After a fallback, `result()`
+    waits for the whole recording to upload and be transcribed.
 
     Example:
         ```python
@@ -60,17 +61,22 @@ class AsyncDictationLiveSession:
 
     def __init__(
         self,
-        start: Callable[[AsyncIterator[bytes]], asyncio.Task[DictationResponse]],
+        start: Callable[
+            [AsyncIterator[bytes], Callable[[], bool]],
+            asyncio.Task[DictationResponse],
+        ],
     ) -> None:
         """
         Args:
             start: begins the upload from the given producer and returns the
-                task that will hold its outcome. Supplied by the transcriber.
+                task that will hold its outcome. Its second argument reports
+                whether the session has been aborted, so a buffered fallback is
+                never sent for an aborted session. Supplied by the transcriber.
         """
         self._queue: "asyncio.Queue[Optional[bytes]]" = asyncio.Queue()
         self._closed = False
         self._aborted = False
-        self._task = start(self._chunks())
+        self._task = start(self._chunks(), lambda: self._aborted)
 
     async def _chunks(self) -> AsyncIterator[bytes]:
         while True:
@@ -138,10 +144,12 @@ class AsyncDictationLiveSession:
         Drops the request without a transcript.
 
         The connection is closed and nothing the server may still return is
-        kept; `result()` raises afterwards. Idempotent, and a no-op once the
-        request has completed. Waits until the task has let go of the
-        connection. After `close()` the upload is already complete, so
-        aborting then waits out the in-flight response instead.
+        kept; `result()` raises afterwards. No buffered fallback request is
+        sent after an abort, and the copy of the audio kept for one is
+        dropped. Idempotent, and a no-op once the request has completed.
+        Waits until the task has let go of the connection. After `close()` the
+        upload is already complete, so aborting then waits out the in-flight
+        response instead.
         """
         if self._aborted or self._task.done():
             return
@@ -184,7 +192,9 @@ class AsyncDictationTranscriber:
     `warm()` as coroutines and `open_live()` returning an
     `AsyncDictationLiveSession`. Use it in asyncio code (FastAPI, aiohttp,
     voice agents), where the threaded `DictationTranscriber` would block the
-    loop.
+    loop. Past the live endpoint's 120 s cap it falls back to the buffered
+    endpoint exactly as `DictationTranscriber` does; see
+    `fallback_to_buffered` on `__init__`.
 
     The transcriber owns an HTTP connection pool. Close it with `aclose()`,
     or use the transcriber as an async context manager.
@@ -213,6 +223,7 @@ class AsyncDictationTranscriber:
         client: Optional[_async_client.AsyncClient] = None,
         config: Optional[DictationConfig] = None,
         api_key: Optional[str] = None,
+        fallback_to_buffered: bool = True,
     ) -> None:
         """
         Creates an `AsyncDictationTranscriber`.
@@ -229,6 +240,22 @@ class AsyncDictationTranscriber:
                 transcriber builds and owns a client made from a copy of that
                 client's settings with the key replaced, and the given client is
                 left untouched and stays the caller's to close.
+            fallback_to_buffered: Whether a dictation past the live endpoint's
+                120 s cap falls back to the buffered endpoint. Applies to
+                `transcribe_live()` and `open_live()`. When True (the
+                default), the transcriber keeps an in-memory copy of all the
+                audio it uploads. If the live request is refused with 413
+                `audio_too_large`, it keeps reading the audio source until it
+                ends — the producer's iterator is exhausted, or the session is
+                closed — then posts the whole recording once to
+                `/v1/transcribe` (up to 20 minutes / 256 MB) and returns that
+                result like a live one. After a fallback the result waits for
+                the whole recording to upload and be transcribed, so a long
+                dictation returns more slowly than a live one. The copy costs
+                about 32 KB per second of 16 kHz mono audio (about 38 MB at 20
+                minutes); past 256 MB the copy is dropped and a 413
+                `DictationError` is raised. False keeps no copy and raises the
+                live 413 as before.
 
         Raises:
             TypeError: if `config` is not a `DictationConfig`.
@@ -238,6 +265,13 @@ class AsyncDictationTranscriber:
         self._owns_client = client is None or api_key is not None
         self._client = _async_client._resolve_client(client, api_key)
         self.config = config or DictationConfig()
+        self._fallback_to_buffered = fallback_to_buffered
+
+    @property
+    def fallback_to_buffered(self) -> bool:
+        """Whether audio past the live 120 s cap falls back to `/v1/transcribe`."""
+
+        return self._fallback_to_buffered
 
     @property
     def client(self) -> _async_client.AsyncClient:
@@ -263,7 +297,12 @@ class AsyncDictationTranscriber:
 
         The caller must keep producing: an upload that goes silent for long
         enough is aborted server-side. Stop by ending the iterator, not by
-        pausing it. The service caps a request at 120 s of audio.
+        pausing it. The live endpoint caps a request at 120 s of audio. Past
+        it, unless the transcriber was built with `fallback_to_buffered=False`,
+        the iterator is read to its end and the whole recording is posted to
+        the buffered endpoint (up to 20 minutes), whose result is returned.
+        That result waits for the whole recording to upload and be
+        transcribed, so a long dictation returns more slowly than a live one.
 
         Args:
             data: An async iterable of audio chunks, a plain iterable, a file
@@ -282,6 +321,9 @@ class AsyncDictationTranscriber:
                 `channels`.
             DictationError: if the request fails. Auth, rate-limit, size and
                 capacity failures can surface part-way through the upload.
+                After a fallback, it is the buffered request's own error (a
+                413 past 20 minutes, say), or a 413 `audio_too_large` once the
+                recording passes 256 MB.
             Exception: anything the producer raises mid-upload propagates
                 unchanged. The connection is dropped and no transcript is
                 returned.
@@ -298,6 +340,14 @@ class AsyncDictationTranscriber:
         """
         check_config(type(self).__name__, config)
 
+        return await self._transcribe_live(data, config)
+
+    async def _transcribe_live(
+        self,
+        data: AsyncAudioSource,
+        config: Optional[DictationConfig],
+        cancelled: Optional[Callable[[], bool]] = None,
+    ) -> DictationResponse:
         config = config or self.config
         # Resolving may read a whole file for a path source; keep that off
         # the loop.
@@ -315,6 +365,8 @@ class AsyncDictationTranscriber:
             audio_content_type=content_type,
             config=_config_to_json(config),
             timeout=self._client.settings.dictation_http_timeout,
+            fallback_to_buffered=self._fallback_to_buffered,
+            cancelled=cancelled,
         )
 
     def open_live(
@@ -330,6 +382,11 @@ class AsyncDictationTranscriber:
         `session.write(chunk)` as audio arrives, then `await session.result()`
         for the transcript once the speaker stops. See
         `AsyncDictationLiveSession`.
+
+        Past the live endpoint's 120 s cap the session falls back the way
+        `transcribe_live()` does: keep writing until the speaker stops, and
+        `result()` returns the buffered endpoint's transcript of the whole
+        recording, more slowly than a live result.
 
         Not a coroutine, so it can be used directly as `async with
         transcriber.open_live(config) as session:`. Must be called while the
@@ -348,7 +405,9 @@ class AsyncDictationTranscriber:
         loop = asyncio.get_running_loop()
 
         return AsyncDictationLiveSession(
-            lambda chunks: loop.create_task(self.transcribe_live(chunks, config=config))
+            lambda chunks, cancelled: loop.create_task(
+                self._transcribe_live(chunks, config, cancelled)
+            )
         )
 
     async def warm(self) -> bool:
