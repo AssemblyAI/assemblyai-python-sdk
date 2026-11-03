@@ -29,13 +29,19 @@ The most effective option is project instructions. Add this to your `CLAUDE.md`,
 For on-demand documentation lookups during a session, connect the AssemblyAI docs MCP server:
 
 ```
-claude mcp add assemblyai-docs --transport http https://mcp.assemblyai.com/docs
+claude mcp add assemblyai-docs --transport http https://assemblyai.com/docs/mcp
 ```
 
-For deep SDK context in Claude Code specifically, install the [AssemblyAI skill](https://github.com/AssemblyAI/assemblyai-skill):
+For deep SDK context, install the [AssemblyAI skill](https://github.com/AssemblyAI/assemblyai-skill). It works with Claude Code, Cursor, Codex and other agents:
 
 ```
-claude install-skill https://github.com/AssemblyAI/assemblyai-skill
+npx skills add AssemblyAI/assemblyai-skill
+```
+
+Want your agent to transcribe or summarize audio for you, instead of writing code? Connect the [AssemblyAI MCP server](https://www.assemblyai.com/docs/mcp-server), which runs tasks on your AssemblyAI account:
+
+```
+claude mcp add --transport http assemblyai https://mcp.assemblyai.com/mcp
 ```
 
 See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts) for Cursor setup, MCP tool details, and tips for best results.
