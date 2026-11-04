@@ -29,7 +29,7 @@ The most effective option is project instructions. Add this to your `CLAUDE.md`,
 For on-demand documentation lookups during a session, connect the AssemblyAI docs MCP server:
 
 ```
-claude mcp add assemblyai-docs --transport http https://assemblyai.com/docs/mcp
+claude mcp add assemblyai-docs --transport http https://www.assemblyai.com/docs/mcp
 ```
 
 For deep SDK context, install the [AssemblyAI skill](https://github.com/AssemblyAI/assemblyai-skill). It works with Claude Code, Cursor, Codex and other agents:
