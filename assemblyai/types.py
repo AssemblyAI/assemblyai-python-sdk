@@ -773,6 +773,18 @@ class SummarizationRequest(BaseModel):
     "How much effort to spend on this task (default: 'low')"
 
 
+class ActionItemsRequest(BaseModel):
+    """
+    Action items configuration for speech understanding
+    """
+
+    include_decisions: Optional[bool] = None
+    "Also extract key decisions made during the conversation"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "How much effort to spend on this task (default: 'low')"
+
+
 class SpeechUnderstandingFeatureRequests(BaseModel):
     """
     Speech understanding feature requests
@@ -789,6 +801,9 @@ class SpeechUnderstandingFeatureRequests(BaseModel):
 
     summarization: Optional[SummarizationRequest] = None
     "Summarization configuration"
+
+    action_items: Optional[ActionItemsRequest] = None
+    "Action items configuration"
 
 
 class SpeechUnderstandingRequest(BaseModel):
@@ -890,6 +905,36 @@ class SummarizationResponse(BaseModel):
     "The effort level that was used"
 
 
+class ActionItem(BaseModel):
+    """
+    An action item or decision extracted from the audio
+    """
+
+    action_item: str
+    "The extracted action item or decision"
+
+    quote: Optional[str] = None
+    "The source quote from the audio"
+
+    timestamp: Optional[int] = None
+    "Timestamp in milliseconds from audio start"
+
+
+class ActionItemsResponse(BaseModel):
+    """
+    Action items response containing status and extracted items
+    """
+
+    status: str
+    "Status of the action items feature"
+
+    effort: Optional[Literal["low", "medium"]] = None
+    "The effort level that was used"
+
+    items: Optional[List[ActionItem]] = None
+    "List of extracted action items"
+
+
 class SpeechUnderstandingFeatureResponses(BaseModel):
     """
     Speech understanding feature responses grouped together
@@ -906,6 +951,9 @@ class SpeechUnderstandingFeatureResponses(BaseModel):
 
     summarization: Optional[SummarizationResponse] = None
     "Summarization results"
+
+    action_items: Optional[ActionItemsResponse] = None
+    "Action items results including status and items"
 
 
 class SpeechUnderstandingResponse(BaseModel):
@@ -1253,7 +1301,7 @@ class TranscriptionConfig:
             language_detection_options: Options for controlling the behavior or Automatic Language Detection.
             speech_threshold: Reject audio files that contain less than this fraction of speech. Valid values are in the range [0,1] inclusive.
             raw_transcription_config: Create the config from a `RawTranscriptionConfig`
-            speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting)
+            speech_understanding: Speech understanding configuration for LLM Gateway features (speaker identification, translation, custom formatting, summarization, action items)
             temperature: Change how deterministic the response is, with 0 being the most deterministic and 1 being the least deterministic.
             remove_audio_tags: When set to 'all', removes all bracketed audio/speaker tags from the transcript. Only supported for Universal-3 Pro.
             keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.

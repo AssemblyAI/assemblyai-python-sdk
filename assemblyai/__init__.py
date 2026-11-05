@@ -52,6 +52,9 @@ from .tts.v1 import (
     TTSWordBoundariesEvent,
 )
 from .types import (
+    ActionItem,
+    ActionItemsRequest,
+    ActionItemsResponse,
     AssemblyAIError,
     AutohighlightResponse,
     AutohighlightResult,
@@ -145,6 +148,9 @@ def __getattr__(name: str):
 
 __all__ = [
     # types
+    "ActionItem",
+    "ActionItemsRequest",
+    "ActionItemsResponse",
     "AssemblyAIError",
     "AsyncClient",
     "AsyncDictationTranscriber",
