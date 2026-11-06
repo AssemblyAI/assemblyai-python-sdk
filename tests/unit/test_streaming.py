@@ -2533,3 +2533,36 @@ def test_options_zero_values_are_accepted():
     assert opts.max_connection_retries == 0
     assert opts.connection_retry_delay == 0
     assert opts.terminate_timeout == 0
+
+
+@pytest.mark.parametrize("wrap", [bytearray, memoryview])
+def test_client_stream_accepts_bytes_like_buffer(mocker: MockFixture, wrap):
+    _disable_rw_threads(mocker)
+    mocker.patch("assemblyai.streaming.v3.client.websocket_connect")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(StreamingParameters(sample_rate=16000))
+    client.stream(wrap(b"\x01\x02\x03"))
+
+    queued = client._write_queue.get(timeout=1)
+    assert type(queued) is bytes
+    assert queued == b"\x01\x02\x03"
+    assert client._write_queue.empty()
+
+
+@pytest.mark.parametrize("wrap", [bytearray, memoryview])
+def test_client_stream_accepts_iterable_of_bytes_like_chunks(mocker: MockFixture, wrap):
+    _disable_rw_threads(mocker)
+    mocker.patch("assemblyai.streaming.v3.client.websocket_connect")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(StreamingParameters(sample_rate=16000))
+    client.stream(iter([wrap(b"ab"), wrap(b"cd")]))
+
+    queued = [client._write_queue.get(timeout=1) for _ in range(2)]
+    assert queued == [b"ab", b"cd"]
+    assert all(type(chunk) is bytes for chunk in queued)
