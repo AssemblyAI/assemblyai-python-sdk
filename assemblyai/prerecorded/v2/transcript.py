@@ -206,7 +206,9 @@ class _TranscriptImpl:
         Args:
             filepath: The path to save the redacted audio file to.
         """
-        with httpx.stream(method="GET", url=self.get_redacted_audio_url()) as response:
+        with httpx.stream(
+            method="GET", url=self.get_redacted_audio_url(), follow_redirects=True
+        ) as response:
             if response.status_code not in (httpx.codes.OK, httpx.codes.NOT_MODIFIED):
                 raise types.RedactedAudioUnavailableError(
                     f"Fetching redacted audio failed with status code {response.status_code}",
