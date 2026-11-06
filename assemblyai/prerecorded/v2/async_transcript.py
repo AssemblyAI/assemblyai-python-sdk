@@ -115,16 +115,20 @@ class AsyncTranscript(_BaseTranscript):
             if self._transcript.status in TERMINAL_STATUSES:
                 return self
 
-            if poll_timeout is not None and time.monotonic() - start >= poll_timeout:
-                raise types.TranscriptError(
-                    _poll_timeout_message(
-                        transcript_id=transcript_id,
-                        status=self._transcript.status,
-                        poll_timeout=poll_timeout,
+            interval = self._client.settings.polling_interval
+            if poll_timeout is not None:
+                remaining = poll_timeout - (time.monotonic() - start)
+                if remaining <= 0:
+                    raise types.TranscriptError(
+                        _poll_timeout_message(
+                            transcript_id=transcript_id,
+                            status=self._transcript.status,
+                            poll_timeout=poll_timeout,
+                        )
                     )
-                )
+                interval = min(interval, remaining)
 
-            await asyncio.sleep(self._client.settings.polling_interval)
+            await asyncio.sleep(interval)
 
     async def export_subtitles_srt(
         self,
