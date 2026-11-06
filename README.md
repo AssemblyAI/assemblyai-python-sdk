@@ -1558,7 +1558,7 @@ for result in transcript.auto_highlights.results:
 
 ### **LLM Gateway Examples**
 
-`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway — model listing, OpenAI-shaped chat completions routed to OpenAI/Claude/Gemini/Bedrock models, and speech understanding over an existing transcript. `aai.AsyncLLMGateway` is the asyncio counterpart, with the same resources and every API call a coroutine.
+`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway — model listing, OpenAI-shaped chat completions routed to OpenAI/Claude/Gemini/Bedrock models, speech understanding over an existing transcript, and decisions (predicate, choice, and score questions about an input). `aai.AsyncLLMGateway` is the asyncio counterpart, with the same resources and every API call a coroutine.
 
 [Read more about the LLM Gateway.](https://www.assemblyai.com/docs/llm-gateway/quickstart)
 
@@ -1686,6 +1686,52 @@ except aai.LLMGatewayError as error:
 ```
 
 `validate()` needs the same authorization and balance as a real call — it is not a free dry run.
+
+</details>
+
+<details>
+  <summary>Ask decisions questions about an input</summary>
+
+`decisions.create()` answers `predicate`, `choice`, and `score` questions about an input in one request. Each answer carries its question's `name`.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+result = gateway.decisions.create(
+    model="gpt-6-luna",
+    input="Agent: Is there anything else? Caller: No, that fixed it, thanks!",
+    questions=[
+        {"type": "predicate", "name": "resolved", "instructions": "Was the caller's issue resolved?"},
+        {
+            "type": "choice",
+            "name": "sentiment",
+            "instructions": "Caller sentiment at the end of the call",
+            "choices": [
+                {"value": "positive", "description": "Satisfied"},
+                {"value": "negative", "description": "Unhappy"},
+            ],
+        },
+        {
+            "type": "score",
+            "name": "politeness",
+            "instructions": "How polite was the agent?",
+            "levels": [
+                {"label": "rude", "description": "Dismissive"},
+                {"label": "polite", "description": "Courteous"},
+            ],
+        },
+    ],
+)
+
+for answer in result.answers:
+    print(answer.name, answer.probability, answer.choice, answer.score)
+```
+
+`input` can also be a list of input item dicts. Only some models serve decisions; an unsupported model raises `aai.LLMGatewayError`.
 
 </details>
 
