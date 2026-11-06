@@ -1,8 +1,12 @@
 import asyncio
+import bz2
+import gzip
 import io
 import json
+import lzma
 import os
 import re
+import threading
 from urllib.parse import urlencode
 
 import httpx
@@ -915,3 +919,59 @@ async def test_canonical_module_path_exports_both_transcribers():
 
     assert AsyncTranscriber is aai.AsyncTranscriber
     assert Transcriber is aai.Transcriber
+
+
+@pytest.mark.parametrize("open_compressed", [gzip.open, bz2.open, lzma.open])
+@pytest.mark.parametrize("offset", [0, 128])
+async def test_upload_file_uses_logical_stream_length(
+    httpx_mock: HTTPXMock, tmp_path, open_compressed, offset
+):
+    audio = b"audio" * 1024
+    path = tmp_path / "audio.compressed"
+    with open_compressed(path, "wb") as compressed:
+        compressed.write(audio)
+    httpx_mock.add_response(
+        url=UPLOAD_URL,
+        method="POST",
+        json={"upload_url": "https://example.org/uploaded.wav"},
+    )
+
+    with open_compressed(path, "rb") as stream:
+        stream.read(offset)
+        async with aai.AsyncTranscriber() as transcriber:
+            await transcriber.upload_file(stream)
+        assert not stream.closed
+
+    request = httpx_mock.get_requests()[0]
+    assert request.read() == audio[offset:]
+    assert int(request.headers["content-length"]) == len(request.read())
+
+
+async def test_upload_file_size_probe_does_not_block_event_loop(httpx_mock: HTTPXMock):
+    started = threading.Event()
+    resume = threading.Event()
+
+    class PausedSizeProbe(io.BytesIO):
+        def seek(self, offset, whence=os.SEEK_SET):
+            if whence == os.SEEK_END:
+                started.set()
+                assert resume.wait(timeout=2)
+            return super().seek(offset, whence)
+
+    httpx_mock.add_response(
+        url=UPLOAD_URL,
+        method="POST",
+        json={"upload_url": "https://example.org/uploaded.wav"},
+    )
+    async with aai.AsyncTranscriber() as transcriber:
+        uploading = asyncio.create_task(
+            transcriber.upload_file(PausedSizeProbe(b"audio"))
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            assert await asyncio.wait_for(
+                loop.run_in_executor(None, started.wait, 1), timeout=2
+            )
+        finally:
+            resume.set()
+            await uploading
