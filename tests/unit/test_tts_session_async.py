@@ -700,6 +700,50 @@ async def test_cancel_ends_a_reader_following_the_request_being_written(server):
         assert b"".join([c async for c in session.speak("Next.")]) == b"Next."
 
 
+async def test_audio_binds_request_id_eagerly_at_call_time(server):
+    async with aai.AsyncTTSSession() as session:
+        reader = session.audio()
+        await session.generate("First async request.")
+        flush_0 = await session.flush()
+        assert flush_0 == 0
+
+        await session.generate("Second async request.")
+        flush_1 = await session.flush()
+        assert flush_1 == 1
+
+        assert b"".join([c async for c in reader]) == b"First async request."
+        assert (
+            b"".join([c async for c in session.audio(flush_1)])
+            == b"Second async request."
+        )
+
+
+async def test_rereading_a_finished_flush_id_raises(server):
+    async with aai.AsyncTTSSession() as session:
+        assert b"".join([c async for c in session.speak("First.")]) == b"First."
+        with pytest.raises(ValueError, match="already read"):
+            session.audio(0)
+
+
+async def test_speak_refuses_text_over_backlog_limit(server):
+    async with aai.AsyncTTSSession() as session:
+        with pytest.raises(ValueError, match="over the 8000 unspoken characters"):
+            async for _ in session.speak("x" * 8001):
+                pass
+
+
+async def test_speak_splits_text_over_generate_frame_limit(server):
+    async with aai.AsyncTTSSession() as session:
+        long_text = "a" * 1500 + "b" * 1000
+        assert (
+            b"".join([c async for c in session.speak(long_text)]) == long_text.encode()
+        )
+        generates = [f for f in server.sent if f["type"] == "Generate"]
+        assert len(generates) == 2
+        assert len(generates[0]["text"]) == 2000
+        assert len(generates[1]["text"]) == 500
+
+
 async def _collect(iterator):
     return [chunk async for chunk in iterator]
 

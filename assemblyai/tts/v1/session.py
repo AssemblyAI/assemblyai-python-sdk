@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+import time
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from urllib.parse import urlsplit
 
@@ -14,6 +15,7 @@ from .._base_ws import (
     check_session_config,
     check_text_frame,
     handshake_error,
+    max_buffer_chars,
     max_generate_chars,
     resolve_settings,
 )
@@ -173,6 +175,8 @@ class TTSSession:
         self._cancel_ids: List[int] = []
         # Requests up to this flush_id were dropped by a Cancel (-1: none).
         self._cancelled_before = -1
+        self._done_through = -1
+        self._last_heard_at = 0.0
         self._drop_warned = False
         self.begin = None
         self.termination = None
@@ -270,7 +274,14 @@ class TTSSession:
                 self._send({"type": "Terminate"})
             except Exception:  # already closed
                 pass
-            self._stopped.wait(self._terminate_timeout)
+            timeout = self._terminate_timeout
+            while not self._stopped.is_set():
+                quiet = time.monotonic() - self._last_heard_at
+                remaining = timeout - quiet
+                if remaining <= 0:
+                    break
+                if self._stopped.wait(timeout=min(remaining, 0.25)):
+                    break
         self.close()
         return self.termination
 
@@ -347,6 +358,8 @@ class TTSSession:
             self._next_flush_id += 1
             self._cancel_ids.append(cancel_id)
             self._cancelled_before = max(self._cancelled_before, cancel_id)
+            with self._queue_ready:
+                self._queue.purge_before(self._cancelled_before)
             self._send({"type": "Cancel"})
 
     def keep_alive(self) -> None:
@@ -369,11 +382,19 @@ class TTSSession:
         is cancelled.
 
         Raises:
+            ValueError: for text over the unspoken backlog the API holds.
             TTSError: from the iteration, if the session fails.
             RuntimeError: from a session handler.
         """
         self._check_not_in_handler("speak()")
         check_text_frame(text, 0)
+        backlog = max_buffer_chars(self.begin)
+        if backlog and len(text) > backlog:
+            raise ValueError(
+                f"text is {len(text)} characters, over the {backlog} unspoken characters "
+                "the API holds before it ends the session; split it and speak() each part "
+                "once the previous part's audio is read, or pace it with generate()"
+            )
         limit = max_generate_chars(self.begin) or max(len(text), 1)
         for start in range(0, len(text), limit):
             self.generate(text[start : start + limit])
@@ -391,7 +412,7 @@ class TTSSession:
 
         Raises:
             TTSError: if the session fails before the request completes.
-            ValueError: for a `flush_id` no `flush()` has returned.
+            ValueError: for a `flush_id` no `flush()` has returned or one already read.
             RuntimeError: when an `Audio` handler receives the audio instead,
                 before the session first connects, or from a session handler.
         """
@@ -402,12 +423,19 @@ class TTSSession:
             flush_id = self._next_flush_id  # the request being written now
         elif flush_id > self._next_flush_id:
             raise ValueError(f"flush_id {flush_id} has not been flushed yet")
+        if flush_id <= self._done_through:
+            raise ValueError(
+                f"flush_id {flush_id} was already read: read each request once, in order"
+            )
         if TTSEvents.Audio.value in self._handlers:
             raise RuntimeError(
                 "audio goes to the registered Audio handler; pull with audio() "
                 "or speak() only without one"
             )
         connection = self._queue  # this connection's; a reconnect makes a new one
+        return self._iter_audio(flush_id, connection)
+
+    def _iter_audio(self, flush_id: int, connection: Any) -> Iterator[bytes]:
         while True:
             if self._queue is not connection:
                 return
@@ -427,6 +455,7 @@ class TTSSession:
                 if ident == flush_id:
                     yield payload
             elif kind == "done":
+                self._done_through = max(self._done_through, ident)
                 if ident == flush_id:
                     return
             elif kind == "cancelled":
@@ -574,6 +603,7 @@ class TTSSession:
             self._emit(TTSEvents.Error, error)
 
     def _dispatch(self, data: Dict[str, Any]) -> None:
+        self._last_heard_at = time.monotonic()
         kind = data.get("type")
         if kind == "Error":
             self._fail(error_from_frame(data))
@@ -585,6 +615,9 @@ class TTSSession:
             self.begin = event
             self._begun.set()
         elif kind == "Audio":
+            # Discard in-flight audio frames belonging to cancelled requests
+            if event.flush_id <= self._cancelled_before:
+                return
             if TTSEvents.Audio.value not in self._handlers:
                 self._put(("audio", event.flush_id, event.audio))
         elif kind == "FlushDone":

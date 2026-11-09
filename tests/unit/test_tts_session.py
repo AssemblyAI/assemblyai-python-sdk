@@ -1073,3 +1073,52 @@ def test_a_session_over_ws_passes_no_tls_context(mocker, monkeypatch):
     [(uri, kwargs)] = calls
     assert uri.startswith("ws://localhost:8080/v1/ws?")
     assert not {"ssl", "ssl_context"} & kwargs.keys()
+
+
+def test_audio_binds_request_id_eagerly_at_call_time(server):
+    with aai.TTSSession() as session:
+        reader = session.audio()
+        session.generate("First request.")
+        flush_0 = session.flush()
+        assert flush_0 == 0
+
+        session.generate("Second request.")
+        flush_1 = session.flush()
+        assert flush_1 == 1
+
+        assert b"".join(reader) == b"First request."
+        assert b"".join(session.audio(flush_1)) == b"Second request."
+
+
+def test_rereading_a_finished_flush_id_raises(server):
+    with aai.TTSSession() as session:
+        assert b"".join(session.speak("First.")) == b"First."
+        with pytest.raises(ValueError, match="already read"):
+            session.audio(0)
+
+
+def test_speak_refuses_text_over_backlog_limit(server):
+    with aai.TTSSession() as session:
+        with pytest.raises(ValueError, match="over the 8000 unspoken characters"):
+            session.speak("x" * 8001)
+
+
+def test_speak_splits_text_over_generate_frame_limit(server):
+    with aai.TTSSession() as session:
+        long_text = "a" * 1500 + "b" * 1000
+        assert b"".join(session.speak(long_text)) == long_text.encode()
+        generates = [f for f in server.sent if f["type"] == "Generate"]
+        assert len(generates) == 2
+        assert len(generates[0]["text"]) == 2000
+        assert len(generates[1]["text"]) == 500
+
+
+def test_cancel_purges_queued_audio_and_discards_in_flight_audio(server):
+    with aai.TTSSession() as session:
+        session.generate("Discard this.")
+        session.flush()
+        time.sleep(0.05)
+        session.cancel()
+        # Verify in-flight audio for cancelled request is discarded by _dispatch
+        session._dispatch({"type": "Audio", "audio": "AAAA", "flush_id": 0})
+        assert b"".join(session.speak("Clean.")) == b"Clean."
