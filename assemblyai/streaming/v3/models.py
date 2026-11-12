@@ -223,6 +223,8 @@ class SpeechModel(str, Enum):
     universal_3_5_pro = "universal-3-5-pro"
     universal_3_6 = "universal-3-6"
     universal_3_6_pro = "universal-3-6-pro"
+    assemblyai_stt_3_7_realtime = "assemblyai-stt-3-7-realtime"
+    assemblyai_stt_3_7_realtime_agent = "assemblyai-stt-3-7-realtime-agent"
     u3_pro = "u3-pro"  # Deprecated: Use u3_rt_pro instead
 
     def __str__(self):
