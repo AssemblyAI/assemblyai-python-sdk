@@ -16,6 +16,8 @@ from .models import (
     LLMGatewayChunkChoice,
     LLMGatewayChunkDelta,
     LLMGatewayCompletionChunk,
+    LLMGatewayDecisionAnswer,
+    LLMGatewayDecisionResponse,
     LLMGatewayModel,
     LLMGatewayModelList,
     LLMGatewayResponseMessage,
@@ -23,7 +25,7 @@ from .models import (
     LLMGatewayUnderstandingResponse,
     LLMGatewayUsage,
 )
-from .params import LLMGatewayMessageParam
+from .params import LLMGatewayDecisionQuestionParam, LLMGatewayMessageParam
 
 __all__ = [
     "AsyncLLMGateway",
@@ -33,6 +35,9 @@ __all__ = [
     "LLMGatewayChunkChoice",
     "LLMGatewayChunkDelta",
     "LLMGatewayCompletionChunk",
+    "LLMGatewayDecisionAnswer",
+    "LLMGatewayDecisionQuestionParam",
+    "LLMGatewayDecisionResponse",
     "LLMGatewayError",
     "LLMGatewayMessageParam",
     "LLMGatewayModel",
