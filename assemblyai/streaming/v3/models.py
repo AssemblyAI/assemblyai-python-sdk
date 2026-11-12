@@ -231,6 +231,7 @@ class SpeechModel(str, Enum):
 
 class StreamingDomain(str, Enum):
     medical = "medical-v1"
+    veterinary = "veterinary-v1"
 
     def __str__(self):
         return self.value
