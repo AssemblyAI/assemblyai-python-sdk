@@ -20,6 +20,7 @@ from assemblyai.streaming.v3 import (
     SpeechStartedEvent,
     StreamingClient,
     StreamingClientOptions,
+    StreamingDomain,
     StreamingEvents,
     StreamingMode,
     StreamingParameters,
@@ -2533,3 +2534,35 @@ def test_options_zero_values_are_accepted():
     assert opts.max_connection_retries == 0
     assert opts.connection_retry_delay == 0
     assert opts.terminate_timeout == 0
+
+
+@pytest.mark.parametrize(
+    "domain, expected",
+    [
+        (StreamingDomain.medical, "medical-v1"),
+        (StreamingDomain.veterinary, "veterinary-v1"),
+        ("veterinary-v1", "veterinary-v1"),
+    ],
+)
+def test_build_uri_sends_domain(domain, expected):
+    # Given: a streaming session with a domain set (enum member or raw string)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        domain=domain,
+    )
+
+    # When: the connection URI is built
+    uri = _build_uri("api.example.com", params)
+
+    # Then: the canonical domain value is sent
+    assert f"domain={expected}" in uri
+
+
+def test_unknown_domain_is_rejected():
+    with pytest.raises(ValueError):
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_3_5_pro,
+            domain="vet",
+        )
