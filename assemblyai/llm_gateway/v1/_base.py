@@ -5,9 +5,9 @@ Everything here is I/O-free — the sync and async clients supply the HTTP
 calls themselves.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from .params import LLMGatewayMessageParam
+from .params import LLMGatewayDecisionQuestionParam, LLMGatewayMessageParam
 
 
 class _BaseResource:
@@ -73,3 +73,19 @@ def validate_body(
         body["transcript_id"] = transcript_id
 
     return body
+
+
+def decision_body(
+    *,
+    model: str,
+    input: Union[str, List[Dict[str, Any]]],
+    questions: List[LLMGatewayDecisionQuestionParam],
+    extra: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Builds the request body of `POST /v1/decisions`."""
+    return {
+        "model": model,
+        "input": input,
+        "questions": questions,
+        **extra,
+    }

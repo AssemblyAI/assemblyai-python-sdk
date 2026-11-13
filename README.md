@@ -29,13 +29,19 @@ The most effective option is project instructions. Add this to your `CLAUDE.md`,
 For on-demand documentation lookups during a session, connect the AssemblyAI docs MCP server:
 
 ```
-claude mcp add assemblyai-docs --transport http https://mcp.assemblyai.com/docs
+claude mcp add assemblyai-docs --transport http https://www.assemblyai.com/docs/mcp
 ```
 
-For deep SDK context in Claude Code specifically, install the [AssemblyAI skill](https://github.com/AssemblyAI/assemblyai-skill):
+For deep SDK context, install the [AssemblyAI skill](https://github.com/AssemblyAI/assemblyai-skill). It works with Claude Code, Cursor, Codex and other agents:
 
 ```
-claude install-skill https://github.com/AssemblyAI/assemblyai-skill
+npx skills add AssemblyAI/assemblyai-skill
+```
+
+Want your agent to transcribe or summarize audio for you, instead of writing code? Connect the [AssemblyAI MCP server](https://www.assemblyai.com/docs/mcp-server), which runs tasks on your AssemblyAI account:
+
+```
+claude mcp add --transport http assemblyai https://mcp.assemblyai.com/mcp
 ```
 
 See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts) for Cursor setup, MCP tool details, and tips for best results.
@@ -1552,7 +1558,7 @@ for result in transcript.auto_highlights.results:
 
 ### **LLM Gateway Examples**
 
-`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway — model listing, OpenAI-shaped chat completions routed to OpenAI/Claude/Gemini/Bedrock models, and speech understanding over an existing transcript. `aai.AsyncLLMGateway` is the asyncio counterpart, with the same resources and every API call a coroutine.
+`aai.LLMGateway` is a client for AssemblyAI's LLM Gateway — model listing, OpenAI-shaped chat completions routed to OpenAI/Claude/Gemini/Bedrock models, speech understanding over an existing transcript, and decisions (predicate, choice, and score questions about an input). `aai.AsyncLLMGateway` is the asyncio counterpart, with the same resources and every API call a coroutine.
 
 [Read more about the LLM Gateway.](https://www.assemblyai.com/docs/llm-gateway/quickstart)
 
@@ -1680,6 +1686,52 @@ except aai.LLMGatewayError as error:
 ```
 
 `validate()` needs the same authorization and balance as a real call — it is not a free dry run.
+
+</details>
+
+<details>
+  <summary>Ask decisions questions about an input</summary>
+
+`decisions.create()` answers `predicate`, `choice`, and `score` questions about an input in one request. Each answer carries its question's `name`.
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+gateway = aai.LLMGateway()
+
+result = gateway.decisions.create(
+    model="gpt-6-luna",
+    input="Agent: Is there anything else? Caller: No, that fixed it, thanks!",
+    questions=[
+        {"type": "predicate", "name": "resolved", "instructions": "Was the caller's issue resolved?"},
+        {
+            "type": "choice",
+            "name": "sentiment",
+            "instructions": "Caller sentiment at the end of the call",
+            "choices": [
+                {"value": "positive", "description": "Satisfied"},
+                {"value": "negative", "description": "Unhappy"},
+            ],
+        },
+        {
+            "type": "score",
+            "name": "politeness",
+            "instructions": "How polite was the agent?",
+            "levels": [
+                {"label": "rude", "description": "Dismissive"},
+                {"label": "polite", "description": "Courteous"},
+            ],
+        },
+    ],
+)
+
+for answer in result.answers:
+    print(answer.name, answer.probability, answer.choice, answer.score)
+```
+
+`input` can also be a list of input item dicts. Only some models serve decisions; an unsupported model raises `aai.LLMGatewayError`.
 
 </details>
 
