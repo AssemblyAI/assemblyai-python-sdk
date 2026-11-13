@@ -262,7 +262,9 @@ class AsyncTranscript(_BaseTranscript):
         # The redacted audio lives behind a pre-signed URL, so it is fetched
         # with a bare client rather than the API-authenticated one.
         async with httpx.AsyncClient() as client:
-            async with client.stream(method="GET", url=url) as response:
+            async with client.stream(
+                method="GET", url=url, follow_redirects=True
+            ) as response:
                 if response.status_code not in (
                     httpx.codes.OK,
                     httpx.codes.NOT_MODIFIED,
