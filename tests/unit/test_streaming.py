@@ -287,6 +287,34 @@ def test_client_connect_with_mode(mocker: MockFixture):
     assert "mode=max_accuracy" in actual_url
 
 
+def test_client_connect_with_manual_mode(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.assemblyai_stt_3_7_realtime_agent,
+        mode=StreamingMode.manual,
+    )
+
+    client.connect(params)
+
+    assert "mode=manual" in actual_url
+
+
 def test_client_connect_with_language_code(mocker: MockFixture):
     # Given: client + language_code parameter
     actual_url = None
@@ -1240,6 +1268,41 @@ def test_client_connect_with_universal_3_6_pro(mocker: MockFixture):
     client.connect(params)
 
     assert "speech_model=universal-3-6-pro" in actual_url
+
+
+@pytest.mark.parametrize(
+    "speech_model",
+    [
+        SpeechModel.assemblyai_stt_3_7_realtime,
+        SpeechModel.assemblyai_stt_3_7_realtime_agent,
+    ],
+)
+def test_client_connect_with_assemblyai_stt_3_7_realtime(
+    mocker: MockFixture, speech_model: SpeechModel
+):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(sample_rate=16000, speech_model=speech_model)
+
+    client.connect(params)
+
+    assert f"speech_model={speech_model.value}&" in actual_url + "&"
 
 
 def test_turn_event_with_speaker_label():
