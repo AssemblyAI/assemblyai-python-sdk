@@ -251,6 +251,7 @@ class StreamingMode(str, Enum):
     max_accuracy = "max_accuracy"
     min_latency = "min_latency"
     balanced = "balanced"
+    manual = "manual"
 
     def __str__(self):
         return self.value
