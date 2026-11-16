@@ -5,7 +5,15 @@ import httpx
 from typing_extensions import Self
 
 from . import types
-from .client import _MISSING_API_KEY_ERROR, _build_headers, _build_limits
+from .client import (
+    _CLOSED_CLIENT_ERROR,
+    _MISSING_API_KEY_ERROR,
+    _TTS_POOL_HOLDERS,
+    _build_headers,
+    _build_limits,
+    _build_tts_limits,
+    _shared_tts_ssl_context,
+)
 
 
 class AsyncClient:
@@ -62,13 +70,19 @@ class AsyncClient:
         async def _store_response(response: httpx.Response) -> None:
             self._last_response = response
 
+        self._event_hooks = {"response": [_store_response]}
         self._http_client = httpx.AsyncClient(
             base_url=self._settings.base_url,
             headers=_build_headers(self._settings),
             timeout=self._settings.http_timeout,
             limits=_build_limits(self._settings),
-            event_hooks={"response": [_store_response]},
+            event_hooks=self._event_hooks,
         )
+
+        # Built when an `AsyncTextToSpeech` takes this client, or on first
+        # use, so a client that never speaks pays nothing for it.
+        self._tts_http_client: Optional[httpx.AsyncClient] = None
+        self._closed = False
 
     @property
     def last_response(self) -> Optional[httpx.Response]:
@@ -102,10 +116,64 @@ class AsyncClient:
 
         return self._http_client
 
-    async def aclose(self) -> None:
-        """Closes the underlying HTTP connection pool."""
+    @property
+    def tts_http_client(self) -> httpx.AsyncClient:
+        """
+        The HTTP client of the Text-to-Speech API, built when an
+        `AsyncTextToSpeech` takes this client or on first use.
 
-        await self._http_client.aclose()
+        A connection pool of its own, whose idle connections stay 120
+        seconds by default (see `settings.tts_keepalive_expiry`); see
+        `Client.tts_http_client`. `aclose()` closes it with `http_client`.
+
+        Raises:
+            RuntimeError: if the client was closed before the pool was ever
+                built.
+        """
+
+        client = self._ensure_tts_http_client()
+        if client is None:
+            raise RuntimeError(_CLOSED_CLIENT_ERROR)
+
+        return client
+
+    def _ensure_tts_http_client(self) -> Optional[httpx.AsyncClient]:
+        """
+        Returns the Text-to-Speech pool, building it if it is not built yet,
+        or `None` if the client was closed before the pool was ever built.
+
+        `AsyncTextToSpeech` calls it when it is constructed, so its first
+        request does not wait for the build.
+        """
+
+        client = self._tts_http_client
+        if client is None and not self._closed:
+            client = self._tts_http_client = httpx.AsyncClient(
+                base_url=self._settings.tts_base_url,
+                headers=_build_headers(self._settings),
+                timeout=self._settings.tts_http_timeout,
+                limits=_build_tts_limits(self._settings),
+                event_hooks=self._event_hooks,
+                verify=_shared_tts_ssl_context(),
+            )
+            _TTS_POOL_HOLDERS.add(self)
+
+        return client
+
+    def _forget_tts_http_client(self) -> None:
+        """Drops the Text-to-Speech pool unclosed; see `client._forget_tts_pools_in_child`."""
+
+        self._tts_http_client = None
+
+    async def aclose(self) -> None:
+        """Closes the underlying HTTP connection pools."""
+
+        self._closed = True
+        try:
+            await self._http_client.aclose()
+        finally:
+            if self._tts_http_client is not None:
+                await self._tts_http_client.aclose()
 
     async def __aenter__(self) -> Self:
         return self

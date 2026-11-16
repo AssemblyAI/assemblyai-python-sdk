@@ -291,3 +291,65 @@ class LLMGatewayUnderstandingResponse(_LLMGatewayResponseModel):
         @validator("speech_understanding", pre=True)
         def set_collection_default(cls, v):
             return {} if v is None else v
+
+
+class LLMGatewayDecisionProbability(_LLMGatewayResponseModel):
+    value: Any = None
+    "The choice value (str) for a choice question, or the level index (int) for a score question"
+
+    label: Optional[str] = None
+    probability: float
+
+
+class LLMGatewayDecisionAnswer(_LLMGatewayResponseModel):
+    """
+    The answer to one decisions question, matched to it by `name`.
+
+    Which fields are set depends on the question `type`.
+    """
+
+    type: Optional[str] = None
+    name: Optional[str] = None
+    probability: Optional[float] = None
+    choice: Optional[str] = None
+    score: Optional[float] = None
+    probabilities: Optional[List[LLMGatewayDecisionProbability]] = None
+    confidence: Optional[float] = None
+
+
+class LLMGatewayDecisionInputTokensDetails(_LLMGatewayResponseModel):
+    cached_tokens: int
+    cache_write_tokens: int
+
+
+class LLMGatewayDecisionOutputTokensDetails(_LLMGatewayResponseModel):
+    reasoning_tokens: int
+
+
+class LLMGatewayDecisionUsage(_LLMGatewayResponseModel):
+    input_tokens: int
+    input_tokens_details: Optional[LLMGatewayDecisionInputTokensDetails] = None
+    output_tokens: int
+    output_tokens_details: Optional[LLMGatewayDecisionOutputTokensDetails] = None
+    total_tokens: int
+
+
+class LLMGatewayDecisionResponse(_LLMGatewayResponseModel):
+    """The response of `POST /v1/decisions`."""
+
+    request_id: str
+    model: str
+    answers: List[LLMGatewayDecisionAnswer] = Field(default_factory=list)
+    usage: LLMGatewayDecisionUsage
+
+    if pydantic_v2:
+
+        @field_validator("answers", mode="before")
+        def set_collection_default(cls, v):
+            return [] if v is None else v
+
+    else:
+
+        @validator("answers", pre=True)
+        def set_collection_default(cls, v):
+            return [] if v is None else v
