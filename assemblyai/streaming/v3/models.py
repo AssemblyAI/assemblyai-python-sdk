@@ -223,6 +223,8 @@ class SpeechModel(str, Enum):
     universal_3_5_pro = "universal-3-5-pro"
     universal_3_6 = "universal-3-6"
     universal_3_6_pro = "universal-3-6-pro"
+    assemblyai_stt_3_7_realtime = "assemblyai-stt-3-7-realtime"
+    assemblyai_stt_3_7_realtime_agent = "assemblyai-stt-3-7-realtime-agent"
     u3_pro = "u3-pro"  # Deprecated: Use u3_rt_pro instead
 
     def __str__(self):
@@ -231,6 +233,7 @@ class SpeechModel(str, Enum):
 
 class StreamingDomain(str, Enum):
     medical = "medical-v1"
+    veterinary = "veterinary-v1"
 
     def __str__(self):
         return self.value
@@ -248,6 +251,7 @@ class StreamingMode(str, Enum):
     max_accuracy = "max_accuracy"
     min_latency = "min_latency"
     balanced = "balanced"
+    manual = "manual"
 
     def __str__(self):
         return self.value

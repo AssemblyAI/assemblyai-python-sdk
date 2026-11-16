@@ -10,6 +10,7 @@ ENDPOINT_MODELS = "/v1/models"
 ENDPOINT_CHAT_COMPLETIONS = "/v1/chat/completions"
 ENDPOINT_UNDERSTANDING = "/v1/understanding"
 ENDPOINT_UNDERSTANDING_VALIDATE = "/v1/understanding/validate"
+ENDPOINT_DECISIONS = "/v1/decisions"
 
 
 def _error_from_response(response: httpx.Response) -> types.LLMGatewayError:
@@ -186,3 +187,27 @@ def validate_understanding(
 
     if response.status_code != httpx.codes.OK:
         raise _error_from_response(response)
+
+
+def create_decision(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    timeout: float,
+    body: Dict[str, Any],
+) -> models.LLMGatewayDecisionResponse:
+    """
+    Answers a set of decision questions about an input.
+
+    Raises: `LLMGatewayError` on any non-200 response.
+    """
+    response = client.post(
+        base_url.rstrip("/") + ENDPOINT_DECISIONS,
+        json=body,
+        timeout=timeout,
+    )
+
+    if response.status_code != httpx.codes.OK:
+        raise _error_from_response(response)
+
+    return models.LLMGatewayDecisionResponse.parse_obj(response.json())
