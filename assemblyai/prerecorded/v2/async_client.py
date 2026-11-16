@@ -7,7 +7,7 @@ import os
 import stat
 from types import TracebackType
 from typing import (
-    AsyncIterator,
+    AsyncGenerator,
     Awaitable,
     BinaryIO,
     Callable,
@@ -69,7 +69,7 @@ def _peek_length(stream: BinaryIO) -> Optional[int]:
 async def _aiter_stream(
     stream: BinaryIO,
     chunk_size: int = _UPLOAD_CHUNK_SIZE,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Yields `stream` in chunks. Each read runs off the event loop."""
 
     while True:
@@ -83,7 +83,7 @@ async def _aiter_stream(
 async def _aiter_path(
     path: str,
     chunk_size: int = _UPLOAD_CHUNK_SIZE,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Yields the file at `path` in chunks. Opens and reads it off the loop."""
 
     audio_file = await _run_in_thread(_open_binary, path, "rb")
@@ -96,7 +96,7 @@ async def _aiter_path(
 
 def _upload_request(
     data: AudioSource,
-) -> Tuple[Union[bytes, AsyncIterator[bytes]], Dict[str, str]]:
+) -> Tuple[Union[bytes, AsyncGenerator[bytes, None]], Dict[str, str]]:
     """
     Turns audio into an upload body and the headers that describe it.
 
@@ -112,7 +112,7 @@ def _upload_request(
 
     if isinstance(data, (str, os.PathLike)):
         path = os.fspath(data)
-        content: Union[bytes, AsyncIterator[bytes]] = _aiter_path(path)
+        content: Union[bytes, AsyncGenerator[bytes, None]] = _aiter_path(path)
         try:
             length: Optional[int] = os.path.getsize(path)
         except OSError:
@@ -221,11 +221,15 @@ class AsyncTranscriber(_BaseTranscriber):
 
         content, headers = _upload_request(data)
 
-        return await async_api.upload_file(
-            self._client.http_client,
-            content,
-            headers=headers,
-        )
+        try:
+            return await async_api.upload_file(
+                self._client.http_client,
+                content,
+                headers=headers,
+            )
+        finally:
+            if not isinstance(content, bytes):
+                await content.aclose()
 
     async def submit(
         self,
