@@ -924,17 +924,20 @@ async def test_canonical_module_path_exports_both_transcribers():
 @pytest.mark.parametrize("open_compressed", [gzip.open, bz2.open, lzma.open])
 @pytest.mark.parametrize("offset", [0, 128])
 async def test_upload_file_uses_logical_stream_length(
-    httpx_mock: HTTPXMock, tmp_path, open_compressed, offset
+    monkeypatch, tmp_path, open_compressed, offset
 ):
     audio = b"audio" * 1024
     path = tmp_path / "audio.compressed"
     with open_compressed(path, "wb") as compressed:
         compressed.write(audio)
-    httpx_mock.add_response(
-        url=UPLOAD_URL,
-        method="POST",
-        json={"upload_url": "https://example.org/uploaded.wav"},
-    )
+    sent = {}
+
+    async def capture_upload(client, content, headers=None):
+        sent["body"] = b"".join([chunk async for chunk in content])
+        sent["headers"] = headers
+        return "https://example.org/uploaded.wav"
+
+    monkeypatch.setattr(async_api, "upload_file", capture_upload)
 
     with open_compressed(path, "rb") as stream:
         stream.read(offset)
@@ -942,9 +945,8 @@ async def test_upload_file_uses_logical_stream_length(
             await transcriber.upload_file(stream)
         assert not stream.closed
 
-    request = httpx_mock.get_requests()[0]
-    assert request.read() == audio[offset:]
-    assert int(request.headers["content-length"]) == len(request.read())
+    assert sent["body"] == audio[offset:]
+    assert int(sent["headers"]["Content-Length"]) == len(sent["body"])
 
 
 async def test_upload_file_size_probe_does_not_block_event_loop(httpx_mock: HTTPXMock):
