@@ -89,7 +89,7 @@ def test_transcribe_sends_model_header_and_wav_part(httpx_mock: HTTPXMock):
     # And an empty config part still goes out, ahead of the audio: the endpoint
     # decodes the audio as it arrives and will not start without one.
     assert body.index(b'name="config"') < body.index(b'name="audio"')
-    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
+    assert b"Content-Type: application/json\r\n\r\n{}\r\n" in body
 
 
 def test_transcribe_sends_prompt_and_keyterms_prompt(httpx_mock: HTTPXMock):
@@ -227,7 +227,7 @@ def test_default_config_omits_language_code(httpx_mock: HTTPXMock):
     # server defaults it to English
     aai.SyncTranscriber().transcribe(b"RIFFfake-wav-bytes")
     body = httpx_mock.get_requests()[0].read()
-    assert b'Content-Type: application/json\r\n\r\n{}\r\n' in body
+    assert b"Content-Type: application/json\r\n\r\n{}\r\n" in body
     assert b"language_code" not in body
 
 
