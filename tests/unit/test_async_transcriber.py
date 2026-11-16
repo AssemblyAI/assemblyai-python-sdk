@@ -1,8 +1,12 @@
 import asyncio
+import bz2
+import gzip
 import io
 import json
+import lzma
 import os
 import re
+import threading
 from urllib.parse import urlencode
 
 import httpx
@@ -915,3 +919,125 @@ async def test_canonical_module_path_exports_both_transcribers():
 
     assert AsyncTranscriber is aai.AsyncTranscriber
     assert Transcriber is aai.Transcriber
+
+
+@pytest.mark.parametrize("open_compressed", [gzip.open, bz2.open, lzma.open])
+@pytest.mark.parametrize("offset", [0, 128])
+async def test_upload_file_uses_logical_stream_length(
+    monkeypatch, tmp_path, open_compressed, offset
+):
+    audio = b"audio" * 1024
+    path = tmp_path / "audio.compressed"
+    with open_compressed(path, "wb") as compressed:
+        compressed.write(audio)
+    sent = {}
+
+    async def capture_upload(client, content, headers=None):
+        sent["body"] = b"".join([chunk async for chunk in content])
+        sent["headers"] = headers
+        return "https://example.org/uploaded.wav"
+
+    monkeypatch.setattr(async_api, "upload_file", capture_upload)
+
+    with open_compressed(path, "rb") as stream:
+        stream.read(offset)
+        async with aai.AsyncTranscriber() as transcriber:
+            await transcriber.upload_file(stream)
+        assert not stream.closed
+
+    assert sent["body"] == audio[offset:]
+    assert int(sent["headers"]["Content-Length"]) == len(sent["body"])
+
+
+async def test_upload_file_size_probe_does_not_block_event_loop(httpx_mock: HTTPXMock):
+    started = threading.Event()
+    resume = threading.Event()
+
+    class PausedSizeProbe(io.BytesIO):
+        def seek(self, offset, whence=os.SEEK_SET):
+            if whence == os.SEEK_END:
+                started.set()
+                assert resume.wait(timeout=2)
+            return super().seek(offset, whence)
+
+    httpx_mock.add_response(
+        url=UPLOAD_URL,
+        method="POST",
+        json={"upload_url": "https://example.org/uploaded.wav"},
+    )
+    async with aai.AsyncTranscriber() as transcriber:
+        uploading = asyncio.create_task(
+            transcriber.upload_file(PausedSizeProbe(b"audio"))
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            assert await asyncio.wait_for(
+                loop.run_in_executor(None, started.wait, 1), timeout=2
+            )
+        finally:
+            resume.set()
+            await uploading
+
+
+@pytest.mark.parametrize("outcome", ["write_error", "cancelled", "early_response"])
+async def test_interrupted_path_upload_closes_file_before_returning(
+    tmp_path, monkeypatch, outcome
+):
+    from assemblyai.prerecorded.v2 import async_client as transcriber_module
+
+    path = tmp_path / "audio.wav"
+    path.write_bytes(b"audio" * 300000)
+    opened = []
+    real_open = transcriber_module._open_binary
+
+    def track_open(*args):
+        stream = real_open(*args)
+        opened.append(stream)
+        return stream
+
+    class FailingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            async for chunk in request.stream:
+                assert chunk
+                if outcome == "cancelled":
+                    raise asyncio.CancelledError()
+                if outcome == "early_response":
+                    return httpx.Response(
+                        200, json={"upload_url": "https://example.org/audio.wav"}
+                    )
+                raise httpx.WriteError("upload interrupted", request=request)
+
+    monkeypatch.setattr(transcriber_module, "_open_binary", track_open)
+    async with aai.AsyncClient() as client:
+        await client.http_client.aclose()
+        client._http_client = httpx.AsyncClient(
+            base_url=aai.settings.base_url, transport=FailingTransport()
+        )
+        transcriber = aai.AsyncTranscriber(client=client)
+        if outcome == "early_response":
+            assert (
+                await transcriber.upload_file(path) == "https://example.org/audio.wav"
+            )
+        else:
+            error = (
+                asyncio.CancelledError if outcome == "cancelled" else httpx.WriteError
+            )
+            with pytest.raises(error):
+                await transcriber.upload_file(path)
+        assert len(opened) == 1
+        assert opened[0].closed
+
+
+async def test_upload_error_keeps_caller_file_open(monkeypatch):
+    stream = io.BytesIO(b"audio")
+
+    async def fail_upload(client, content, headers):
+        await content.__anext__()
+        raise httpx.WriteError("upload interrupted")
+
+    monkeypatch.setattr(async_api, "upload_file", fail_upload)
+    async with aai.AsyncTranscriber() as transcriber:
+        with pytest.raises(httpx.WriteError):
+            await transcriber.upload_file(stream)
+    assert not stream.closed
+    stream.close()

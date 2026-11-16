@@ -83,16 +83,20 @@ class _TranscriptImpl:
             if self.transcript.status in TERMINAL_STATUSES:
                 break
 
-            if poll_timeout is not None and time.monotonic() - start >= poll_timeout:
-                raise types.TranscriptError(
-                    _poll_timeout_message(
-                        transcript_id=self.transcript_id,
-                        status=self.transcript.status,
-                        poll_timeout=poll_timeout,
+            interval = self._client.settings.polling_interval
+            if poll_timeout is not None:
+                remaining = poll_timeout - (time.monotonic() - start)
+                if remaining <= 0:
+                    raise types.TranscriptError(
+                        _poll_timeout_message(
+                            transcript_id=self.transcript_id,
+                            status=self.transcript.status,
+                            poll_timeout=poll_timeout,
+                        )
                     )
-                )
+                interval = min(interval, remaining)
 
-            time.sleep(self._client.settings.polling_interval)
+            time.sleep(interval)
 
         return self
 

@@ -16,13 +16,14 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai._multipart import _STREAM_READ_SIZE
+from assemblyai.dictation.v1 import api
+from assemblyai.dictation.v1 import client as dictation_client
 from assemblyai.dictation.v1.models import (
     _DICTATION_MAX_KEYTERMS_COUNT,
     _DICTATION_MAX_KEYTERMS_PROMPT_LEN,
     _DICTATION_MAX_STT_PROMPT_LEN,
 )
-from assemblyai._multipart import _STREAM_READ_SIZE
-from assemblyai.dictation.v1 import api
 
 aai.settings.api_key = "test"
 
@@ -392,6 +393,7 @@ def test_config_json_excludes_unset_fields(httpx_mock: HTTPXMock):
     assert b'"language_codes"' not in body
     assert b'"sample_rate"' not in body
     assert b'"keyterms_prompt"' not in body
+    assert b'"rewrite_mode"' not in body
 
 
 def test_transcribe_live_sends_keyterms_prompt_and_language_codes(
@@ -637,6 +639,36 @@ def test_llm_instruction_too_long_raises():
     # Given an llm_instruction exceeding the 2048-char cap
     with pytest.raises(ValueError):
         aai.DictationConfig(llm_instruction="x" * 3000)
+
+
+def test_transcribe_live_sends_rewrite_mode(httpx_mock: HTTPXMock):
+    # Given a config asking for the smart rewrite tier
+    _mock_ok(httpx_mock)
+    config = aai.DictationConfig(
+        llm_instruction="Format this as a SOAP note.",
+        rewrite_mode=aai.DictationRewriteMode.smart,
+    )
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"), config=config)
+
+    # Then the config JSON carries the mode's wire value
+    body = httpx_mock.get_requests()[0].read()
+    assert b'"rewrite_mode": "smart"' in body
+
+
+def test_rewrite_mode_accepts_the_wire_string():
+    # Given rewrite_mode passed as a plain string
+    config = aai.DictationConfig(rewrite_mode="fast")
+
+    # Then it is parsed into the enum
+    assert config.rewrite_mode is aai.DictationRewriteMode.fast
+
+
+def test_rewrite_mode_rejects_an_unknown_tier():
+    # Given a tier the API does not define
+    with pytest.raises(ValueError):
+        aai.DictationConfig(rewrite_mode="gemma")
 
 
 def test_error_envelope_maps_to_dictation_error(httpx_mock: HTTPXMock):
@@ -929,6 +961,50 @@ def test_live_session_rejects_writes_after_close(monkeypatch):
             session.write(b"RIFF")
 
         session.result()
+
+
+def test_live_session_rejects_write_that_loses_race_with_close(monkeypatch):
+    # Given a writer paused during byte conversion after its initial state check
+    seen = _fake_live(monkeypatch)
+    conversion_started = threading.Event()
+    resume_conversion = threading.Event()
+    original_as_bytes = dictation_client._as_bytes
+
+    def pause_conversion(chunk):
+        conversion_started.set()
+        assert resume_conversion.wait(timeout=2.0)
+        return original_as_bytes(chunk)
+
+    monkeypatch.setattr(dictation_client, "_as_bytes", pause_conversion)
+    errors = []
+
+    with aai.DictationTranscriber() as transcriber:
+        session = transcriber.open_live()
+        assert seen["called"].wait(timeout=2.0)
+
+        def write_audio():
+            try:
+                session.write(b"final-audio-frame")
+            except Exception as error:
+                errors.append(error)
+
+        writer = threading.Thread(target=write_audio)
+        writer.start()
+        try:
+            assert conversion_started.wait(timeout=2.0)
+
+            # When close wins before the writer queues its audio
+            session.close()
+            session.result()
+        finally:
+            resume_conversion.set()
+            writer.join(timeout=2.0)
+
+    # Then the write reports that the session closed and no audio is stranded
+    assert not writer.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert seen["chunks"] == []
 
 
 def test_live_session_rejects_text_at_write_time(monkeypatch):
