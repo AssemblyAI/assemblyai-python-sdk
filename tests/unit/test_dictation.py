@@ -16,13 +16,14 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+from assemblyai._multipart import _STREAM_READ_SIZE
+from assemblyai.dictation.v1 import api
+from assemblyai.dictation.v1 import client as dictation_client
 from assemblyai.dictation.v1.models import (
     _DICTATION_MAX_KEYTERMS_COUNT,
     _DICTATION_MAX_KEYTERMS_PROMPT_LEN,
     _DICTATION_MAX_STT_PROMPT_LEN,
 )
-from assemblyai._multipart import _STREAM_READ_SIZE
-from assemblyai.dictation.v1 import api, client as dictation_client
 
 aai.settings.api_key = "test"
 

@@ -18,7 +18,8 @@ from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
 from assemblyai._multipart import _STREAM_READ_SIZE
-from assemblyai.sync.v1 import api, async_api, client as sync_client
+from assemblyai.sync.v1 import api, async_api
+from assemblyai.sync.v1 import client as sync_client
 
 aai.settings.api_key = "test"
 
