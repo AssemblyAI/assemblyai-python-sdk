@@ -13,6 +13,7 @@ UNDERSTANDING_URL = f"{aai.settings.llm_gateway_base_url}/v1/understanding"
 UNDERSTANDING_VALIDATE_URL = (
     f"{aai.settings.llm_gateway_base_url}/v1/understanding/validate"
 )
+DECISIONS_URL = f"{aai.settings.llm_gateway_base_url}/v1/decisions"
 
 _OK_RESPONSE = {
     "data": [
@@ -757,3 +758,236 @@ def test_stream_chunk_exposes_tool_call_delta(httpx_mock: HTTPXMock):
     assert tool_call.function.name == "get_weather"
     # arguments stream in fragments; the SDK doesn't reassemble them
     assert tool_call.function.arguments == '{"ci'
+
+
+_DECISION_QUESTIONS = [
+    {
+        "type": "predicate",
+        "name": "escalated",
+        "instructions": "Was the call escalated?",
+    },
+    {
+        "type": "choice",
+        "name": "sentiment",
+        "instructions": "Overall caller sentiment",
+        "choices": [
+            {"value": "positive", "description": "Caller was satisfied"},
+            {"value": "negative", "description": "Caller was unhappy"},
+        ],
+    },
+    {
+        "type": "score",
+        "name": "politeness",
+        "instructions": "How polite was the agent?",
+        "levels": [
+            {"label": "rude", "description": "Agent was rude"},
+            {"label": "polite", "description": "Agent was polite"},
+        ],
+    },
+]
+
+_DECISION_RESPONSE = {
+    "request_id": "req-decision-1",
+    "model": "gpt-6-luna",
+    "answers": [
+        {"type": "predicate", "name": "escalated", "probability": 0.12},
+        {
+            "type": "choice",
+            "name": "sentiment",
+            "choice": "positive",
+            "confidence": 0.9,
+            "probabilities": [
+                {"value": "positive", "probability": 0.9},
+                {"value": "negative", "probability": 0.1},
+            ],
+        },
+        {
+            "type": "score",
+            "name": "politeness",
+            "score": 0.8,
+            "probabilities": [
+                {"value": 0, "label": "rude", "probability": 0.2},
+                {"value": 1, "label": "polite", "probability": 0.8},
+            ],
+        },
+    ],
+    "usage": {
+        "input_tokens": 120,
+        "input_tokens_details": {"cached_tokens": 100, "cache_write_tokens": 0},
+        "output_tokens": 3,
+        "output_tokens_details": {"reasoning_tokens": 0},
+        "total_tokens": 123,
+    },
+}
+
+
+def test_decisions_create_parses_response(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_DECISION_RESPONSE,
+    )
+
+    # When asking predicate, choice, and score questions
+    result = aai.LLMGateway().decisions.create(
+        model="gpt-6-luna",
+        input="Agent: Hello! Caller: Thanks, that fixed it.",
+        questions=_DECISION_QUESTIONS,
+    )
+
+    # Then the response is parsed into an LLMGatewayDecisionResponse
+    assert isinstance(result, aai.LLMGatewayDecisionResponse)
+    assert result.request_id == "req-decision-1"
+    assert result.model == "gpt-6-luna"
+    predicate, choice, score = result.answers
+    assert isinstance(predicate, aai.LLMGatewayDecisionAnswer)
+    assert predicate.probability == 0.12
+    assert choice.choice == "positive"
+    assert choice.confidence == 0.9
+    assert score.score == 0.8
+    assert result.usage.input_tokens_details.cached_tokens == 100
+    assert result.usage.total_tokens == 123
+
+
+def test_decisions_probability_value_keeps_wire_type(httpx_mock: HTTPXMock):
+    # Given a response with string choice values and integer level indexes
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_DECISION_RESPONSE,
+    )
+
+    # When creating a decision
+    result = aai.LLMGateway().decisions.create(
+        model="gpt-6-luna", input="...", questions=_DECISION_QUESTIONS
+    )
+
+    # Then each probability value keeps the type it was sent with
+    assert result.answers[1].probabilities[0].value == "positive"
+    assert result.answers[2].probabilities[1].value == 1
+    assert isinstance(result.answers[2].probabilities[1].value, int)
+    assert result.answers[2].probabilities[1].label == "polite"
+
+
+def test_decisions_create_sends_body_and_extension_kwargs(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_DECISION_RESPONSE,
+    )
+
+    # When passing named options and a field the SDK doesn't name
+    aai.LLMGateway().decisions.create(
+        model="gpt-6-luna",
+        input=[{"role": "user", "content": "..."}],
+        questions=_DECISION_QUESTIONS,
+        prompt_cache_key="call-123",
+        fallbacks=[{"model": "gpt-5.4"}],
+        brand_new_param=True,
+    )
+
+    # Then every field reaches the wire unrenamed
+    import json as _json
+
+    payload = _json.loads(httpx_mock.get_requests()[0].read())
+    assert payload == {
+        "model": "gpt-6-luna",
+        "input": [{"role": "user", "content": "..."}],
+        "questions": _DECISION_QUESTIONS,
+        "prompt_cache_key": "call-123",
+        "fallbacks": [{"model": "gpt-5.4"}],
+        "brand_new_param": True,
+    }
+
+
+def test_decisions_create_omits_unset_named_options(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_DECISION_RESPONSE,
+    )
+
+    # When passing only the required fields
+    aai.LLMGateway().decisions.create(
+        model="gpt-6-luna", input="...", questions=_DECISION_QUESTIONS
+    )
+
+    # Then no optional field is sent as null
+    import json as _json
+
+    payload = _json.loads(httpx_mock.get_requests()[0].read())
+    assert set(payload) == {"model", "input", "questions"}
+
+
+def test_decisions_tolerates_null_answers(httpx_mock: HTTPXMock):
+    # Given a response whose answers slice was nil on the Go side
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=dict(_DECISION_RESPONSE, answers=None),
+    )
+
+    # When creating a decision
+    result = aai.LLMGateway().decisions.create(
+        model="gpt-6-luna", input="...", questions=_DECISION_QUESTIONS
+    )
+
+    # Then answers parses as an empty list
+    assert result.answers == []
+
+
+def test_decisions_preserves_unknown_server_fields(httpx_mock: HTTPXMock):
+    # Given a decision response carrying fields this SDK version doesn't model
+    response = dict(_DECISION_RESPONSE, brand_new_field={"nested": 1})
+    response["answers"] = [dict(_DECISION_RESPONSE["answers"][0], rationale="...")]
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=response,
+    )
+
+    # When creating a decision
+    result = aai.LLMGateway().decisions.create(
+        model="gpt-6-luna", input="...", questions=_DECISION_QUESTIONS
+    )
+
+    # Then the unknown fields are still reachable, not dropped
+    assert result.brand_new_field == {"nested": 1}
+    assert result.answers[0].rationale == "..."
+
+
+def test_decisions_create_raises_with_errors_list(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint returning a 400 with validation messages
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.BAD_REQUEST,
+        json={
+            "message": "invalid request body",
+            "code": 400,
+            "request_id": "req-decision-2",
+            "metadata": {"errors": ["questions[0].name: is required"]},
+        },
+    )
+
+    # When sending an invalid request
+    with pytest.raises(aai.LLMGatewayError) as exc_info:
+        aai.LLMGateway().decisions.create(
+            model="gpt-6-luna",
+            input="...",
+            questions=[{"type": "predicate", "name": "", "instructions": "?"}],
+        )
+
+    # Then the error carries the status, request id, and validation messages
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.request_id == "req-decision-2"
+    assert exc_info.value.errors == ["questions[0].name: is required"]

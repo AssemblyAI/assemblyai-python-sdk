@@ -101,3 +101,36 @@ def _create_tls_context() -> ssl.SSLContext:
     if issubclass(_WriteFirstSSLSocket, context.sslsocket_class):
         context.sslsocket_class = _WriteFirstSSLSocket
     return context
+
+
+# The context `_shared_tls_context()` returns once it has been built.
+_shared_context: Optional[ssl.SSLContext] = None
+_SHARED_CONTEXT_LOCK = threading.Lock()
+
+
+def _shared_tls_context() -> ssl.SSLContext:
+    """Return one ``_create_tls_context()`` for the whole process.
+
+    Building a context loads and parses the trusted CA certificates. Where
+    Python reads them from a CA file, as the system Pythons of Debian and
+    Ubuntu do, that takes about 15 ms on an idle machine and 20 to 50 ms on a
+    busy one, and a connect that builds its own context pays it before its
+    first byte. Connects that share this context pay it once per process.
+
+    One context serves any number of connections, threads and event loops;
+    each connection keeps its own TLS state. Sync connects get
+    ``_WriteFirstSSLSocket`` sockets from it. asyncio wraps its sockets with
+    ``wrap_bio()``, which does not use the socket class.
+
+    The context is built on the first call, so the CA certificates and the
+    ``ssl`` module it reflects (``SSL_CERT_FILE``, ``SSL_CERT_DIR``, a gevent
+    patch) are those in place at that time.
+    """
+    global _shared_context
+    context = _shared_context
+    if context is None:
+        with _SHARED_CONTEXT_LOCK:
+            context = _shared_context
+            if context is None:
+                context = _shared_context = _create_tls_context()
+    return context

@@ -2,7 +2,7 @@ from typing import Any, Dict, Iterator, List, Literal, Optional, Union, overload
 
 from ... import client as _client
 from . import _base, api, models
-from .params import LLMGatewayMessageParam
+from .params import LLMGatewayDecisionQuestionParam, LLMGatewayMessageParam
 
 
 class ModelsResource(_base._BaseResource):
@@ -204,6 +204,58 @@ class UnderstandingResource(_base._BaseResource):
         )
 
 
+class DecisionsResource(_base._BaseResource):
+    """The `decisions` resource of `LLMGateway`."""
+
+    # Named keyword annotations below are for IDE/mypy discoverability only. They add no
+    # runtime validation: unnamed fields still flow through **kwargs untouched, and the
+    # gateway remains the sole source of truth for what a request accepts.
+    def create(
+        self,
+        *,
+        model: str,
+        input: Union[str, List[Dict[str, Any]]],
+        questions: List[LLMGatewayDecisionQuestionParam],
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_options: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
+        fallbacks: Optional[List[Dict[str, Any]]] = None,
+        fallback_config: Optional[Dict[str, Any]] = None,
+        model_region: Optional[str] = None,
+        **kwargs: Any,
+    ) -> models.LLMGatewayDecisionResponse:
+        """
+        Answers a set of predicate, choice, or score questions about an input.
+
+        `input` is a string or a list of input item dicts. `questions` are
+        plain dicts (see `LLMGatewayDecisionQuestionParam`), e.g.
+        `[{"type": "choice", "name": "sentiment", "instructions": "...",
+        "choices": [{"value": "positive", "description": "..."}, ...]}]`.
+        Each answer in the response carries its question's `name`. Extra
+        keyword arguments are forwarded directly into the request body.
+
+        Raises: `LLMGatewayError` if the request fails.
+        """
+        named = {
+            "prompt_cache_key": prompt_cache_key,
+            "prompt_cache_options": prompt_cache_options,
+            "provider": provider,
+            "fallbacks": fallbacks,
+            "fallback_config": fallback_config,
+            "model_region": model_region,
+        }
+        extra = {k: v for k, v in named.items() if v is not None}
+        extra.update(kwargs)
+
+        return api.create_decision(
+            self._gateway.client.http_client,
+            body=_base.decision_body(
+                model=model, input=input, questions=questions, extra=extra
+            ),
+            **self._http_options,
+        )
+
+
 class LLMGateway:
     """
     Client for AssemblyAI's LLM Gateway.
@@ -247,6 +299,7 @@ class LLMGateway:
         self.models = ModelsResource(self)
         self.chat = ChatResource(self)
         self.understanding = UnderstandingResource(self)
+        self.decisions = DecisionsResource(self)
 
     @property
     def client(self) -> _client.Client:
