@@ -61,10 +61,11 @@ aai.settings.api_key = "your-key"
 - `aai.TTSError` — Raised on any Text-to-Speech refusal: `.status_code`, `.error_code` (stable API code; `biometric_terms_not_accepted` 403 until the account accepts the biometric data terms in the dashboard, `auth_unavailable` 503 retryable; on a session these arrive as close 3006 and 1011, with `status_code` None, the close code in `.body["close_code"]` and `.retryable` from the API's Error frame), `.param`, `.request_id`, `.retryable`, `.retry_after`, `.errors`, `.body` (the whole envelope)
 - `assemblyai.streaming.v3.RealTimeTranscriber` — Real-time streaming with event-based API (threaded)
 - `assemblyai.streaming.v3.AsyncRealTimeTranscriber` — Asyncio-native counterpart; same options/events
-- `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `understanding.create()`/`.validate()`
+- `aai.LLMGateway` — LLM Gateway client. Resources: `models.list()`, `chat.completions.create()` (incl. `stream=True`), `understanding.create()`/`.validate()`, `decisions.create()`
 - `aai.AsyncLLMGateway` — Asyncio counterpart of `LLMGateway`. Same resources, every API call a coroutine; owns an HTTP pool (`async with` or `await aclose()`)
 - `assemblyai.llm_gateway.v1` — Canonical module for both gateways, matching the gateway's `/v1` API. The top-level `aai.*` names re-export it
 - `aai.LLMGatewayMessageParam` — `TypedDict` for a chat message; pass plain dicts (`{"role": "user", "content": "..."}`)
+- `aai.LLMGatewayDecisionQuestionParam` — `TypedDict` for a decisions question; pass plain dicts (`{"type": "predicate", "name": "...", "instructions": "..."}`)
 
 ## Common patterns
 
@@ -573,6 +574,28 @@ gateway.understanding.validate(request={"translation": {"target_languages": ["es
 `request` is a plain dict — the server has no fixed schema for it. `validate()` returns `None`
 when the request is valid and raises `aai.LLMGatewayError` with `.errors` populated otherwise;
 it costs the same auth/balance as a real call, so it is not a free dry run.
+
+**Decisions**: answers `predicate`, `choice`, and `score` questions about an input (a string or a
+list of input item dicts) in one request. Questions are plain dicts (`aai.LLMGatewayDecisionQuestionParam`);
+each answer carries its question's `name`. `prompt_cache_key`, `prompt_cache_options`, `provider`,
+`fallbacks`, `fallback_config`, and `model_region` are named, and any other keyword argument is forwarded
+into the body. Only some models serve decisions, and `models.list()` does not show decisions-only models.
+```python
+result = gateway.decisions.create(
+    model="gpt-6-luna",
+    input="Agent: Is there anything else? Caller: No, that fixed it, thanks!",
+    questions=[
+        {"type": "predicate", "name": "resolved", "instructions": "Was the caller's issue resolved?"},
+        {"type": "choice", "name": "sentiment", "instructions": "Caller sentiment at the end of the call",
+         "choices": [{"value": "positive", "description": "Satisfied"}, {"value": "negative", "description": "Unhappy"}]},
+        {"type": "score", "name": "politeness", "instructions": "How polite was the agent?",
+         "levels": [{"label": "rude", "description": "Dismissive"}, {"label": "polite", "description": "Courteous"}]},
+    ],
+)
+for answer in result.answers:
+    print(answer.name, answer.probability, answer.choice, answer.score)
+```
+`probabilities[].value` is the choice value (str) for a choice question and the level index (int) for a score question.
 
 **Errors**: every failure raises `aai.LLMGatewayError` (an `aai.AssemblyAIError`) with
 `.status_code`, `.request_id`, and `.errors` (validation messages, when the server sent any).
