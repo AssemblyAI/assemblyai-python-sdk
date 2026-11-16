@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-import stat
 from types import TracebackType
 from typing import (
-    AsyncIterator,
+    AsyncGenerator,
     Awaitable,
     BinaryIO,
     Callable,
@@ -39,7 +38,7 @@ _DEFAULT_MAX_CONCURRENCY = 8
 
 def _peek_length(stream: BinaryIO) -> Optional[int]:
     """
-    Returns the bytes left in `stream`, or `None` if the size is unknown.
+    Returns the logical bytes left in `stream`, or `None` if the size is unknown.
 
     A known size lets the upload send `Content-Length`. Pipes and sockets
     cannot report a size.
@@ -47,21 +46,10 @@ def _peek_length(stream: BinaryIO) -> Optional[int]:
 
     try:
         offset = stream.tell()
+        length = stream.seek(0, os.SEEK_END)
+        stream.seek(offset)
     except (AttributeError, OSError, ValueError):
-        offset = 0
-
-    try:
-        stat_result = os.fstat(stream.fileno())
-        if not stat.S_ISREG(stat_result.st_mode):
-            # A pipe or terminal reports st_size 0, which is not its length.
-            raise OSError
-        length = stat_result.st_size
-    except (AttributeError, OSError, ValueError):
-        try:
-            length = stream.seek(0, os.SEEK_END)
-            stream.seek(offset)
-        except (AttributeError, OSError, ValueError):
-            return None
+        return None
 
     return max(length - offset, 0)
 
@@ -69,7 +57,7 @@ def _peek_length(stream: BinaryIO) -> Optional[int]:
 async def _aiter_stream(
     stream: BinaryIO,
     chunk_size: int = _UPLOAD_CHUNK_SIZE,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Yields `stream` in chunks. Each read runs off the event loop."""
 
     while True:
@@ -83,7 +71,7 @@ async def _aiter_stream(
 async def _aiter_path(
     path: str,
     chunk_size: int = _UPLOAD_CHUNK_SIZE,
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Yields the file at `path` in chunks. Opens and reads it off the loop."""
 
     audio_file = await _run_in_thread(_open_binary, path, "rb")
@@ -96,7 +84,7 @@ async def _aiter_path(
 
 def _upload_request(
     data: AudioSource,
-) -> Tuple[Union[bytes, AsyncIterator[bytes]], Dict[str, str]]:
+) -> Tuple[Union[bytes, AsyncGenerator[bytes, None]], Dict[str, str]]:
     """
     Turns audio into an upload body and the headers that describe it.
 
@@ -112,7 +100,7 @@ def _upload_request(
 
     if isinstance(data, (str, os.PathLike)):
         path = os.fspath(data)
-        content: Union[bytes, AsyncIterator[bytes]] = _aiter_path(path)
+        content: Union[bytes, AsyncGenerator[bytes, None]] = _aiter_path(path)
         try:
             length: Optional[int] = os.path.getsize(path)
         except OSError:
@@ -219,13 +207,17 @@ class AsyncTranscriber(_BaseTranscriber):
         Returns: The URL of the uploaded audio file.
         """
 
-        content, headers = _upload_request(data)
+        content, headers = await _run_in_thread(_upload_request, data)
 
-        return await async_api.upload_file(
-            self._client.http_client,
-            content,
-            headers=headers,
-        )
+        try:
+            return await async_api.upload_file(
+                self._client.http_client,
+                content,
+                headers=headers,
+            )
+        finally:
+            if not isinstance(content, bytes):
+                await content.aclose()
 
     async def submit(
         self,
