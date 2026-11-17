@@ -26,10 +26,11 @@ from assemblyai.streaming.v3 import (
     StreamingParameters,
     StreamingPiiPolicy,
     StreamingPiiSubstitution,
+    StreamingSessionParameters,
     TurnEvent,
     Word,
 )
-from assemblyai.streaming.v3._base import _build_uri
+from assemblyai.streaming.v3._base import _build_uri, _dump_model_json
 from assemblyai.streaming.v3.models import (
     HeartbeatEvent,
     KeepAlive,
@@ -2768,3 +2769,142 @@ def test_unknown_domain_is_rejected():
             speech_model=SpeechModel.universal_3_5_pro,
             domain="vet",
         )
+
+
+def _connected_client_without_io(mocker: MockFixture) -> StreamingClient:
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_3_5_pro,
+        )
+    )
+    return client
+
+
+def _enqueued_update_payload(client: StreamingClient) -> dict:
+    assert client._write_queue.qsize() == 1
+    message = client._write_queue.get(timeout=1)
+    assert isinstance(message, UpdateConfiguration)
+    return json.loads(_dump_model_json(message))
+
+
+def test_set_params_sends_mode_in_update_configuration(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params switches to manual mode with a new silence cap
+    client.set_params(
+        StreamingSessionParameters(
+            mode=StreamingMode.manual,
+            max_turn_silence=1500,
+        )
+    )
+
+    # Then: the UpdateConfiguration frame carries both fields
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "mode": "manual",
+        "max_turn_silence": 1500,
+    }
+
+
+def test_set_params_accepts_mode_as_string(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: mode is passed as its wire string
+    client.set_params(StreamingSessionParameters(mode="max_accuracy"))
+
+    # Then: it is serialized unchanged
+    assert _enqueued_update_payload(client)["mode"] == "max_accuracy"
+
+
+def test_set_params_sends_continuous_partials(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: continuous_partials is toggled mid-session
+    client.set_params(StreamingSessionParameters(continuous_partials=False))
+
+    # Then: the frame carries the explicit False
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "continuous_partials": False,
+    }
+
+
+def test_set_params_without_mode_sends_only_set_fields(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params is called with pre-existing fields only
+    client.set_params(
+        StreamingSessionParameters(
+            end_of_turn_confidence_threshold=0.5,
+            min_turn_silence=200,
+            keyterms_prompt=["AssemblyAI"],
+        )
+    )
+
+    # Then: exactly those fields are sent, with no mode key
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "end_of_turn_confidence_threshold": 0.5,
+        "min_turn_silence": 200,
+        "keyterms_prompt": ["AssemblyAI"],
+    }
+
+
+def test_session_parameters_reject_unknown_field():
+    # When/Then: a misspelled field raises instead of being dropped
+    with pytest.raises(ValueError, match="max_turn_silense"):
+        StreamingSessionParameters(max_turn_silense=1500)
+
+
+def test_session_parameters_reject_unknown_mode():
+    # When/Then: a mode value the API does not define raises
+    with pytest.raises(ValueError):
+        StreamingSessionParameters(mode="warpspeed")
+
+
+def test_streaming_parameters_reject_unknown_field():
+    # When/Then: connect parameters reject unknown fields too
+    with pytest.raises(ValueError, match="sampel_rate"):
+        StreamingParameters(sample_rate=16000, sampel_rate=8000)
+
+
+def test_update_configuration_sends_keyword_fields(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: update_configuration is called with keyword arguments
+    client.update_configuration(mode="manual", max_turn_silence=1500)
+
+    # Then: the same frame as set_params is enqueued
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "mode": "manual",
+        "max_turn_silence": 1500,
+    }
+
+
+def test_update_configuration_unknown_field_raises_and_sends_nothing(
+    mocker: MockFixture,
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When/Then: an unknown keyword raises
+    with pytest.raises(ValueError, match="max_turn_silense"):
+        client.update_configuration(max_turn_silense=1500)
+
+    # Then: nothing is enqueued
+    assert client._write_queue.qsize() == 0

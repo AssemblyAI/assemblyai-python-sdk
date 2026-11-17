@@ -4,7 +4,7 @@ from typing import Any, List, Literal, Optional, Union
 
 try:
     # pydantic v2 import
-    from pydantic import BaseModel, Field, model_validator
+    from pydantic import BaseModel, ConfigDict, Field, model_validator
 
     pydantic_v2 = True
 except ImportError:
@@ -168,7 +168,32 @@ class KeepAlive(BaseModel):
     type: Literal["KeepAlive"] = "KeepAlive"
 
 
+class StreamingMode(str, Enum):
+    max_accuracy = "max_accuracy"
+    min_latency = "min_latency"
+    balanced = "balanced"
+    manual = "manual"
+
+    def __str__(self):
+        return self.value
+
+
 class RealTimeSessionParameters(BaseModel):
+    """Session settings that `set_params` sends mid-session as an
+    `UpdateConfiguration` message. `RealTimeParameters` extends this model with
+    the connect-only settings.
+
+    Unknown fields raise a validation error instead of being dropped.
+    """
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="forbid")
+    else:
+
+        class Config:
+            extra = "forbid"
+
+    mode: Optional[StreamingMode] = None
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = (
         None  # Deprecated: Use min_turn_silence instead
@@ -185,6 +210,7 @@ class RealTimeSessionParameters(BaseModel):
     turn_left_pad_ms: Optional[int] = None
     language_codes: Optional[List[str]] = None
     session_heartbeat: Optional[bool] = None
+    continuous_partials: Optional[bool] = None
     # Opt in to Silence messages during silence (U3Pro only). When True, the
     # server emits a Silence message roughly once per second while no speech is
     # being transcribed, carrying `start_ms` and `end_ms`, the audio positions
@@ -242,16 +268,6 @@ class StreamingDomain(str, Enum):
 class NoiseSuppressionModel(str, Enum):
     near_field = "near-field"
     far_field = "far-field"
-
-    def __str__(self):
-        return self.value
-
-
-class StreamingMode(str, Enum):
-    max_accuracy = "max_accuracy"
-    min_latency = "min_latency"
-    balanced = "balanced"
-    manual = "manual"
 
     def __str__(self):
         return self.value
@@ -361,13 +377,11 @@ class RealTimeParameters(RealTimeSessionParameters):
     # Deprecated: use voice_focus / voice_focus_threshold instead.
     noise_suppression_model: Optional[NoiseSuppressionModel] = None
     noise_suppression_threshold: Optional[float] = None
-    continuous_partials: Optional[bool] = None
     customer_support_audio_capture: Optional[bool] = None
     include_partial_turns: Optional[bool] = None
     redact_pii: Optional[bool] = None
     redact_pii_policies: Optional[List[StreamingPiiPolicy]] = None
     redact_pii_sub: Optional[StreamingPiiSubstitution] = None
-    mode: Optional[StreamingMode] = None
 
     if pydantic_v2:
 

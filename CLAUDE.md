@@ -414,7 +414,10 @@ RealTimeParameters(
 Use `pcm_s16le` (default) + `sample_rate=16000` for microphone capture.
 
 `agent_context` (like `prompt`) can also be updated mid-stream after each agent
-turn: `client.set_params(RealTimeSessionParameters(agent_context="..."))`.
+turn: `client.set_params(RealTimeSessionParameters(agent_context="..."))`, or the
+keyword form `client.update_configuration(agent_context="...")`. `mode` (including
+`"manual"`) is updatable the same way. `RealTimeSessionParameters` and
+`RealTimeParameters` reject unknown fields with a validation error.
 
 **Error codes**: `RealTimeErrorCodes` is a `dict[int, str]` mapping wire codes to human messages. Use `.get(...)` for lookup — not enum-style attribute access:
 ```python
