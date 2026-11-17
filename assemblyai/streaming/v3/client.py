@@ -24,6 +24,7 @@ from ._base import (
     _normalize_min_turn_silence,
     _resolve_options,
     _user_agent,
+    _warn_connect_only_session_params,
 )
 from ._tls import _create_tls_context
 from .models import (
@@ -236,6 +237,7 @@ class RealTimeTranscriber(_BaseStreamingClient):
 
     def set_params(self, params: RealTimeSessionParameters):
         message_dict = _normalize_min_turn_silence(_dump_model(params))
+        _warn_connect_only_session_params(message_dict)
         message = UpdateConfiguration(**message_dict)
         self._write_queue.put(message)
 

@@ -34,6 +34,7 @@ from ._base import (
     _normalize_min_turn_silence,
     _resolve_options,
     _user_agent,
+    _warn_connect_only_session_params,
 )
 from .models import (
     ErrorEvent,
@@ -305,6 +306,7 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         if stop_event.is_set():
             return
         message_dict = _normalize_min_turn_silence(_dump_model(params))
+        _warn_connect_only_session_params(message_dict)
         message = UpdateConfiguration(**message_dict)
         await write_queue.put(message)
 

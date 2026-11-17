@@ -1843,3 +1843,34 @@ async def test_update_configuration_unknown_field_raises_and_sends_nothing(
     ]
 
     await client.disconnect()
+
+
+async def test_set_params_warns_on_format_turns_and_still_sends_it(
+    mocker: MockFixture, caplog
+):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When: update_configuration carries format_turns
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3._base"):
+        await client.update_configuration(format_turns=True, max_turn_duration=30000)
+
+    # Then: a warning is logged and the frame still carries both fields
+    assert [r.getMessage() for r in caplog.records] == [
+        "`format_turns` only takes effect at connect; the server ignores it "
+        "in a mid-session UpdateConfiguration."
+    ]
+    update_frames = await _wait_for_update_frames(fake_ws)
+    assert len(update_frames) == 1
+    assert json.loads(update_frames[0]) == {
+        "type": "UpdateConfiguration",
+        "format_turns": True,
+        "max_turn_duration": 30000,
+    }
+
+    await client.disconnect()

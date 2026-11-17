@@ -2875,10 +2875,116 @@ def test_session_parameters_reject_unknown_mode():
         StreamingSessionParameters(mode="warpspeed")
 
 
-def test_streaming_parameters_reject_unknown_field():
-    # When/Then: connect parameters reject unknown fields too
-    with pytest.raises(ValueError, match="sampel_rate"):
-        StreamingParameters(sample_rate=16000, sampel_rate=8000)
+def test_streaming_parameters_warn_on_unknown_field(caplog):
+    # When: connect parameters include a misspelled field
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3.models"):
+        params = StreamingParameters(sample_rate=16000, sampel_rate=8000)
+
+    # Then: it does not raise, warns once naming the key, and is not sent
+    warnings = [
+        r.getMessage() for r in caplog.records if "sampel_rate" in r.getMessage()
+    ]
+    assert warnings == [
+        "Ignoring unknown streaming connection parameter `sampel_rate`; "
+        "it is not sent to the server."
+    ]
+    assert "sampel_rate" not in _build_uri("api.example.com", params)
+
+
+def test_streaming_parameters_known_fields_do_not_warn(caplog):
+    # When: connect parameters use only known fields
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3.models"):
+        StreamingParameters(sample_rate=16000, format_turns=True)
+
+    # Then: nothing is logged
+    assert caplog.records == []
+
+
+def test_set_params_sends_max_turn_duration(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: max_turn_duration is updated mid-session
+    client.set_params(StreamingSessionParameters(max_turn_duration=30000))
+
+    # Then: the frame carries it unchanged
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "max_turn_duration": 30000,
+    }
+
+
+def test_build_uri_includes_max_turn_duration():
+    # When: max_turn_duration is set at connect
+    uri = _build_uri(
+        "api.example.com",
+        StreamingParameters(sample_rate=16000, max_turn_duration=30000),
+    )
+
+    # Then: it is a query parameter
+    assert "max_turn_duration=30000" in uri
+
+
+@pytest.mark.parametrize("field", ["format_turns", "filter_profanity"])
+def test_set_params_warns_on_connect_only_field_and_still_sends_it(
+    mocker: MockFixture, caplog, field: str
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params carries a field the server applies only at connect
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3._base"):
+        client.set_params(StreamingSessionParameters(**{field: True}))
+
+    # Then: a warning names the field and the frame still carries it
+    assert [r.getMessage() for r in caplog.records] == [
+        f"`{field}` only takes effect at connect; the server ignores it "
+        "in a mid-session UpdateConfiguration."
+    ]
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        field: True,
+    }
+
+
+def test_connect_only_fields_do_not_warn_at_connect(mocker: MockFixture, caplog):
+    # Given: a client whose websocket connect is stubbed
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: format_turns and filter_profanity are set at connect
+    with caplog.at_level(logging.WARNING):
+        client.connect(
+            StreamingParameters(
+                sample_rate=16000,
+                speech_model=SpeechModel.universal_3_5_pro,
+                format_turns=True,
+                filter_profanity=True,
+            )
+        )
+
+    # Then: nothing is logged
+    assert caplog.records == []
+
+
+def test_set_params_without_connect_only_fields_does_not_warn(
+    mocker: MockFixture, caplog
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params carries only mid-session fields
+    with caplog.at_level(logging.WARNING):
+        client.set_params(StreamingSessionParameters(mode="manual"))
+
+    # Then: nothing is logged
+    assert caplog.records == []
 
 
 def test_update_configuration_sends_keyword_fields(mocker: MockFixture):

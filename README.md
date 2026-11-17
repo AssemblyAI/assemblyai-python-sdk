@@ -2003,15 +2003,19 @@ Common codes: `4001` Not Authorized, `4002` Insufficient Funds, `4029` Client se
 <details>
   <summary>Change settings mid-session</summary>
 
-`set_params` updates an active session. Typical use: enable turn formatting (punctuation, casing) only on confirmed end-of-turn so partial transcripts stay raw:
+`set_params` updates an active session. Typical use: switch a voice agent to manual turn detection and raise the silence cap mid-session:
 
 ```python
-from assemblyai.streaming.v3 import RealTimeSessionParameters
+from assemblyai.streaming.v3 import RealTimeSessionParameters, StreamingMode
 
-def on_turn(client, event):
-    if event.end_of_turn and not event.turn_is_formatted:
-        client.set_params(RealTimeSessionParameters(format_turns=True))
+client.set_params(
+    RealTimeSessionParameters(mode=StreamingMode.manual, max_turn_silence=1500)
+)
+# Keyword form of the same call:
+client.update_configuration(mode="manual", max_turn_silence=1500)
 ```
+
+Updatable mid-session: `mode`, `max_turn_duration`, `min_turn_silence`, `max_turn_silence`, `end_of_turn_confidence_threshold`, `vad_threshold`, `turn_left_pad_ms`, `keyterms_prompt`, `prompt`, `agent_context`, `interruption_delay`, `language_codes`, `continuous_partials`, `session_heartbeat`, and `acknowledge_silence`. An unknown field raises a validation error. `format_turns` and `filter_profanity` take effect only at connect; `set_params` sends them but logs a warning, and the server ignores them.
 
 For voice agents, `force_endpoint()` flushes the current turn — useful when an external signal (UI button, barge-in detection) determines the user has stopped speaking before VAD does:
 
