@@ -414,7 +414,11 @@ RealTimeParameters(
 Use `pcm_s16le` (default) + `sample_rate=16000` for microphone capture.
 
 `agent_context` (like `prompt`) can also be updated mid-stream after each agent
-turn: `client.set_params(RealTimeSessionParameters(agent_context="..."))`.
+turn: `client.set_params(RealTimeSessionParameters(agent_context="..."))`, or the
+keyword form `client.update_configuration(agent_context="...")`. `mode` (including
+`"manual"`) and `max_turn_duration` are updatable the same way.
+`RealTimeSessionParameters` rejects unknown fields with a validation error;
+`RealTimeParameters` (connect) drops them with a logged warning.
 
 **Error codes**: `RealTimeErrorCodes` is a `dict[int, str]` mapping wire codes to human messages. Use `.get(...)` for lookup — not enum-style attribute access:
 ```python
@@ -459,7 +463,7 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 
 **Other gotchas**:
 - Don't feed `AsyncRealTimeTranscriber.stream()` from a sync generator that blocks (e.g. `time.sleep` pacing) — it starves the read task. Use an `async def` generator with `await asyncio.sleep(...)` instead.
-- `format_turns=True` enables punctuation/casing on confirmed end-of-turns. Toggle mid-session via `client.set_params(RealTimeSessionParameters(format_turns=True))`.
+- `format_turns=True` enables punctuation/casing on end-of-turns. Set it at connect: the server ignores `format_turns` and `filter_profanity` in a mid-session `UpdateConfiguration`, and `set_params` logs a warning when either is set.
 - `AsyncRealTimeTranscriber` used as `async with` calls `disconnect(terminate=True)` on normal block exit and `disconnect(terminate=False)` on exception — no explicit `disconnect()` needed inside the block.
 
 ## Text-to-Speech
