@@ -20,6 +20,7 @@ from assemblyai.streaming.v3 import (
     SpeechStartedEvent,
     StreamingClient,
     StreamingClientOptions,
+    StreamingDomain,
     StreamingEvents,
     StreamingMode,
     StreamingParameters,
@@ -390,6 +391,34 @@ def test_client_connect_with_mode(mocker: MockFixture):
 
     # Then: the mode wire param is present with its underscore value
     assert "mode=max_accuracy" in actual_url
+
+
+def test_client_connect_with_manual_mode(mocker: MockFixture):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.assemblyai_stt_3_7_realtime_agent,
+        mode=StreamingMode.manual,
+    )
+
+    client.connect(params)
+
+    assert "mode=manual" in actual_url
 
 
 def test_client_connect_with_language_code(mocker: MockFixture):
@@ -1345,6 +1374,41 @@ def test_client_connect_with_universal_3_6_pro(mocker: MockFixture):
     client.connect(params)
 
     assert "speech_model=universal-3-6-pro" in actual_url
+
+
+@pytest.mark.parametrize(
+    "speech_model",
+    [
+        SpeechModel.assemblyai_stt_3_7_realtime,
+        SpeechModel.assemblyai_stt_3_7_realtime_agent,
+    ],
+)
+def test_client_connect_with_assemblyai_stt_3_7_realtime(
+    mocker: MockFixture, speech_model: SpeechModel
+):
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(sample_rate=16000, speech_model=speech_model)
+
+    client.connect(params)
+
+    assert f"speech_model={speech_model.value}&" in actual_url + "&"
 
 
 def test_turn_event_with_speaker_label():
@@ -2593,3 +2657,114 @@ def test_silence_event_dispatched_to_handler(mocker: MockFixture):
     assert isinstance(received[0], SilenceEvent)
     assert received[0].start_ms == 12000
     assert received[0].end_ms == 13000
+
+
+# ---------------------------------------------------------------------------
+# Boundary validation tests for RealTimeTranscriberOptions
+# ---------------------------------------------------------------------------
+
+
+def test_connect_timeout_rejects_non_positive():
+    """Negative or zero connect_timeout must raise a validation error."""
+    with pytest.raises(Exception):  # pydantic ValidationError (v1 or v2)
+        StreamingClientOptions(api_key="test", connect_timeout=-1.0)
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", connect_timeout=0)
+
+
+def test_max_connection_retries_rejects_negative():
+    """Negative max_connection_retries must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", max_connection_retries=-1)
+
+
+def test_connection_retry_delay_rejects_negative():
+    """Negative connection_retry_delay must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", connection_retry_delay=-0.5)
+
+
+def test_terminate_timeout_rejects_negative():
+    """Negative terminate_timeout must raise a validation error."""
+    with pytest.raises(Exception):
+        StreamingClientOptions(api_key="test", terminate_timeout=-5.0)
+
+
+def test_options_zero_values_are_accepted():
+    """Zero values must be accepted for non-negative option fields (retries, delays, timeouts)."""
+    opts = StreamingClientOptions(
+        api_key="test",
+        connect_timeout=0.1,
+        max_connection_retries=0,
+        connection_retry_delay=0,
+        terminate_timeout=0,
+    )
+    assert opts.connect_timeout == 0.1
+    assert opts.max_connection_retries == 0
+    assert opts.connection_retry_delay == 0
+    assert opts.terminate_timeout == 0
+
+
+@pytest.mark.parametrize("wrap", [bytearray, memoryview])
+def test_client_stream_accepts_bytes_like_buffer(mocker: MockFixture, wrap):
+    _disable_rw_threads(mocker)
+    mocker.patch("assemblyai.streaming.v3.client.websocket_connect")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(StreamingParameters(sample_rate=16000))
+    client.stream(wrap(b"\x01\x02\x03"))
+
+    queued = client._write_queue.get(timeout=1)
+    assert type(queued) is bytes
+    assert queued == b"\x01\x02\x03"
+    assert client._write_queue.empty()
+
+
+@pytest.mark.parametrize("wrap", [bytearray, memoryview])
+def test_client_stream_accepts_iterable_of_bytes_like_chunks(mocker: MockFixture, wrap):
+    _disable_rw_threads(mocker)
+    mocker.patch("assemblyai.streaming.v3.client.websocket_connect")
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(StreamingParameters(sample_rate=16000))
+    client.stream(iter([wrap(b"ab"), wrap(b"cd")]))
+
+    queued = [client._write_queue.get(timeout=1) for _ in range(2)]
+    assert queued == [b"ab", b"cd"]
+    assert all(type(chunk) is bytes for chunk in queued)
+
+
+@pytest.mark.parametrize(
+    "domain, expected",
+    [
+        (StreamingDomain.medical, "medical-v1"),
+        (StreamingDomain.veterinary, "veterinary-v1"),
+        ("veterinary-v1", "veterinary-v1"),
+    ],
+)
+def test_build_uri_sends_domain(domain, expected):
+    # Given: a streaming session with a domain set (enum member or raw string)
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_3_5_pro,
+        domain=domain,
+    )
+
+    # When: the connection URI is built
+    uri = _build_uri("api.example.com", params)
+
+    # Then: the canonical domain value is sent
+    assert f"domain={expected}" in uri
+
+
+def test_unknown_domain_is_rejected():
+    with pytest.raises(ValueError):
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_3_5_pro,
+            domain="vet",
+        )

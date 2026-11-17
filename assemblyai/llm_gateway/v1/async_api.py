@@ -12,6 +12,7 @@ import httpx
 from . import models
 from .api import (
     ENDPOINT_CHAT_COMPLETIONS,
+    ENDPOINT_DECISIONS,
     ENDPOINT_MODELS,
     ENDPOINT_UNDERSTANDING,
     ENDPOINT_UNDERSTANDING_VALIDATE,
@@ -152,3 +153,27 @@ async def validate_understanding(
 
     if response.status_code != httpx.codes.OK:
         raise _error_from_response(response)
+
+
+async def create_decision(
+    client: httpx.AsyncClient,
+    *,
+    base_url: str,
+    timeout: float,
+    body: Dict[str, Any],
+) -> models.LLMGatewayDecisionResponse:
+    """
+    Answers a set of decision questions about an input.
+
+    Raises: `LLMGatewayError` on any non-200 response.
+    """
+    response = await client.post(
+        base_url.rstrip("/") + ENDPOINT_DECISIONS,
+        json=body,
+        timeout=timeout,
+    )
+
+    if response.status_code != httpx.codes.OK:
+        raise _error_from_response(response)
+
+    return models.LLMGatewayDecisionResponse.parse_obj(response.json())

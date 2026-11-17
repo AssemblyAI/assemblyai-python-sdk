@@ -5,6 +5,7 @@ from .models import (
     DictationConfig,
     DictationError,
     DictationResponse,
+    DictationRewriteMode,
     DictationWord,
 )
 
@@ -17,6 +18,7 @@ __all__ = [
     "DictationError",
     "DictationLiveSession",
     "DictationResponse",
+    "DictationRewriteMode",
     "DictationTranscriber",
     "DictationWord",
 ]

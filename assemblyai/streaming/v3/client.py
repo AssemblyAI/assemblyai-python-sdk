@@ -1,16 +1,20 @@
+import inspect
 import json
 import logging
 import queue
 import threading
 import time
 from typing import Any, Dict, Generator, Iterable, Optional, Union
+from urllib.parse import urlsplit
 
 import httpx
 import websockets
 from pydantic import BaseModel
-from websockets.sync.client import connect as websocket_connect
+from websockets.sync.client import ClientConnection
+from websockets.sync.client import connect as _ws_sync_connect
 
 from ._base import (
+    _as_bytes_chunk,
     _BaseStreamingClient,
     _build_headers,
     _build_uri,
@@ -21,6 +25,7 @@ from ._base import (
     _resolve_options,
     _user_agent,
 )
+from ._tls import _create_tls_context
 from .models import (
     ErrorEvent,
     EventMessage,
@@ -39,6 +44,23 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The sync ``connect()`` TLS parameter is ``ssl`` from websockets 13 on and
+# ``ssl_context`` before (``setup.py`` allows ``websockets>=11.0``).
+_WS_SSL_KW = (
+    "ssl" if "ssl" in inspect.signature(_ws_sync_connect).parameters else "ssl_context"
+)
+
+
+def websocket_connect(uri: str, **kwargs: Any) -> ClientConnection:
+    """Open a sync websocket connection with ``websockets.sync.client.connect``.
+
+    ``wss://`` URIs use the context from ``_create_tls_context()``. Module-level
+    indirection so tests can patch a single attribute.
+    """
+    if urlsplit(uri).scheme == "wss":
+        kwargs[_WS_SSL_KW] = _create_tls_context()
+    return _ws_sync_connect(uri, **kwargs)
 
 
 class RealTimeTranscriber(_BaseStreamingClient):
@@ -187,11 +209,15 @@ class RealTimeTranscriber(_BaseStreamingClient):
             logger.debug("Error closing websocket: %s", exc)
 
     def stream(
-        self, data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]]
+        self,
+        data: Union[
+            bytes, bytearray, memoryview, Generator[bytes, None, None], Iterable[bytes]
+        ],
     ) -> None:
         """Send audio bytes to the server.
 
-        Accepts a raw ``bytes`` buffer or any (sync) iterable of ``bytes``.
+        Accepts a raw ``bytes``, ``bytearray`` or ``memoryview`` buffer, or any
+        (sync) iterable of those.
         Returns once all chunks are enqueued — the write thread does the
         actual sending. After ``disconnect()`` (or a connection drop) this
         becomes a silent no-op.
@@ -199,14 +225,14 @@ class RealTimeTranscriber(_BaseStreamingClient):
         if self._stop_event.is_set():
             return
 
-        if isinstance(data, bytes):
-            self._write_queue.put(data)
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            self._write_queue.put(bytes(data))
             return
 
         for chunk in data:
             if self._stop_event.is_set():
                 return
-            self._write_queue.put(chunk)
+            self._write_queue.put(_as_bytes_chunk(chunk))
 
     def set_params(self, params: RealTimeSessionParameters):
         message_dict = _normalize_min_turn_silence(_dump_model(params))

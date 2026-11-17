@@ -16,6 +16,7 @@ UNDERSTANDING_URL = f"{aai.settings.llm_gateway_base_url}/v1/understanding"
 UNDERSTANDING_VALIDATE_URL = (
     f"{aai.settings.llm_gateway_base_url}/v1/understanding/validate"
 )
+DECISIONS_URL = f"{aai.settings.llm_gateway_base_url}/v1/decisions"
 
 _OK_RESPONSE = {
     "data": [
@@ -309,3 +310,107 @@ async def test_aclose_closes_owned_client_only():
             pass
         # Then a caller-supplied client is left open for the caller to close
         assert not shared_client.http_client.is_closed
+
+
+_DECISION_QUESTIONS = [
+    {
+        "type": "predicate",
+        "name": "escalated",
+        "instructions": "Was the call escalated?",
+    },
+    {
+        "type": "score",
+        "name": "politeness",
+        "instructions": "How polite was the agent?",
+        "levels": [
+            {"label": "rude", "description": "Agent was rude"},
+            {"label": "polite", "description": "Agent was polite"},
+        ],
+    },
+]
+
+_DECISION_RESPONSE = {
+    "request_id": "req-decision-1",
+    "model": "gpt-6-luna",
+    "answers": [
+        {"type": "predicate", "name": "escalated", "probability": 0.12},
+        {
+            "type": "score",
+            "name": "politeness",
+            "score": 0.8,
+            "probabilities": [
+                {"value": 0, "label": "rude", "probability": 0.2},
+                {"value": 1, "label": "polite", "probability": 0.8},
+            ],
+        },
+    ],
+    "usage": {
+        "input_tokens": 120,
+        "input_tokens_details": {"cached_tokens": 100, "cache_write_tokens": 0},
+        "output_tokens": 3,
+        "output_tokens_details": {"reasoning_tokens": 0},
+        "total_tokens": 123,
+    },
+}
+
+
+async def test_decisions_create_parses_response(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.OK,
+        json=_DECISION_RESPONSE,
+    )
+
+    # When asking predicate and score questions
+    async with aai.AsyncLLMGateway() as gateway:
+        result = await gateway.decisions.create(
+            model="gpt-6-luna",
+            input="Agent: Hello! Caller: Thanks, that fixed it.",
+            questions=_DECISION_QUESTIONS,
+            model_region="global",
+        )
+
+    # Then the response is parsed and the request body carries every field
+    assert isinstance(result, aai.LLMGatewayDecisionResponse)
+    assert result.answers[0].probability == 0.12
+    assert result.answers[1].probabilities[1].value == 1
+    assert result.usage.total_tokens == 123
+    payload = json.loads(httpx_mock.get_requests()[0].read())
+    assert payload == {
+        "model": "gpt-6-luna",
+        "input": "Agent: Hello! Caller: Thanks, that fixed it.",
+        "questions": _DECISION_QUESTIONS,
+        "model_region": "global",
+    }
+
+
+async def test_decisions_create_raises_with_errors_list(httpx_mock: HTTPXMock):
+    # Given a mocked decisions endpoint returning a 400 with validation messages
+    httpx_mock.add_response(
+        url=DECISIONS_URL,
+        method="POST",
+        status_code=httpx.codes.BAD_REQUEST,
+        json={
+            "message": "invalid request body",
+            "code": 400,
+            "request_id": "req-decision-2",
+            "metadata": {
+                "errors": ['model: "gpt-4o" is not supported on /v1/decisions']
+            },
+        },
+    )
+
+    # When sending a request for a model that doesn't serve decisions
+    async with aai.AsyncLLMGateway() as gateway:
+        with pytest.raises(aai.LLMGatewayError) as exc_info:
+            await gateway.decisions.create(
+                model="gpt-4o", input="...", questions=_DECISION_QUESTIONS
+            )
+
+    # Then the error carries the status and validation messages
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.errors == [
+        'model: "gpt-4o" is not supported on /v1/decisions'
+    ]

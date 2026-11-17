@@ -214,6 +214,17 @@ def _resolve_options(
     )
 
 
+def _as_bytes_chunk(chunk: Any) -> Any:
+    """Copies a ``bytearray`` or ``memoryview`` chunk to ``bytes``.
+
+    The write loops only send ``bytes`` frames, so other bytes-like audio
+    buffers are converted when they are enqueued. Anything else passes through.
+    """
+    if isinstance(chunk, (bytearray, memoryview)):
+        return bytes(chunk)
+    return chunk
+
+
 class _BaseStreamingClient:
     """Sync/async-agnostic core for streaming clients.
 
