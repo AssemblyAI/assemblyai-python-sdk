@@ -14,6 +14,7 @@ from websockets.sync.client import ClientConnection
 from websockets.sync.client import connect as _ws_sync_connect
 
 from ._base import (
+    _as_bytes_chunk,
     _BaseStreamingClient,
     _build_headers,
     _build_uri,
@@ -208,11 +209,15 @@ class RealTimeTranscriber(_BaseStreamingClient):
             logger.debug("Error closing websocket: %s", exc)
 
     def stream(
-        self, data: Union[bytes, Generator[bytes, None, None], Iterable[bytes]]
+        self,
+        data: Union[
+            bytes, bytearray, memoryview, Generator[bytes, None, None], Iterable[bytes]
+        ],
     ) -> None:
         """Send audio bytes to the server.
 
-        Accepts a raw ``bytes`` buffer or any (sync) iterable of ``bytes``.
+        Accepts a raw ``bytes``, ``bytearray`` or ``memoryview`` buffer, or any
+        (sync) iterable of those.
         Returns once all chunks are enqueued — the write thread does the
         actual sending. After ``disconnect()`` (or a connection drop) this
         becomes a silent no-op.
@@ -220,14 +225,14 @@ class RealTimeTranscriber(_BaseStreamingClient):
         if self._stop_event.is_set():
             return
 
-        if isinstance(data, bytes):
-            self._write_queue.put(data)
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            self._write_queue.put(bytes(data))
             return
 
         for chunk in data:
             if self._stop_event.is_set():
                 return
-            self._write_queue.put(chunk)
+            self._write_queue.put(_as_bytes_chunk(chunk))
 
     def set_params(self, params: RealTimeSessionParameters):
         message_dict = _normalize_min_turn_silence(_dump_model(params))
