@@ -80,6 +80,8 @@ See [Coding agent prompts](https://www.assemblyai.com/docs/coding-agent-prompts)
 
 Visit our [AssemblyAI API Documentation](https://www.assemblyai.com/docs) to get an overview of our models!
 
+Browse the public classes and methods in the [Python SDK API reference](https://assemblyai.github.io/assemblyai-python-sdk/).
+
 # Quick Start
 
 ## Installation

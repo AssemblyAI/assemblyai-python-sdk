@@ -1,0 +1,60 @@
+name: Python API reference
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One Pages deployment at a time; a newer push waits rather than cancelling one
+# that is mid-deploy.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    name: Build Python API reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - name: Install SDK and documentation tools
+        run: python -m pip install -e . -r docs/requirements.txt
+      - name: Build API reference
+        run: scripts/build_api_docs.sh
+      - name: Check public API pages
+        run: python docs/check_api_docs.py
+      - name: Upload API reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-api-reference
+          path: docs/api/
+          if-no-files-found: error
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/api/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
