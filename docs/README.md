@@ -11,4 +11,8 @@ python -m pip install -e . -r docs/requirements.txt
 scripts/build_api_docs.sh
 ```
 
-The script writes the HTML files to `docs/api/`.
+The script writes the HTML files to `docs/api/`. Check that the public API is present:
+
+```bash
+python docs/check_api_docs.py
+```
