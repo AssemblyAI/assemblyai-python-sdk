@@ -34,6 +34,7 @@ from ._base import (
     _normalize_min_turn_silence,
     _resolve_options,
     _user_agent,
+    _warn_connect_only_session_params,
 )
 from .models import (
     ErrorEvent,
@@ -305,8 +306,14 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         if stop_event.is_set():
             return
         message_dict = _normalize_min_turn_silence(_dump_model(params))
+        _warn_connect_only_session_params(message_dict)
         message = UpdateConfiguration(**message_dict)
         await write_queue.put(message)
+
+    async def update_configuration(self, **kwargs: Any) -> None:
+        """Keyword form of `set_params`: `update_configuration(mode="manual")`
+        equals `set_params(RealTimeSessionParameters(mode="manual"))`."""
+        await self.set_params(RealTimeSessionParameters(**kwargs))
 
     async def force_endpoint(self) -> None:
         write_queue, stop_event = self._ensure_connected("force_endpoint")

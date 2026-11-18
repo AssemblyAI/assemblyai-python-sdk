@@ -26,10 +26,11 @@ from assemblyai.streaming.v3 import (
     StreamingParameters,
     StreamingPiiPolicy,
     StreamingPiiSubstitution,
+    StreamingSessionParameters,
     TurnEvent,
     Word,
 )
-from assemblyai.streaming.v3._base import _build_uri
+from assemblyai.streaming.v3._base import _build_uri, _dump_model_json
 from assemblyai.streaming.v3.models import (
     HeartbeatEvent,
     KeepAlive,
@@ -219,6 +220,112 @@ def test_client_connect_with_redact_pii(mocker: MockFixture):
     assert "redact_pii_policies=" in actual_url
     assert "email_address" in actual_url
     assert "phone_number" in actual_url
+
+
+def test_client_connect_with_granular_location_pii_policies(mocker: MockFixture):
+    # Given: client + granular location PII policies
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        redact_pii=True,
+        redact_pii_policies=[
+            StreamingPiiPolicy.location_address,
+            StreamingPiiPolicy.location_address_street,
+            StreamingPiiPolicy.location_city,
+            StreamingPiiPolicy.location_coordinate,
+            StreamingPiiPolicy.location_country,
+            StreamingPiiPolicy.location_state,
+            StreamingPiiPolicy.location_zip,
+        ],
+    )
+    client.connect(params)
+
+    assert "redact_pii=True" in actual_url
+    assert "location_address" in actual_url
+    assert "location_address_street" in actual_url
+    assert "location_city" in actual_url
+    assert "location_coordinate" in actual_url
+    assert "location_country" in actual_url
+    assert "location_state" in actual_url
+    assert "location_zip" in actual_url
+
+
+def test_streaming_pii_policy_matches_entity_type():
+    from assemblyai.types import EntityType
+
+    assert set(e.value for e in EntityType) == set(p.value for p in StreamingPiiPolicy)
+
+
+def test_client_connect_with_extended_pii_policies(mocker: MockFixture):
+    # Given: client + extended entity PII policies
+    actual_url = None
+
+    def mocked_websocket_connect(
+        url: str, additional_headers: dict, open_timeout: float
+    ):
+        nonlocal actual_url
+        actual_url = url
+
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        new=mocked_websocket_connect,
+    )
+
+    _disable_rw_threads(mocker)
+
+    options = StreamingClientOptions(api_key="test", api_host="api.example.com")
+    client = StreamingClient(options)
+
+    params = StreamingParameters(
+        sample_rate=16000,
+        speech_model=SpeechModel.universal_streaming_english,
+        redact_pii=True,
+        redact_pii_policies=[
+            StreamingPiiPolicy.corporate_action,
+            StreamingPiiPolicy.day,
+            StreamingPiiPolicy.effect,
+            StreamingPiiPolicy.financial_metric,
+            StreamingPiiPolicy.medical_code,
+            StreamingPiiPolicy.month,
+            StreamingPiiPolicy.organization_id,
+            StreamingPiiPolicy.product,
+            StreamingPiiPolicy.project,
+            StreamingPiiPolicy.trend,
+            StreamingPiiPolicy.year,
+        ],
+    )
+    client.connect(params)
+
+    assert "redact_pii=True" in actual_url
+    assert "corporate_action" in actual_url
+    assert "day" in actual_url
+    assert "effect" in actual_url
+    assert "financial_metric" in actual_url
+    assert "medical_code" in actual_url
+    assert "month" in actual_url
+    assert "organization_id" in actual_url
+    assert "product" in actual_url
+    assert "project" in actual_url
+    assert "trend" in actual_url
+    assert "year" in actual_url
 
 
 def test_client_connect_with_voice_focus(mocker: MockFixture):
@@ -2662,3 +2769,248 @@ def test_unknown_domain_is_rejected():
             speech_model=SpeechModel.universal_3_5_pro,
             domain="vet",
         )
+
+
+def _connected_client_without_io(mocker: MockFixture) -> StreamingClient:
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_3_5_pro,
+        )
+    )
+    return client
+
+
+def _enqueued_update_payload(client: StreamingClient) -> dict:
+    assert client._write_queue.qsize() == 1
+    message = client._write_queue.get(timeout=1)
+    assert isinstance(message, UpdateConfiguration)
+    return json.loads(_dump_model_json(message))
+
+
+def test_set_params_sends_mode_in_update_configuration(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params switches to manual mode with a new silence cap
+    client.set_params(
+        StreamingSessionParameters(
+            mode=StreamingMode.manual,
+            max_turn_silence=1500,
+        )
+    )
+
+    # Then: the UpdateConfiguration frame carries both fields
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "mode": "manual",
+        "max_turn_silence": 1500,
+    }
+
+
+def test_set_params_accepts_mode_as_string(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: mode is passed as its wire string
+    client.set_params(StreamingSessionParameters(mode="max_accuracy"))
+
+    # Then: it is serialized unchanged
+    assert _enqueued_update_payload(client)["mode"] == "max_accuracy"
+
+
+def test_set_params_sends_continuous_partials(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: continuous_partials is toggled mid-session
+    client.set_params(StreamingSessionParameters(continuous_partials=False))
+
+    # Then: the frame carries the explicit False
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "continuous_partials": False,
+    }
+
+
+def test_set_params_without_mode_sends_only_set_fields(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params is called with pre-existing fields only
+    client.set_params(
+        StreamingSessionParameters(
+            end_of_turn_confidence_threshold=0.5,
+            min_turn_silence=200,
+            keyterms_prompt=["AssemblyAI"],
+        )
+    )
+
+    # Then: exactly those fields are sent, with no mode key
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "end_of_turn_confidence_threshold": 0.5,
+        "min_turn_silence": 200,
+        "keyterms_prompt": ["AssemblyAI"],
+    }
+
+
+def test_session_parameters_reject_unknown_field():
+    # When/Then: a misspelled field raises instead of being dropped
+    with pytest.raises(ValueError, match="max_turn_silense"):
+        StreamingSessionParameters(max_turn_silense=1500)
+
+
+def test_session_parameters_reject_unknown_mode():
+    # When/Then: a mode value the API does not define raises
+    with pytest.raises(ValueError):
+        StreamingSessionParameters(mode="warpspeed")
+
+
+def test_streaming_parameters_warn_on_unknown_field(caplog):
+    # When: connect parameters include a misspelled field
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3.models"):
+        params = StreamingParameters(sample_rate=16000, sampel_rate=8000)
+
+    # Then: it does not raise, warns once naming the key, and is not sent
+    warnings = [
+        r.getMessage() for r in caplog.records if "sampel_rate" in r.getMessage()
+    ]
+    assert warnings == [
+        "Ignoring unknown streaming connection parameter `sampel_rate`; "
+        "it is not sent to the server."
+    ]
+    assert "sampel_rate" not in _build_uri("api.example.com", params)
+
+
+def test_streaming_parameters_known_fields_do_not_warn(caplog):
+    # When: connect parameters use only known fields
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3.models"):
+        StreamingParameters(sample_rate=16000, format_turns=True)
+
+    # Then: nothing is logged
+    assert caplog.records == []
+
+
+def test_set_params_sends_max_turn_duration(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: max_turn_duration is updated mid-session
+    client.set_params(StreamingSessionParameters(max_turn_duration=30000))
+
+    # Then: the frame carries it unchanged
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "max_turn_duration": 30000,
+    }
+
+
+def test_build_uri_includes_max_turn_duration():
+    # When: max_turn_duration is set at connect
+    uri = _build_uri(
+        "api.example.com",
+        StreamingParameters(sample_rate=16000, max_turn_duration=30000),
+    )
+
+    # Then: it is a query parameter
+    assert "max_turn_duration=30000" in uri
+
+
+@pytest.mark.parametrize("field", ["format_turns", "filter_profanity"])
+def test_set_params_warns_on_connect_only_field_and_still_sends_it(
+    mocker: MockFixture, caplog, field: str
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params carries a field the server applies only at connect
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3._base"):
+        client.set_params(StreamingSessionParameters(**{field: True}))
+
+    # Then: a warning names the field and the frame still carries it
+    assert [r.getMessage() for r in caplog.records] == [
+        f"`{field}` only takes effect at connect; the server ignores it "
+        "in a mid-session UpdateConfiguration."
+    ]
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        field: True,
+    }
+
+
+def test_connect_only_fields_do_not_warn_at_connect(mocker: MockFixture, caplog):
+    # Given: a client whose websocket connect is stubbed
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=None,
+    )
+    _disable_rw_threads(mocker)
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: format_turns and filter_profanity are set at connect
+    with caplog.at_level(logging.WARNING):
+        client.connect(
+            StreamingParameters(
+                sample_rate=16000,
+                speech_model=SpeechModel.universal_3_5_pro,
+                format_turns=True,
+                filter_profanity=True,
+            )
+        )
+
+    # Then: nothing is logged
+    assert caplog.records == []
+
+
+def test_set_params_without_connect_only_fields_does_not_warn(
+    mocker: MockFixture, caplog
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: set_params carries only mid-session fields
+    with caplog.at_level(logging.WARNING):
+        client.set_params(StreamingSessionParameters(mode="manual"))
+
+    # Then: nothing is logged
+    assert caplog.records == []
+
+
+def test_update_configuration_sends_keyword_fields(mocker: MockFixture):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When: update_configuration is called with keyword arguments
+    client.update_configuration(mode="manual", max_turn_silence=1500)
+
+    # Then: the same frame as set_params is enqueued
+    assert _enqueued_update_payload(client) == {
+        "type": "UpdateConfiguration",
+        "mode": "manual",
+        "max_turn_silence": 1500,
+    }
+
+
+def test_update_configuration_unknown_field_raises_and_sends_nothing(
+    mocker: MockFixture,
+):
+    # Given: a connected client
+    client = _connected_client_without_io(mocker)
+
+    # When/Then: an unknown keyword raises
+    with pytest.raises(ValueError, match="max_turn_silense"):
+        client.update_configuration(max_turn_silense=1500)
+
+    # Then: nothing is enqueued
+    assert client._write_queue.qsize() == 0

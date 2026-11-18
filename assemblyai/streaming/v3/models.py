@@ -1,10 +1,11 @@
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Literal, Optional, Union
 
 try:
     # pydantic v2 import
-    from pydantic import BaseModel, Field, model_validator
+    from pydantic import BaseModel, ConfigDict, Field, model_validator
 
     pydantic_v2 = True
 except ImportError:
@@ -12,6 +13,8 @@ except ImportError:
     from pydantic import BaseModel, Field, root_validator
 
     pydantic_v2 = False
+
+logger = logging.getLogger(__name__)
 
 
 class LLMGatewayMessage(BaseModel):
@@ -168,7 +171,34 @@ class KeepAlive(BaseModel):
     type: Literal["KeepAlive"] = "KeepAlive"
 
 
+class StreamingMode(str, Enum):
+    max_accuracy = "max_accuracy"
+    min_latency = "min_latency"
+    balanced = "balanced"
+    manual = "manual"
+
+    def __str__(self):
+        return self.value
+
+
 class RealTimeSessionParameters(BaseModel):
+    """Session settings that `set_params` sends mid-session as an
+    `UpdateConfiguration` message. `RealTimeParameters` extends this model with
+    the connect-only settings.
+
+    Unknown fields raise a validation error instead of being dropped.
+    `format_turns` and `filter_profanity` take effect only at connect; the
+    server ignores them mid-session.
+    """
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="forbid")
+    else:
+
+        class Config:
+            extra = "forbid"
+
+    mode: Optional[StreamingMode] = None
     end_of_turn_confidence_threshold: Optional[float] = None
     min_end_of_turn_silence_when_confident: Optional[int] = (
         None  # Deprecated: Use min_turn_silence instead
@@ -183,8 +213,11 @@ class RealTimeSessionParameters(BaseModel):
     agent_context: Optional[str] = None
     interruption_delay: Optional[int] = None
     turn_left_pad_ms: Optional[int] = None
+    # Server-validated range: 16000-128000 ms.
+    max_turn_duration: Optional[int] = None
     language_codes: Optional[List[str]] = None
     session_heartbeat: Optional[bool] = None
+    continuous_partials: Optional[bool] = None
     # Opt in to Silence messages during silence (U3Pro only). When True, the
     # server emits a Silence message roughly once per second while no speech is
     # being transcribed, carrying `start_ms` and `end_ms`, the audio positions
@@ -247,16 +280,6 @@ class NoiseSuppressionModel(str, Enum):
         return self.value
 
 
-class StreamingMode(str, Enum):
-    max_accuracy = "max_accuracy"
-    min_latency = "min_latency"
-    balanced = "balanced"
-    manual = "manual"
-
-    def __str__(self):
-        return self.value
-
-
 class StreamingPiiSubstitution(str, Enum):
     hash = "hash"
     entity_name = "entity_name"
@@ -269,18 +292,22 @@ class StreamingPiiPolicy(str, Enum):
     account_number = "account_number"
     banking_information = "banking_information"
     blood_type = "blood_type"
+    corporate_action = "corporate_action"
     credit_card_number = "credit_card_number"
     credit_card_expiration = "credit_card_expiration"
     credit_card_cvv = "credit_card_cvv"
     date = "date"
     date_interval = "date_interval"
     date_of_birth = "date_of_birth"
+    day = "day"
     drivers_license = "drivers_license"
     drug = "drug"
     duration = "duration"
+    effect = "effect"
     email_address = "email_address"
     event = "event"
     filename = "filename"
+    financial_metric = "financial_metric"
     gender_sexuality = "gender_sexuality"
     gender = "gender"
     healthcare_number = "healthcare_number"
@@ -288,10 +315,19 @@ class StreamingPiiPolicy(str, Enum):
     ip_address = "ip_address"
     language = "language"
     location = "location"
+    location_address = "location_address"
+    location_address_street = "location_address_street"
+    location_city = "location_city"
+    location_coordinate = "location_coordinate"
+    location_country = "location_country"
+    location_state = "location_state"
+    location_zip = "location_zip"
     marital_status = "marital_status"
+    medical_code = "medical_code"
     medical_condition = "medical_condition"
     medical_process = "medical_process"
     money_amount = "money_amount"
+    month = "month"
     nationality = "nationality"
     number_sequence = "number_sequence"
     passport_number = "passport_number"
@@ -301,24 +337,62 @@ class StreamingPiiPolicy(str, Enum):
     phone_number = "phone_number"
     physical_attribute = "physical_attribute"
     political_affiliation = "political_affiliation"
+    product = "product"
+    project = "project"
     occupation = "occupation"
     organization = "organization"
+    organization_id = "organization_id"
     organization_medical_facility = "organization_medical_facility"
     religion = "religion"
     sexuality = "sexuality"
     statistics = "statistics"
     time = "time"
+    trend = "trend"
     url = "url"
     us_social_security_number = "us_social_security_number"
     username = "username"
     vehicle_id = "vehicle_id"
+    year = "year"
     zodiac_sign = "zodiac_sign"
 
     def __str__(self):
         return self.value
 
 
+def _warn_unknown_connect_params(model_cls: Any, values: Any) -> None:
+    if not isinstance(values, dict):
+        return
+    fields = model_cls.model_fields if pydantic_v2 else model_cls.__fields__
+    for key in values:
+        if key not in fields:
+            logger.warning(
+                f"Ignoring unknown streaming connection parameter `{key}`; "
+                "it is not sent to the server."
+            )
+
+
 class RealTimeParameters(RealTimeSessionParameters):
+    """Connection parameters. Unknown fields are dropped with a warning."""
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="ignore")
+
+        @model_validator(mode="before")
+        @classmethod
+        def _warn_unknown_fields(cls, values: Any) -> Any:
+            _warn_unknown_connect_params(cls, values)
+            return values
+
+    else:
+
+        class Config:
+            extra = "ignore"
+
+        @root_validator(pre=True)
+        def _warn_unknown_fields(cls, values):
+            _warn_unknown_connect_params(cls, values)
+            return values
+
     # Required for PCM encodings. May be omitted for Opus encodings
     # (opus, ogg_opus) — the stream is self-describing and the server
     # ignores the value.
@@ -343,13 +417,11 @@ class RealTimeParameters(RealTimeSessionParameters):
     # Deprecated: use voice_focus / voice_focus_threshold instead.
     noise_suppression_model: Optional[NoiseSuppressionModel] = None
     noise_suppression_threshold: Optional[float] = None
-    continuous_partials: Optional[bool] = None
     customer_support_audio_capture: Optional[bool] = None
     include_partial_turns: Optional[bool] = None
     redact_pii: Optional[bool] = None
     redact_pii_policies: Optional[List[StreamingPiiPolicy]] = None
     redact_pii_sub: Optional[StreamingPiiSubstitution] = None
-    mode: Optional[StreamingMode] = None
 
     if pydantic_v2:
 

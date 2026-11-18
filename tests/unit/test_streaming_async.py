@@ -14,6 +14,7 @@ from assemblyai.streaming.v3 import (
     StreamingClientOptions,
     StreamingEvents,
     StreamingParameters,
+    StreamingPiiPolicy,
 )
 from assemblyai.streaming.v3.models import TerminateSession
 
@@ -161,6 +162,74 @@ async def test_client_connect_with_speaker_labels_revision_interval(
     # Then: the query string carries the GA param name and value
     assert "speaker_labels=True" in fake_connect.uri
     assert "speaker_labels_revision_interval_ms=120000" in fake_connect.uri
+
+    await client.disconnect()
+
+
+async def test_client_connect_with_granular_location_pii_policies(
+    mocker: MockFixture,
+):
+    # Given: client + granular location PII policies
+    fake_ws = _FakeAsyncWebSocket()
+    fake_connect = _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: connecting
+    await client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+            redact_pii=True,
+            redact_pii_policies=[
+                StreamingPiiPolicy.location_city,
+                StreamingPiiPolicy.location_state,
+            ],
+        )
+    )
+
+    # Then: query string carries both granular location policies
+    assert "redact_pii=True" in fake_connect.uri
+    assert "location_city" in fake_connect.uri
+    assert "location_state" in fake_connect.uri
+
+    await client.disconnect()
+
+
+async def test_client_connect_with_extended_pii_policies(
+    mocker: MockFixture,
+):
+    # Given: client + extended entity PII policies
+    fake_ws = _FakeAsyncWebSocket()
+    fake_connect = _patch_connect(mocker, fake_ws)
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+
+    # When: connecting
+    await client.connect(
+        StreamingParameters(
+            sample_rate=16000,
+            speech_model=SpeechModel.universal_streaming_english,
+            redact_pii=True,
+            redact_pii_policies=[
+                StreamingPiiPolicy.corporate_action,
+                StreamingPiiPolicy.financial_metric,
+                StreamingPiiPolicy.medical_code,
+                StreamingPiiPolicy.product,
+            ],
+        )
+    )
+
+    # Then: query string carries extended policies
+    assert "redact_pii=True" in fake_connect.uri
+    assert "corporate_action" in fake_connect.uri
+    assert "financial_metric" in fake_connect.uri
+    assert "medical_code" in fake_connect.uri
+    assert "product" in fake_connect.uri
 
     await client.disconnect()
 
@@ -1682,5 +1751,126 @@ async def test_stream_accepts_bytes_like_buffer(mocker: MockFixture, wrap):
         await asyncio.sleep(0.01)
 
     assert fake_ws.sent == [b"\x01\x02\x03", b"ab", b"cd"]
+
+    await client.disconnect()
+
+
+async def _wait_for_update_frames(fake_ws) -> list:
+    for _ in range(100):
+        update_frames = [
+            s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+        ]
+        if update_frames:
+            return update_frames
+        await asyncio.sleep(0.01)
+    return []
+
+
+async def test_set_params_sends_mode(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    from assemblyai.streaming.v3.models import (
+        StreamingMode,
+        StreamingSessionParameters,
+    )
+
+    # When: set_params switches to manual mode with a new silence cap
+    await client.set_params(
+        StreamingSessionParameters(mode=StreamingMode.manual, max_turn_silence=1500)
+    )
+
+    # Then: one UpdateConfiguration frame carries both fields
+    update_frames = await _wait_for_update_frames(fake_ws)
+    assert len(update_frames) == 1
+    assert json.loads(update_frames[0]) == {
+        "type": "UpdateConfiguration",
+        "mode": "manual",
+        "max_turn_silence": 1500,
+    }
+
+    await client.disconnect()
+
+
+async def test_update_configuration_sends_keyword_fields(mocker: MockFixture):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When: update_configuration is called with keyword arguments
+    await client.update_configuration(mode="balanced", continuous_partials=True)
+
+    # Then: one UpdateConfiguration frame carries both fields
+    update_frames = await _wait_for_update_frames(fake_ws)
+    assert len(update_frames) == 1
+    assert json.loads(update_frames[0]) == {
+        "type": "UpdateConfiguration",
+        "mode": "balanced",
+        "continuous_partials": True,
+    }
+
+    await client.disconnect()
+
+
+async def test_update_configuration_unknown_field_raises_and_sends_nothing(
+    mocker: MockFixture,
+):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When/Then: an unknown keyword raises
+    with pytest.raises(ValueError, match="max_turn_silense"):
+        await client.update_configuration(max_turn_silense=1500)
+
+    # Then: no UpdateConfiguration frame is sent
+    await asyncio.sleep(0.05)
+    assert not [
+        s for s in fake_ws.sent if isinstance(s, str) and "UpdateConfiguration" in s
+    ]
+
+    await client.disconnect()
+
+
+async def test_set_params_warns_on_format_turns_and_still_sends_it(
+    mocker: MockFixture, caplog
+):
+    # Given: a connected async streaming client
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    await client.connect(_default_params())
+
+    # When: update_configuration carries format_turns
+    with caplog.at_level(logging.WARNING, logger="assemblyai.streaming.v3._base"):
+        await client.update_configuration(format_turns=True, max_turn_duration=30000)
+
+    # Then: a warning is logged and the frame still carries both fields
+    assert [r.getMessage() for r in caplog.records] == [
+        "`format_turns` only takes effect at connect; the server ignores it "
+        "in a mid-session UpdateConfiguration."
+    ]
+    update_frames = await _wait_for_update_frames(fake_ws)
+    assert len(update_frames) == 1
+    assert json.loads(update_frames[0]) == {
+        "type": "UpdateConfiguration",
+        "format_turns": True,
+        "max_turn_duration": 30000,
+    }
 
     await client.disconnect()

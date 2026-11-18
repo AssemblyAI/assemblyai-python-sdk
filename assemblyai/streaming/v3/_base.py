@@ -93,6 +93,17 @@ def _normalize_min_turn_silence(params_dict: dict) -> dict:
     return params_dict
 
 
+def _warn_connect_only_session_params(params_dict: dict) -> None:
+    """Warn for fields `set_params` sends that the server applies only at
+    connect. The fields are still sent."""
+    for key in ("format_turns", "filter_profanity"):
+        if params_dict.get(key) is not None:
+            logger.warning(
+                f"`{key}` only takes effect at connect; the server ignores it "
+                "in a mid-session UpdateConfiguration."
+            )
+
+
 def _normalize_voice_focus(params_dict: dict) -> dict:
     """Collapse `noise_suppression_model` / `noise_suppression_threshold` into
     `voice_focus` / `voice_focus_threshold` so only the new wire keys are sent.
