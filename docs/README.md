@@ -1,8 +1,8 @@
 # Python SDK API reference
 
-The API reference uses public module docstrings and type annotations.
+The API reference uses public module docstrings and type annotations. It is published at https://assemblyai.github.io/assemblyai-python-sdk/ on every push to `master`.
 
-Use Python 3.12 to build the reference. Create and activate a virtual environment. Then install the SDK and the documentation tool:
+To build it locally, use Python 3.12. Create and activate a virtual environment. Then install the SDK and the documentation tool:
 
 ```bash
 python3.12 -m venv /tmp/assemblyai-sdk-docs
