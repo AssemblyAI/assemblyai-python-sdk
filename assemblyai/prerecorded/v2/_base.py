@@ -100,10 +100,15 @@ def config_from_response(
 ) -> types.TranscriptionConfig:
     """Rebuilds the `TranscriptionConfig` a transcript was created with."""
 
+    # Goes through `RawTranscriptionConfig`: the response carries fields in their
+    # API shape (e.g. `custom_spelling` as a list of from/to objects) and fields
+    # that are not constructor arguments (e.g. `language_detection_results`).
     return types.TranscriptionConfig(
-        **response.dict(
-            include=set(types.RawTranscriptionConfig.__fields__),
-            exclude_none=True,
+        raw_transcription_config=types.RawTranscriptionConfig(
+            **response.dict(
+                include=set(types.RawTranscriptionConfig.__fields__),
+                exclude_none=True,
+            )
         )
     )
 
