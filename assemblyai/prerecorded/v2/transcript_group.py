@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-from typing import Iterator, List, Optional, Set, Tuple, Union
+from typing import Iterator, List, Optional, Tuple, Union
 
 from typing_extensions import Self
 
@@ -52,15 +52,18 @@ class _TranscriptGroupImpl:
         transcripts: List[Transcript] = []
         failures: List[types.AssemblyAIError] = []
 
-        future_transcripts: Set[concurrent.futures.Future[Transcript]] = set()
+        # A list, read back in the same order below, so the transcripts keep
+        # their order in the group. A set of futures iterates in an arbitrary
+        # order.
+        future_transcripts: List[concurrent.futures.Future[Transcript]] = []
 
         for transcript in self.transcripts:
             future = transcript.wait_for_completion_async()
-            future_transcripts.add(future)
+            future_transcripts.append(future)
 
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        concurrent.futures.wait(future_transcripts)
 
-        for future in finished_futures:
+        for future in future_transcripts:
             try:
                 transcripts.append(future.result())
             except types.TranscriptError as e:
@@ -166,6 +169,8 @@ class TranscriptGroup:
 
         Note - if an HTTP error is encountered when waiting for a Transcript in the TranscriptGroup, it will be popped from the group and added to the list of failures.
         You can return this list of failures with `return_failures=True`.
+
+        The transcripts that remain keep their order in the group.
 
         Args:
             return_failures: Whether to return a list of errors for transcripts that failed due to HTTP errors.

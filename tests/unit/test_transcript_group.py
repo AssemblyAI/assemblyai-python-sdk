@@ -101,6 +101,74 @@ def test_get_by_ids(httpx_mock: HTTPXMock):
     assert len(transcript_ids) == 0
 
 
+_ORDERED_TRANSCRIPT_IDS = [f"transcript-{index}" for index in range(8)]
+
+
+def _mock_completed_transcripts(httpx_mock: HTTPXMock, failing_id=None):
+    """
+    Mocks a completed transcript for each of `_ORDERED_TRANSCRIPT_IDS`, and a
+    500 for `failing_id`.
+    """
+    for transcript_id in _ORDERED_TRANSCRIPT_IDS:
+        url = f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/{transcript_id}"
+        if transcript_id == failing_id:
+            httpx_mock.add_response(
+                url=url,
+                status_code=httpx.codes.INTERNAL_SERVER_ERROR,
+                method="GET",
+                json={"error": "something went wrong"},
+            )
+            continue
+
+        response = factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )()
+        response["id"] = transcript_id
+        httpx_mock.add_response(
+            url=url,
+            status_code=httpx.codes.OK,
+            method="GET",
+            json=response,
+        )
+
+
+def test_get_by_ids_keeps_given_order(
+    httpx_mock: HTTPXMock, futures_hash_in_descending_order
+):
+    """
+    Tests that the transcripts of a fetched group are in the order of the
+    given IDs.
+    """
+    _mock_completed_transcripts(httpx_mock)
+
+    transcript_group = aai.TranscriptGroup.get_by_ids(_ORDERED_TRANSCRIPT_IDS)
+
+    assert [t.id for t in transcript_group] == _ORDERED_TRANSCRIPT_IDS
+
+
+def test_wait_for_completion_keeps_order_when_one_fails(
+    httpx_mock: HTTPXMock, futures_hash_in_descending_order
+):
+    """
+    Tests that when polling one transcript fails, it leaves the group and the
+    others stay in their order.
+    """
+    failing_id = _ORDERED_TRANSCRIPT_IDS[3]
+    _mock_completed_transcripts(httpx_mock, failing_id=failing_id)
+
+    transcript_group, failures = aai.TranscriptGroup(
+        transcript_ids=_ORDERED_TRANSCRIPT_IDS
+    ).wait_for_completion(return_failures=True)
+
+    assert [t.id for t in transcript_group] == [
+        transcript_id
+        for transcript_id in _ORDERED_TRANSCRIPT_IDS
+        if transcript_id != failing_id
+    ]
+    assert len(failures) == 1
+    assert failures[0].status_code == httpx.codes.INTERNAL_SERVER_ERROR
+
+
 def test_get_by_id_async(httpx_mock: HTTPXMock):
     transcript_ids = ["123", "456"]
     mock_transcript_response = factories.generate_dict_factory(

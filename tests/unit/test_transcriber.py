@@ -482,6 +482,102 @@ def test_transcribe_group_urls_succeeds(httpx_mock: HTTPXMock):
     assert len(httpx_mock.get_requests()) == 4
 
 
+_GROUP_AUDIO_URLS = [f"https://example.org/{index}.wav" for index in range(8)]
+
+
+def _mock_group_requests(httpx_mock: HTTPXMock, *, poll: bool, failing_url=None):
+    """
+    Mocks the job API for `_GROUP_AUDIO_URLS`: each creation request gets a
+    transcript whose id carries the URL's index, and `failing_url` gets a 500.
+    """
+
+    def response_for(index: int) -> dict:
+        response = factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )()
+        response["id"] = f"transcript-{index}"
+        response["audio_url"] = _GROUP_AUDIO_URLS[index]
+
+        return response
+
+    def create_transcript(request: httpx.Request) -> httpx.Response:
+        audio_url = json.loads(request.content)["audio_url"]
+        if audio_url == failing_url:
+            return httpx.Response(
+                httpx.codes.INTERNAL_SERVER_ERROR,
+                json={"error": "something went wrong"},
+            )
+
+        return httpx.Response(
+            httpx.codes.OK, json=response_for(_GROUP_AUDIO_URLS.index(audio_url))
+        )
+
+    for index, audio_url in enumerate(_GROUP_AUDIO_URLS):
+        # One registration per request; older pytest-httpx has no is_reusable.
+        httpx_mock.add_callback(
+            create_transcript,
+            url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}",
+            method="POST",
+        )
+        if poll and audio_url != failing_url:
+            httpx_mock.add_response(
+                url=f"{aai.settings.base_url}{ENDPOINT_TRANSCRIPT}/transcript-{index}",
+                status_code=httpx.codes.OK,
+                method="GET",
+                json=response_for(index),
+            )
+
+
+def test_transcribe_group_keeps_input_order(
+    httpx_mock: HTTPXMock, futures_hash_in_descending_order
+):
+    """
+    Tests that the transcripts of a group are in the order of the inputs,
+    so the caller can match each transcript to the file it came from.
+    """
+    _mock_group_requests(httpx_mock, poll=True)
+
+    transcript_group = aai.Transcriber().transcribe_group(_GROUP_AUDIO_URLS)
+
+    assert [t.audio_url for t in transcript_group] == _GROUP_AUDIO_URLS
+
+
+def test_submit_group_keeps_input_order(
+    httpx_mock: HTTPXMock, futures_hash_in_descending_order
+):
+    """
+    Tests that a submitted group, which does not wait for completion, is in
+    the order of the inputs as well.
+    """
+    _mock_group_requests(httpx_mock, poll=False)
+
+    transcript_group = aai.Transcriber().submit_group(_GROUP_AUDIO_URLS)
+
+    assert [t.audio_url for t in transcript_group] == _GROUP_AUDIO_URLS
+
+
+def test_transcribe_group_keeps_input_order_when_one_fails(
+    httpx_mock: HTTPXMock, futures_hash_in_descending_order
+):
+    """
+    Tests that when one input fails, the others stay in the order of the
+    inputs and the failure is returned.
+    """
+    failing_url = _GROUP_AUDIO_URLS[3]
+    _mock_group_requests(httpx_mock, poll=True, failing_url=failing_url)
+
+    transcript_group, failures = aai.Transcriber().transcribe_group(
+        _GROUP_AUDIO_URLS,
+        return_failures=True,
+    )
+
+    assert [t.audio_url for t in transcript_group] == [
+        audio_url for audio_url in _GROUP_AUDIO_URLS if audio_url != failing_url
+    ]
+    assert len(failures) == 1
+    assert failures[0].status_code == httpx.codes.INTERNAL_SERVER_ERROR
+
+
 def test_transcribe_group_urls_fails_during_upload(httpx_mock: HTTPXMock):
     """
     Tests the scenario of when a list of paths or URLs are being transcribed

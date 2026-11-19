@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-from typing import BinaryIO, List, Optional, Set, Tuple, Union
+from typing import BinaryIO, List, Optional, Tuple, Union
 
 from ... import api as _root_api
 from ... import client as _client
@@ -132,7 +132,9 @@ class _TranscriberImpl(_BaseTranscriber):
     ) -> Union[TranscriptGroup, Tuple[TranscriptGroup, List[types.AssemblyAIError]]]:
         config = self._resolve_config(config)
 
-        future_transcripts: Set[concurrent.futures.Future[Transcript]] = set()
+        # A list, read back in the same order below, so the group follows the
+        # order of `data`. A set of futures iterates in an arbitrary order.
+        future_transcripts: List[concurrent.futures.Future[Transcript]] = []
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             for d in data:
@@ -143,16 +145,16 @@ class _TranscriberImpl(_BaseTranscriber):
                     poll=False,
                 )
 
-                future_transcripts.add(transcript_future)
+                future_transcripts.append(transcript_future)
 
-        finished_futures, _ = concurrent.futures.wait(future_transcripts)
+        concurrent.futures.wait(future_transcripts)
 
         transcript_group = TranscriptGroup(
             client=self._client,
         )
         failures: List[types.AssemblyAIError] = []
 
-        for future in finished_futures:
+        for future in future_transcripts:
             try:
                 transcript_group.add_transcript(future.result())
             except types.TranscriptError as e:
@@ -331,6 +333,10 @@ class Transcriber(_BaseTranscriber):
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
+
+        Returns: The `TranscriptGroup`, with its transcripts in the order of `data`.
+            An input whose request failed with an HTTP error is left out (see
+            `return_failures`); the others keep their order.
         """
         return self._impl.transcribe_group(
             data=data,
@@ -428,6 +434,10 @@ class Transcriber(_BaseTranscriber):
             config: Transcription options and features. If `None` is given, the Transcriber's
                 default configuration will be used.
             return_failures: Whether to include a list of errors for transcriptions that failed due to HTTP errors
+
+        Returns: The `TranscriptGroup`, with its transcripts in the order of `data`.
+            An input whose request failed with an HTTP error is left out (see
+            `return_failures`); the others keep their order.
         """
 
         return self._impl.transcribe_group(
