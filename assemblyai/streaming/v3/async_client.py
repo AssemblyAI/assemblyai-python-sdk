@@ -133,6 +133,8 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         self._stop_event: Optional[asyncio.Event] = None
         self._read_task: Optional[asyncio.Task] = None
         self._write_task: Optional[asyncio.Task] = None
+        self._connect_started = False
+        self._connect_task: Optional[asyncio.Task] = None
 
     async def connect(self, params: RealTimeParameters) -> None:
         # Single-use: a client whose connection went down (success or
@@ -140,7 +142,8 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         # it would yield a silently dead read/write loop because
         # ``_stop_event`` is already set.
         already_used = (
-            self._websocket is not None
+            self._connect_started
+            or self._websocket is not None
             or self._connection_closed_reported
             or (self._read_task is not None and not self._read_task.done())
         )
@@ -150,6 +153,22 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
                 "create a new instance for a new connection."
             )
 
+        # Reserve single-use ownership before the handshake's first await.
+        # Disconnect must also own a pending handshake, not only its socket.
+        self._connect_started = True
+        self._connect_task = asyncio.current_task()
+        try:
+            await self._connect(params)
+        except asyncio.CancelledError:
+            if self._stop_event is not None:
+                self._stop_event.set()
+            await self._close_websocket()
+            await self._client.aclose()
+            raise
+        finally:
+            self._connect_task = None
+
+    async def _connect(self, params: RealTimeParameters) -> None:
         self._write_queue = asyncio.Queue()
         self._stop_event = asyncio.Event()
 
@@ -214,6 +233,18 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         logger.debug("Connected to WebSocket server")
 
     async def disconnect(self, terminate: bool = False) -> None:
+        connect_task = self._connect_task
+        if (
+            connect_task is not None
+            and connect_task is not asyncio.current_task()
+            and not connect_task.done()
+        ):
+            connect_task.cancel()
+            try:
+                await connect_task
+            except asyncio.CancelledError:
+                pass
+
         if self._stop_event is None:
             # Never connected — still close the HTTP client so the pool
             # doesn't leak.
