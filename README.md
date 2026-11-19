@@ -1098,6 +1098,81 @@ print(response.voice_expires_at)  # Unix seconds
 
 </details>
 
+### **Diarization Examples**
+
+`aai.Diarizer` labels the speakers in an audio file with one request to the Diarization API (`POST /v1/diarize`). Pass the audio with its transcript to get each word's speaker and the utterances; leave the transcript out to get only the speaker turns, so diarization can run alongside transcription instead of after it. Speakers are labelled `A`, `B`, and so on, up to 8.
+
+The audio is a local path, bytes or a binary file object (not a URL). Its Content-Type, which picks the decoder, comes from the file extension: `audio/wav`, `audio/mpeg`, `audio/flac`, `audio/ogg`, `audio/mp4`, `audio/webm`, or `audio/pcm` for `.pcm`/`.raw` and whenever `sample_rate`/`channels` are set on the `DiarizationConfig`. Audio with no known extension is sent as WAV; pass `content_type=` to set it yourself. `DiarizationConfig` takes `sample_rate` and `channels` (raw PCM only) and `language_code` (default `en`), and rejects unknown fields.
+
+Requests go to `aai.settings.diarization_base_url`, `https://diarization.assemblyai.com` by default; set it to `https://diarization.us.assemblyai.com` or `https://diarization.eu.assemblyai.com` to keep them in the US or EU data zone.
+
+<details>
+  <summary>Label the words of a sync transcript</summary>
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+# Word timestamps are needed to place each word: request them.
+transcript = aai.SyncTranscriber().transcribe(
+    "./call.wav", config=aai.SyncTranscriptionConfig(timestamps=True)
+)
+
+result = aai.Diarizer().diarize("./call.wav", transcript=transcript)
+
+for utterance in result.utterances:
+    print(f"Speaker {utterance.speaker}: {utterance.text}")
+
+for word in result.words:
+    print(word.text, word.start, word.end, word.speaker, word.speaker_confidence)
+```
+
+`transcript` also takes a dict with a `words` list, or the list of words alone, each with `text`, `start` and `end` in milliseconds and an optional `confidence`; other fields are ignored. A word without timings gets them from the words next to it. An empty list returns empty results.
+
+</details>
+
+<details>
+  <summary>Speaker turns only (no transcript)</summary>
+
+```python
+result = aai.Diarizer().diarize(
+    pcm_bytes,
+    config=aai.DiarizationConfig(sample_rate=16000, channels=1),
+)
+
+print(result.speakers)  # ["A", "B"]
+for segment in result.segments:
+    print(segment.speaker, segment.start, segment.end, segment.speaker_confidence)
+```
+
+Without a transcript, `words` and `utterances` are empty and `segments` and `speakers` are filled.
+
+</details>
+
+<details>
+  <summary>Asyncio and errors</summary>
+
+```python
+import asyncio
+import assemblyai as aai
+
+async def main():
+    async with aai.AsyncDiarizer() as diarizer:
+        try:
+            result = await diarizer.diarize("./call.mp3")
+        except aai.DiarizationError as error:
+            print(error.status_code, error.error_code, error)
+            return
+        print(result.speakers, result.audio_duration_ms)
+
+asyncio.run(main())
+```
+
+`aai.AsyncDiarizer` owns an HTTP pool: use `async with` or `await aclose()`, or pass an `aai.AsyncClient` to share one. Refusals raise `aai.DiarizationError` with the HTTP `status_code`, the snake_cased problem `title` as `error_code` (`unauthorized` for a missing or invalid key, `bad_request` for an unknown config field or a transcript without `words`, `audio_too_large`, `unsupported_media_type`, `capacity_exceeded`, `inference_timeout`), and `retry_after` when the API sends `Retry-After`. Requests wait up to `aai.settings.diarization_http_timeout` (330 s by default).
+
+</details>
+
 ### **Asyncio Examples**
 
 `aai.AsyncTranscriber` is the asyncio counterpart of `aai.Transcriber`. Every method
@@ -2224,6 +2299,7 @@ All custom SDK exceptions inherit from `aai.AssemblyAIError`, except the streami
 | `aai.TranscriptError` | Raised when a prerecorded transcript API call fails at the HTTP level or polling times out. | `status_code: Optional[int]` |
 | `aai.SyncTranscriptError` | Raised when synchronous transcription fails (`aai.SyncTranscriber`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
 | `aai.TTSError` | Raised when a Text-to-Speech request fails (`aai.TextToSpeech`) or a session is refused or fails (`aai.TTSSession`, where `status_code` is `None`, `request_id` is the session id and `body["close_code"]` is the WebSocket close code). | `status_code: Optional[int]`, `error_code: Optional[str]`, `param: Optional[str]`, `request_id: Optional[str]`, `retryable: Optional[bool]`, `retry_after: Optional[int]`, `errors: Optional[List[Dict[str, Optional[str]]]]`, `body: Optional[dict]` |
+| `aai.DiarizationError` | Raised when a Diarization API request fails (`aai.Diarizer`, `aai.AsyncDiarizer`). | `status_code: Optional[int]`, `error_code: Optional[str]`, `retry_after: Optional[int]` |
 | `assemblyai.types.RedactedAudioIncompleteError` | Raised when requesting redacted audio before processing completes. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioExpiredError` | Raised when requesting redacted audio that has expired and is no longer available. | `status_code: Optional[int]` |
 | `assemblyai.types.RedactedAudioUnavailableError` | Raised when requesting redacted audio that is unavailable at the given URL. | `status_code: Optional[int]` |
