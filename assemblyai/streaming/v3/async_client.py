@@ -223,12 +223,17 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
         # Enqueue Terminate even when stop is already set: ``_write_loop``
         # bypasses the stop gate for TerminateSession so the frame still
         # reaches the server when the write task is alive.
+        current = asyncio.current_task()
         if terminate and self._write_queue is not None:
             await self._write_queue.put(TerminateSession())
             # Let the write task drain TerminateSession and exit naturally
             # before we set stop / cancel below. ``asyncio.wait`` does not
             # cancel the awaited task on timeout, unlike ``wait_for``.
-            if self._write_task is not None and not self._write_task.done():
+            if (
+                self._write_task is not None
+                and not self._write_task.done()
+                and current is not self._write_task
+            ):
                 await asyncio.wait({self._write_task}, timeout=2.0)
             # Don't stop the read task yet — the server sends the final Turn
             # and TerminationEvent after receiving Terminate. Every terminal
@@ -237,8 +242,10 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
             if (
                 self._read_task is not None
                 and not self._read_task.done()
-                and asyncio.current_task() is not self._read_task
+                and current is not self._read_task
             ):
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + self._options.terminate_timeout
                 try:
                     await asyncio.wait_for(
                         self._stop_event.wait(),
@@ -246,10 +253,17 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
                     )
                 except asyncio.TimeoutError:
                     pass
+                else:
+                    # ``_stop_event`` is set before the Termination / on_error
+                    # handlers run, so async handlers may still be awaiting.
+                    # Let the read task finish them within the same budget
+                    # before the cancel below.
+                    await asyncio.wait(
+                        {self._read_task}, timeout=max(0.0, deadline - loop.time())
+                    )
 
         self._stop_event.set()
 
-        current = asyncio.current_task()
         for task in (self._read_task, self._write_task):
             if task is None or task is current or task.done():
                 continue
