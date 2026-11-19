@@ -1,6 +1,16 @@
 from .__version__ import __version__
 from .async_client import AsyncClient
 from .client import Client
+from .diarization.v1 import (
+    AsyncDiarizer,
+    DiarizationConfig,
+    DiarizationError,
+    DiarizationResponse,
+    DiarizationSegment,
+    DiarizationUtterance,
+    DiarizedWord,
+    Diarizer,
+)
 from .dictation.v1 import (
     AsyncDictationTranscriber,
     DictationConfig,
@@ -156,6 +166,7 @@ __all__ = [
     "ActionItemsResponse",
     "AssemblyAIError",
     "AsyncClient",
+    "AsyncDiarizer",
     "AsyncDictationTranscriber",
     "AsyncLLMGateway",
     "AsyncSyncTranscriber",
@@ -174,6 +185,13 @@ __all__ = [
     "ContentSafetySeverityScore",
     "CustomFormattingRequest",
     "CustomFormattingResponse",
+    "DiarizationConfig",
+    "DiarizationError",
+    "DiarizationResponse",
+    "DiarizationSegment",
+    "DiarizationUtterance",
+    "DiarizedWord",
+    "Diarizer",
     "DictationConfig",
     "DictationError",
     "DictationResponse",

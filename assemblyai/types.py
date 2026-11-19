@@ -156,6 +156,12 @@ class Settings(BaseSettings):
     producing audio is not counted. Sized to outlast the final segment's
     inference plus the LLM pass over the transcript."""
 
+    diarization_base_url: str = "https://diarization.assemblyai.com"
+    "The base URL for the Diarization API (used by `Diarizer`/`AsyncDiarizer`). Set `https://diarization.us.assemblyai.com` or `https://diarization.eu.assemblyai.com` to keep requests in the US or EU data zone."
+
+    diarization_http_timeout: float = 330.0
+    "The HTTP timeout for Diarization API requests. Above the API's own 300-second inference limit plus its queue wait, so a request that reaches it gets the API's `504` as a `DiarizationError`, not a client timeout."
+
     llm_gateway_base_url: str = "https://llm-gateway.assemblyai.com"
     "The base URL for the LLM Gateway API (used by `LLMGateway`/`AsyncLLMGateway`)"
 

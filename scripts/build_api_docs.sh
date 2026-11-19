@@ -8,5 +8,6 @@ pdoc -o docs/api \
   assemblyai.prerecorded.v2 \
   assemblyai.sync.v1 \
   assemblyai.dictation.v1 \
+  assemblyai.diarization.v1 \
   assemblyai.llm_gateway.v1 \
   assemblyai.tts.v1
