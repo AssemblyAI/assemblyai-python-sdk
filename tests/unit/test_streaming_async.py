@@ -1874,3 +1874,281 @@ async def test_set_params_warns_on_format_turns_and_still_sends_it(
     }
 
     await client.disconnect()
+
+
+# --------------------------------------------------------------------------- #
+# Graceful disconnect lets in-flight Termination / Error handlers finish
+# --------------------------------------------------------------------------- #
+_TERMINATION_JSON = json.dumps(
+    {"type": "Termination", "audio_duration_seconds": 7, "session_duration_seconds": 8}
+)
+
+
+class _GracefulAsyncWS(_FakeAsyncWebSocket):
+    """Answers ``Terminate`` with ``reply`` (a JSON string, or an exception to
+    raise from ``recv()``), optionally after ``reply_delay`` seconds. Like a
+    real connection, ``recv()`` raises ``ConnectionClosed`` once closed."""
+
+    def __init__(self, reply=_TERMINATION_JSON, reply_delay=0.0):
+        super().__init__()
+        self._reply = reply
+        self._reply_delay = reply_delay
+
+    async def send(self, data) -> None:
+        await super().send(data)
+        if isinstance(data, str) and '"Terminate"' in data:
+            push = (
+                self.push_close
+                if isinstance(self._reply, BaseException)
+                else self.push_message
+            )
+            if self._reply_delay:
+                asyncio.get_running_loop().call_later(
+                    self._reply_delay, push, self._reply
+                )
+            else:
+                push(self._reply)
+
+    async def close(self) -> None:
+        await super().close()
+        self.push_close(ConnectionClosed(rcvd=Close(1000, ""), sent=None))
+
+
+def _graceful_client(mocker: MockFixture, fake_ws, **options) -> AsyncStreamingClient:
+    _patch_connect(mocker, fake_ws)
+    return AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com", **options)
+    )
+
+
+async def test_disconnect_terminate_awaits_async_termination_handler(
+    mocker: MockFixture,
+):
+    # Given: an async Termination handler that suspends until released.
+    client = _graceful_client(mocker, _GracefulAsyncWS())
+    started, release, finished = asyncio.Event(), asyncio.Event(), []
+
+    async def on_termination(_client, event):
+        started.set()
+        await release.wait()
+        finished.append(event.audio_duration_seconds)
+
+    client.on(StreamingEvents.Termination, on_termination)
+    await client.connect(_default_params())
+
+    # When: a graceful disconnect runs while the handler is suspended.
+    disconnect = asyncio.create_task(client.disconnect(terminate=True))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    await asyncio.wait({disconnect}, timeout=0.2)
+
+    # Then: disconnect is still waiting for the handler, which completes once
+    # released instead of being cancelled mid-await.
+    assert not disconnect.done(), "disconnect() cancelled the Termination handler"
+    release.set()
+    await asyncio.wait_for(disconnect, timeout=1.0)
+    assert finished == [7]
+    assert client._read_task.done() and not client._read_task.cancelled()
+
+
+async def test_disconnect_terminate_awaits_async_error_handler_on_close(
+    mocker: MockFixture,
+):
+    # Given: the server answers Terminate with an abnormal close, and the
+    # async on_error handler suspends until released.
+    close_exc = ConnectionClosed(rcvd=Close(1011, "server boom"), sent=None)
+    client = _graceful_client(mocker, _GracefulAsyncWS(reply=close_exc))
+    started, release, finished = asyncio.Event(), asyncio.Event(), []
+
+    async def on_error(_client, error):
+        started.set()
+        await release.wait()
+        finished.append(error.code)
+
+    client.on(StreamingEvents.Error, on_error)
+    await client.connect(_default_params())
+
+    disconnect = asyncio.create_task(client.disconnect(terminate=True))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    await asyncio.wait({disconnect}, timeout=0.2)
+
+    assert not disconnect.done(), "disconnect() cancelled the on_error handler"
+    release.set()
+    await asyncio.wait_for(disconnect, timeout=1.0)
+    assert finished == [1011]
+
+
+async def test_async_with_exit_awaits_async_termination_handler(mocker: MockFixture):
+    # Given: a Termination handler that finishes only after the loop has run
+    # other callbacks (one ``call_soon`` round trip, then a short timer).
+    fake_ws = _GracefulAsyncWS()
+    _patch_connect(mocker, fake_ws)
+    finished = []
+
+    async def on_termination(_client, event):
+        done = asyncio.Event()
+        asyncio.get_running_loop().call_later(0.05, done.set)
+        await done.wait()
+        finished.append(event.session_duration_seconds)
+
+    # When: the ``async with`` block exits normally (disconnect(terminate=True)).
+    async with AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    ) as client:
+        client.on(StreamingEvents.Termination, on_termination)
+        await client.connect(_default_params())
+        await client.stream(b"\x00" * 32)
+
+    # Then: the handler ran to completion before the block returned.
+    assert finished == [8]
+
+
+async def test_disconnect_terminate_handler_exception_does_not_skip_later_handlers(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
+    client = _graceful_client(mocker, _GracefulAsyncWS())
+    order = []
+
+    async def failing(_client, _event):
+        done = asyncio.Event()
+        asyncio.get_running_loop().call_later(0.05, done.set)
+        await done.wait()
+        order.append("failing")
+        raise RuntimeError("handler bug")
+
+    async def second(_client, _event):
+        await asyncio.sleep(0)
+        order.append("second")
+
+    client.on(StreamingEvents.Termination, failing)
+    client.on(StreamingEvents.Termination, second)
+    await client.connect(_default_params())
+
+    with caplog.at_level(logging.ERROR):
+        await asyncio.wait_for(client.disconnect(terminate=True), timeout=2.0)
+
+    assert order == ["failing", "second"]
+    assert "on_termination handler raised" in caplog.text
+
+
+@pytest.mark.parametrize("inner_terminate", [False, True])
+async def test_disconnect_called_inside_termination_handler(
+    mocker: MockFixture, inner_terminate: bool
+):
+    # Given: a Termination handler that itself calls disconnect() while the
+    # outer graceful disconnect is waiting for it.
+    fake_ws = _GracefulAsyncWS()
+    client = _graceful_client(mocker, fake_ws, terminate_timeout=1.0)
+    finished = []
+
+    async def on_termination(c, _event):
+        await c.disconnect(terminate=inner_terminate)
+        finished.append("after-inner-disconnect")
+
+    client.on(StreamingEvents.Termination, on_termination)
+    await client.connect(_default_params())
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await asyncio.wait_for(client.disconnect(terminate=True), timeout=3.0)
+
+    # Then: no deadlock or budget-long stall, the handler finished, and
+    # exactly one Terminate frame was sent.
+    assert loop.time() - start < 0.5
+    assert finished == ["after-inner-disconnect"]
+    assert [s for s in fake_ws.sent if isinstance(s, str) and "Terminate" in s] == [
+        '{"type":"Terminate"}'
+    ]
+    assert fake_ws.close_call_count >= 1
+
+
+async def test_disconnect_terminate_inside_write_side_on_error_does_not_self_wait(
+    mocker: MockFixture,
+):
+    # Given: a write-side close dispatched on the write task, whose on_error
+    # handler calls disconnect(terminate=True) — the write task would then
+    # wait on itself.
+    close_exc = ConnectionClosed(rcvd=Close(1011, "send-side close"), sent=None)
+
+    class _SendSideClosedWS(_GracefulAsyncWS):
+        # websockets raises ConnectionClosed from send() only once the
+        # connection is lost, so a pending recv() fails with it too.
+        async def send(self, data) -> None:
+            self.push_close(close_exc)
+            raise close_exc
+
+    fake_ws = _SendSideClosedWS()
+    client = _graceful_client(mocker, fake_ws, terminate_timeout=1.0)
+    returned = asyncio.Event()
+    elapsed = []
+
+    async def on_error(c, _error):
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        await c.disconnect(terminate=True)
+        elapsed.append(loop.time() - start)
+        returned.set()
+
+    client.on(StreamingEvents.Error, on_error)
+    await client.connect(_default_params())
+    await client.stream(b"\x00" * 32)
+
+    await asyncio.wait_for(returned.wait(), timeout=5.0)
+    assert elapsed[0] < 0.5, f"disconnect() inside on_error took {elapsed[0]:.2f}s"
+
+
+async def test_disconnect_terminate_bounds_slow_termination_handler(
+    mocker: MockFixture,
+):
+    # Given: a Termination handler that never finishes on its own.
+    client = _graceful_client(mocker, _GracefulAsyncWS(), terminate_timeout=0.3)
+    started, cancelled = asyncio.Event(), []
+
+    async def on_termination(_client, _event):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    client.on(StreamingEvents.Termination, on_termination)
+    await client.connect(_default_params())
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await asyncio.wait_for(client.disconnect(terminate=True), timeout=3.0)
+    elapsed = loop.time() - start
+
+    # Then: disconnect still returns within terminate_timeout (plus slack)
+    # and cancels the stuck handler.
+    assert started.is_set()
+    assert 0.25 <= elapsed < 0.6, f"elapsed {elapsed:.2f}s"
+    assert cancelled == [True]
+    assert client._read_task.done()
+
+
+async def test_disconnect_terminate_shares_one_budget_for_late_termination(
+    mocker: MockFixture,
+):
+    # Given: Termination arrives 0.6s after Terminate and its handler hangs.
+    # Waiting for the event and for the handler must share one
+    # terminate_timeout (1.0s), not spend it twice (~1.6s).
+    client = _graceful_client(
+        mocker, _GracefulAsyncWS(reply_delay=0.6), terminate_timeout=1.0
+    )
+    started = asyncio.Event()
+
+    async def on_termination(_client, _event):
+        started.set()
+        await asyncio.Event().wait()
+
+    client.on(StreamingEvents.Termination, on_termination)
+    await client.connect(_default_params())
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await asyncio.wait_for(client.disconnect(terminate=True), timeout=5.0)
+    elapsed = loop.time() - start
+
+    assert started.is_set()
+    assert elapsed < 1.35, f"elapsed {elapsed:.2f}s exceeds one terminate_timeout"
