@@ -465,6 +465,7 @@ async with AsyncRealTimeTranscriber(RealTimeTranscriberOptions(token=token_from_
 - Don't feed `AsyncRealTimeTranscriber.stream()` from a sync generator that blocks (e.g. `time.sleep` pacing) — it starves the read task. Use an `async def` generator with `await asyncio.sleep(...)` instead.
 - `format_turns=True` enables punctuation/casing on end-of-turns. Set it at connect: the server ignores `format_turns` and `filter_profanity` in a mid-session `UpdateConfiguration`, and `set_params` logs a warning when either is set.
 - `AsyncRealTimeTranscriber` used as `async with` calls `disconnect(terminate=True)` on normal block exit and `disconnect(terminate=False)` on exception — no explicit `disconnect()` needed inside the block.
+- A server message the client cannot read (not JSON, not an object, or failing validation) is logged at warning level and skipped; the session goes on. The warning names the message type and the failing fields, never the contents. An `Error` or `Termination` message that fails validation still ends the session: it is delivered with the fields that could be read (`code` / durations `None` otherwise).
 
 ## Text-to-Speech
 

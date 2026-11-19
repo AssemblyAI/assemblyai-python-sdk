@@ -1,5 +1,4 @@
 import inspect
-import json
 import logging
 import queue
 import threading
@@ -313,13 +312,7 @@ class RealTimeTranscriber(_BaseStreamingClient):
                 self._report_connection_closed(exc)
                 return
 
-            try:
-                message_json = json.loads(message_data)
-            except json.JSONDecodeError as exc:
-                logger.warning(f"Failed to decode message: {exc}")
-                continue
-
-            message = self._parse_message(message_json)
+            message = self._read_event(message_data)
 
             if isinstance(message, ErrorEvent):
                 self._report_server_error(message)
@@ -327,8 +320,6 @@ class RealTimeTranscriber(_BaseStreamingClient):
                 self._handle_warning(message)
             elif message:
                 self._handle_message(message)
-            else:
-                logger.warning(f"Unsupported event type: {message_json.get('type')}")
 
     def _handle_message(self, message: EventMessage) -> None:
         if isinstance(message, TerminationEvent):

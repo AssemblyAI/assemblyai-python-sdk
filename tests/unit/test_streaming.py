@@ -32,10 +32,12 @@ from assemblyai.streaming.v3 import (
 )
 from assemblyai.streaming.v3._base import _build_uri, _dump_model_json
 from assemblyai.streaming.v3.models import (
+    ErrorEvent,
     HeartbeatEvent,
     KeepAlive,
     SilenceEvent,
     TerminateSession,
+    TerminationEvent,
     UpdateConfiguration,
 )
 
@@ -2241,6 +2243,233 @@ def test_warning_handler_exception_does_not_kill_read_thread(mocker: MockFixture
     assert errors_received == []
     assert client._stop_event.is_set()
     assert not client._read_thread.is_alive()
+
+    client.disconnect()
+
+
+_VALID_TURN = {
+    "type": "Turn",
+    "turn_order": 2,
+    "turn_is_formatted": True,
+    "end_of_turn": True,
+    "transcript": "after",
+    "end_of_turn_confidence": 0.9,
+    "words": [],
+}
+_TERMINATION = {
+    "type": "Termination",
+    "audio_duration_seconds": 1,
+    "session_duration_seconds": 1,
+}
+_BASE_LOGGER = "assemblyai.streaming.v3._base"
+
+# Frames the client cannot read. Each one used to raise out of the read loop.
+_UNREADABLE_FRAMES = {
+    # A Turn the model rejects: null where a number is required.
+    "turn-null-field": json.dumps(
+        {**_VALID_TURN, "turn_order": 1, "end_of_turn_confidence": None}
+    ),
+    # A Begin without its required fields.
+    "begin-missing-fields": json.dumps({"type": "Begin"}),
+    # Valid JSON that is not an object.
+    "json-array": "[]",
+    "json-string": '"text"',
+    "json-number": "42",
+    "json-null": "null",
+    # A binary frame that is not UTF-8.
+    "binary-not-utf8": b"\x80\x81",
+    # JSON nested deeper than the decoder allows (RecursionError).
+    "json-nested-too-deep": "[" * 100_000 + "0" + "]" * 100_000,
+}
+
+
+@pytest.mark.parametrize(
+    "frame", _UNREADABLE_FRAMES.values(), ids=_UNREADABLE_FRAMES.keys()
+)
+def test_read_event_skips_unreadable_frame(caplog: pytest.LogCaptureFixture, frame):
+    # When: the shared reader gets a frame it cannot read
+    with caplog.at_level(logging.WARNING, logger=_BASE_LOGGER):
+        message = StreamingClient._read_event(frame)
+
+    # Then: it returns nothing to dispatch and logs one warning, without raising
+    assert message is None
+    assert [record.levelno for record in caplog.records] == [logging.WARNING]
+
+
+def test_read_event_skips_message_when_parser_raises_another_error(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
+    # Given: a parser failure that is not a ValidationError. pydantic v1 lets
+    # some conversion errors through, e.g. OverflowError for a float field.
+    mocker.patch.object(
+        StreamingClient,
+        "_parse_message",
+        side_effect=OverflowError("int too large to convert to float"),
+    )
+
+    # When
+    with caplog.at_level(logging.WARNING, logger=_BASE_LOGGER):
+        message = StreamingClient._read_event(json.dumps(_VALID_TURN))
+
+    # Then: the message is skipped with a warning that names the error
+    assert message is None
+    assert "OverflowError" in caplog.text
+
+
+def test_read_event_warning_leaves_out_message_contents(
+    caplog: pytest.LogCaptureFixture,
+):
+    # Given: a Turn with fields missing. pydantic v2 puts the rejected input,
+    # here the transcript, in the text of its ValidationError.
+    frame = json.dumps({"type": "Turn", "transcript": "PRIVATE-TRANSCRIPT-TEXT"})
+
+    # When
+    with caplog.at_level(logging.WARNING, logger=_BASE_LOGGER):
+        message = StreamingClient._read_event(frame)
+
+    # Then: the warning names the message type and the fields, not the contents
+    assert message is None
+    assert "Failed to parse Turn message" in caplog.text
+    assert "turn_order" in caplog.text
+    assert "PRIVATE-TRANSCRIPT-TEXT" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "payload, expected_error, expected_code",
+    [
+        # The auxiliary code is unreadable; the message itself is kept.
+        (
+            {"type": "Error", "error": "quota exceeded", "error_code": "unknown"},
+            "quota exceeded",
+            None,
+        ),
+        # The message is unreadable; the code is kept.
+        (
+            {"type": "Error", "error": {"detail": "x"}, "error_code": 4002},
+            "The server reported an error the client could not read",
+            4002,
+        ),
+        # Nothing readable but the type.
+        (
+            {"type": "Error"},
+            "The server reported an error the client could not read",
+            None,
+        ),
+        # The untyped error envelope.
+        (
+            {"error": ["x"]},
+            "The server reported an error the client could not read",
+            None,
+        ),
+    ],
+    ids=["bad-code", "bad-message", "type-only", "untyped-envelope"],
+)
+def test_read_event_keeps_error_message_that_fails_to_parse(
+    payload, expected_error, expected_code
+):
+    # When: an Error message fails validation
+    message = StreamingClient._read_event(json.dumps(payload))
+
+    # Then: it still comes back as an ErrorEvent, so the session ends with it
+    assert isinstance(message, ErrorEvent)
+    assert message.error == expected_error
+    assert message.error_code == expected_code
+
+
+def test_read_event_keeps_termination_message_that_fails_to_parse():
+    # When: a Termination message fails validation on one of its durations
+    message = StreamingClient._read_event(
+        json.dumps(
+            {
+                "type": "Termination",
+                "audio_duration_seconds": "invalid",
+                "session_duration_seconds": 13,
+            }
+        )
+    )
+
+    # Then: it still comes back as a TerminationEvent, with the duration that
+    # could be read and without the one that could not
+    assert isinstance(message, TerminationEvent)
+    assert message.audio_duration_seconds is None
+    assert message.session_duration_seconds == 13
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        _UNREADABLE_FRAMES["turn-null-field"],
+        _UNREADABLE_FRAMES["json-array"],
+        _UNREADABLE_FRAMES["binary-not-utf8"],
+    ],
+    ids=["turn-null-field", "json-array", "binary-not-utf8"],
+)
+def test_unreadable_message_does_not_kill_read_thread(mocker: MockFixture, frame):
+    # Given: one message the client cannot read, followed by a valid Turn and
+    # a Termination event. If the failure escapes the read loop, the read
+    # thread dies before the later messages and nothing reports it.
+    fake_ws = _FakeWebSocket(
+        recv_script=[frame, json.dumps(_VALID_TURN), json.dumps(_TERMINATION)]
+    )
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    turns = []
+    terminations = []
+    errors = []
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Turn, lambda c, e: turns.append(e.transcript))
+    client.on(StreamingEvents.Termination, lambda c, e: terminations.append(e))
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When: connect; the read thread meets the unreadable message first
+    _connect_and_wait(client, _default_params())
+
+    # Then: the read thread skipped it and delivered the Turn and the
+    # Termination that followed.
+    assert turns == ["after"]
+    assert len(terminations) == 1
+    assert errors == []
+    assert client._stop_event.is_set()
+    assert not client._read_thread.is_alive()
+
+    client.disconnect()
+
+
+def test_error_message_that_fails_to_parse_still_ends_session(mocker: MockFixture):
+    # Given: an Error message with an unreadable code, and a server that does
+    # not close the socket after it. Skipping the message would leave the
+    # session open with the failure unreported.
+    fake_ws = _FakeWebSocket(
+        recv_script=[
+            json.dumps(
+                {"type": "Error", "error": "quota exceeded", "error_code": "unknown"}
+            )
+        ]
+    )
+    mocker.patch(
+        "assemblyai.streaming.v3.client.websocket_connect",
+        return_value=fake_ws,
+    )
+    errors = []
+
+    client = StreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+
+    # When
+    _connect_and_wait(client, _default_params())
+
+    # Then: the error reached the handler and the session was torn down
+    assert [(str(e), e.code) for e in errors] == [("quota exceeded", None)]
+    assert client._stop_event.is_set()
+    assert not client._read_thread.is_alive()
+    assert fake_ws.close_call_count >= 1
 
     client.disconnect()
 
