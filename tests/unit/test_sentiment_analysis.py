@@ -106,3 +106,34 @@ def test_sentiment_analysis_null_start(httpx_mock: HTTPXMock):
         transcript.sentiment_analysis,
     ):
         assert transcript_sentiment_result.start == 0
+
+
+def test_sentiment_analysis_null_end(httpx_mock: HTTPXMock):
+    """
+    Tests that `end` converts null values to 0.
+    """
+    mock_response = {
+        "audio_url": "https://example/audio.mp3",
+        "status": "completed",
+        "sentiment_analysis_results": [
+            {
+                "text": "hi",
+                "start": 100,
+                "end": None,
+                "confidence": 0.99,
+                "sentiment": "POSITIVE",
+            }
+        ],
+    }
+    request_body, transcript = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=mock_response,
+        config=aai.TranscriptionConfig(sentiment_analysis=True),
+    )
+
+    for response_sentiment_result, transcript_sentiment_result in zip(
+        mock_response["sentiment_analysis_results"],
+        transcript.sentiment_analysis,
+    ):
+        assert transcript_sentiment_result.start == 100
+        assert transcript_sentiment_result.end == 0
