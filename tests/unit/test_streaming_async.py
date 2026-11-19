@@ -653,6 +653,91 @@ async def test_warning_handler_exception_does_not_kill_read_task(mocker: MockFix
     await client.disconnect()
 
 
+_VALID_TURN = {
+    "type": "Turn",
+    "turn_order": 2,
+    "turn_is_formatted": True,
+    "end_of_turn": True,
+    "transcript": "after",
+    "end_of_turn_confidence": 0.9,
+    "words": [],
+}
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        # A Turn the model rejects: null where a number is required.
+        json.dumps({**_VALID_TURN, "turn_order": 1, "end_of_turn_confidence": None}),
+        # Valid JSON that is not an object.
+        "[]",
+        # A binary frame that is not UTF-8.
+        b"\x80\x81",
+    ],
+    ids=["turn-null-field", "json-array", "binary-not-utf8"],
+)
+async def test_unreadable_message_does_not_kill_read_task(mocker: MockFixture, frame):
+    """A message the client cannot read must not propagate out of the read
+    task; it is skipped and the next message is delivered."""
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    turns = []
+    errors = []
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Turn, lambda c, e: turns.append(e.transcript))
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+    await client.connect(_default_params())
+
+    fake_ws.push_message(frame)
+    fake_ws.push_message(json.dumps(_VALID_TURN))
+
+    for _ in range(100):
+        if turns or client._read_task.done():
+            break
+        await asyncio.sleep(0.01)
+
+    assert turns == ["after"]
+    assert errors == []
+    assert not client._read_task.done()
+
+    await client.disconnect()
+
+
+async def test_error_message_that_fails_to_parse_still_ends_session(
+    mocker: MockFixture,
+):
+    """An Error message with an unreadable code must still reach the handler
+    and end the session, even when the server leaves the socket open."""
+    fake_ws = _FakeAsyncWebSocket()
+    _patch_connect(mocker, fake_ws)
+
+    errors = []
+
+    client = AsyncStreamingClient(
+        StreamingClientOptions(api_key="test", api_host="api.example.com")
+    )
+    client.on(StreamingEvents.Error, lambda c, e: errors.append(e))
+    await client.connect(_default_params())
+
+    fake_ws.push_message(
+        json.dumps(
+            {"type": "Error", "error": "quota exceeded", "error_code": "unknown"}
+        )
+    )
+
+    await _wait_for_tasks(client)
+
+    assert [(str(e), e.code) for e in errors] == [("quota exceeded", None)]
+    assert client._stop_event.is_set()
+    assert fake_ws.close_call_count >= 1
+
+    await client.disconnect()
+
+
 async def test_stream_before_connect_raises_runtime_error():
     """``stream()`` called before ``connect()`` must raise RuntimeError rather
     than silently dropping data. Silent drop would diverge from the sync client

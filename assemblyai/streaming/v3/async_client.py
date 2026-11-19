@@ -1,7 +1,6 @@
 import asyncio
 import collections.abc
 import inspect
-import json
 import logging
 from typing import Any, AsyncIterable, Callable, Dict, Iterable, Optional, Union
 
@@ -408,13 +407,7 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
                 await self._report_connection_closed(exc)
                 return
 
-            try:
-                message_json = json.loads(message_data)
-            except json.JSONDecodeError as exc:
-                logger.warning(f"Failed to decode message: {exc}")
-                continue
-
-            message = self._parse_message(message_json)
+            message = self._read_event(message_data)
 
             if isinstance(message, ErrorEvent):
                 await self._report_server_error(message)
@@ -422,8 +415,6 @@ class AsyncRealTimeTranscriber(_BaseStreamingClient):
                 await self._handle_warning(message)
             elif message:
                 await self._handle_message(message)
-            else:
-                logger.warning(f"Unsupported event type: {message_json.get('type')}")
 
     async def _handle_message(self, message: EventMessage) -> None:
         # ``_handle_message`` is only reached from ``_read_loop``, which only

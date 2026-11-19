@@ -5,7 +5,8 @@ Houses the pieces that are *exactly* the same between the threaded
 
 - Wire-format helpers (``_dump_model``, ``_parse_model``, ``_build_uri``,
   ``_build_headers``, parameter normalization, user-agent construction).
-- Inbound message parsing (``_parse_message`` + ``_parse_event_type``).
+- Inbound message parsing (``_read_event``, ``_parse_message``,
+  ``_parse_event_type``).
 - Connection-closed error mapping (``_build_connection_closed_error``).
 - The ``_BaseStreamingClient`` base class with shared init state and
   the ``on(...)`` handler-registration entrypoint.
@@ -24,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 from urllib.parse import urlencode
 
 import websockets
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from assemblyai import __version__
 
@@ -69,6 +70,30 @@ def _parse_model(model_class: Type[_M], data: Dict[str, Any]) -> _M:
     if hasattr(model_class, "model_validate"):
         return model_class.model_validate(data)
     return model_class.parse_obj(data)
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    """Returns ``value`` when it is an integer, else ``None``."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _describe_parse_failure(exc: Exception) -> str:
+    """Names what failed to parse, for a log line.
+
+    Leaves out the exception's own text. pydantic v2 puts the rejected input
+    in it, and for a ``Turn`` that input is the transcript.
+    """
+    if isinstance(exc, ValidationError):
+        try:
+            return "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['type']}"
+                for error in exc.errors()
+            )
+        except Exception:
+            pass
+    return type(exc).__name__
 
 
 def _normalize_min_turn_silence(params_dict: dict) -> dict:
@@ -317,6 +342,91 @@ class _BaseStreamingClient:
                 return None
         elif "error" in data:
             return _parse_model(ErrorEvent, data)
+        return None
+
+    @classmethod
+    def _read_event(cls, message_data: Any) -> Optional[EventMessage]:
+        """Decode and parse one inbound frame. No frame content makes it raise.
+
+        Both read loops call this. An exception that left a read loop would
+        end the read thread or task without an ``Error`` event, and the
+        session would deliver nothing more while audio was still being sent.
+
+        Returns ``None``, after logging a warning, for a frame to skip: one
+        that is not JSON, is not a JSON object, has an unsupported type, or
+        fails to parse. An ``Error`` or ``Termination`` message that fails to
+        parse is not skipped; see ``_terminal_event_from_unreadable``.
+        """
+        try:
+            data = json.loads(message_data)
+        except Exception as exc:
+            # ``JSONDecodeError``; ``UnicodeDecodeError`` for a binary frame
+            # that is not UTF-8; ``RecursionError`` for JSON nested too deep.
+            logger.warning(f"Failed to decode message: {exc}")
+            return None
+
+        if not isinstance(data, dict):
+            logger.warning(
+                "Ignoring message that is not a JSON object: %s",
+                type(data).__name__,
+            )
+            return None
+
+        # Logged only when it is a string: any other value is message content.
+        message_type = data.get("type")
+        if not isinstance(message_type, str):
+            message_type = None
+
+        try:
+            message = cls._parse_message(data)
+        except Exception as exc:
+            # pydantic ``ValidationError``; pydantic v1 also lets some
+            # conversion errors through, such as ``OverflowError``.
+            logger.warning(
+                "Failed to parse %s message (%s)",
+                message_type,
+                _describe_parse_failure(exc),
+            )
+            return cls._terminal_event_from_unreadable(data)
+
+        if message is None:
+            logger.warning("Unsupported event type: %s", message_type)
+
+        return message
+
+    @classmethod
+    def _terminal_event_from_unreadable(
+        cls, data: Dict[str, Any]
+    ) -> Optional[EventMessage]:
+        """Rebuild an ``Error`` or ``Termination`` message that failed to parse.
+
+        Both end the session. Skipping one would hide the failure, or the
+        end, that the server reported, so each is rebuilt from the fields
+        that can be read. Returns ``None`` for any other message.
+        """
+        event_type = cls._parse_event_type(data.get("type"))
+
+        if event_type == RealTimeEvents.Termination:
+            return TerminationEvent(
+                audio_duration_seconds=_int_or_none(data.get("audio_duration_seconds")),
+                session_duration_seconds=_int_or_none(
+                    data.get("session_duration_seconds")
+                ),
+            )
+
+        if event_type == RealTimeEvents.Error or (
+            "type" not in data and "error" in data
+        ):
+            error = data.get("error")
+            return ErrorEvent(
+                error=(
+                    error
+                    if isinstance(error, str) and error
+                    else "The server reported an error the client could not read"
+                ),
+                error_code=_int_or_none(data.get("error_code")),
+            )
+
         return None
 
     @staticmethod
