@@ -107,10 +107,20 @@ class AsyncTranscript(_BaseTranscript):
 
         while True:
             # No try-except - if there is an HTTP error then surface it to user
-            self._transcript = await async_api.get_transcript(
+            response = await async_api.get_transcript(
                 self._client.http_client,
                 transcript_id,
             )
+
+            # Another waiter may have finished while this request was in
+            # flight. Its returned result is this same object: do not erase
+            # that terminal response with an older poll.
+            if (
+                self._transcript is not None
+                and self._transcript.status in TERMINAL_STATUSES
+            ):
+                return self
+            self._transcript = response
 
             if self._transcript.status in TERMINAL_STATUSES:
                 return self
