@@ -179,6 +179,7 @@ class TTSStream:
         self._cm: Optional[ContextManager[httpx.Response]] = None
         self._response: Optional[httpx.Response] = None
         self._info: Optional[TTSResponseInfo] = None
+        self._chunks: Optional[Iterator[bytes]] = None
 
     @property
     def info(self) -> TTSResponseInfo:
@@ -232,8 +233,12 @@ class TTSStream:
         """
 
         response = self._open()
+        if self._chunks is None:
+            # httpx response iterators are single-use. Keep one body cursor
+            # so a later read() continues after a partially read iteration.
+            self._chunks = response.iter_bytes()
         try:
-            for chunk in response.iter_bytes():
+            for chunk in self._chunks:
                 if chunk:
                     yield chunk
         except _CUT_ERRORS as error:

@@ -43,6 +43,7 @@ class AsyncTTSStream:
         self._cm: Optional[AsyncContextManager[httpx.Response]] = None
         self._response: Optional[httpx.Response] = None
         self._info: Optional[TTSResponseInfo] = None
+        self._chunks: Optional[AsyncIterator[bytes]] = None
 
     @property
     def info(self) -> TTSResponseInfo:
@@ -94,8 +95,12 @@ class AsyncTTSStream:
         """
 
         response = await self._open()
+        if self._chunks is None:
+            # httpx response iterators are single-use. Keep one body cursor
+            # so a later aread() continues after a partially read iteration.
+            self._chunks = response.aiter_bytes()
         try:
-            async for chunk in response.aiter_bytes():
+            async for chunk in self._chunks:
                 if chunk:
                     yield chunk
         except _CUT_ERRORS as error:
