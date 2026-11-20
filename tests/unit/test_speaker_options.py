@@ -1,6 +1,11 @@
 import pytest
+from pytest_httpx import HTTPXMock
 
 import assemblyai as aai
+import tests.unit.unit_test_utils as unit_test_utils
+from tests.unit import factories
+
+aai.settings.api_key = "test"
 
 
 def test_speaker_options_creation():
@@ -202,3 +207,75 @@ def test_transcription_config_with_all_speaker_options():
     assert config.speaker_options.use_two_stage_clustering is False
     assert config.speaker_options.short_file_diarization_method == "conservative"
     assert config.speaker_options.long_file_diarization_method == "experimental"
+
+
+def test_speaker_options_include_speaker_confidence():
+    """Test that SpeakerOptions accepts include_speaker_confidence."""
+    assert aai.SpeakerOptions().include_speaker_confidence is None
+
+    speaker_options = aai.SpeakerOptions(include_speaker_confidence=True)
+    assert speaker_options.include_speaker_confidence is True
+
+
+@pytest.mark.parametrize(
+    "speaker_options",
+    [
+        aai.SpeakerOptions(include_speaker_confidence=True),
+        {"include_speaker_confidence": True},
+    ],
+    ids=["model", "dict"],
+)
+def test_include_speaker_confidence_in_request(httpx_mock: HTTPXMock, speaker_options):
+    """
+    Tests that `include_speaker_confidence` reaches the request body, whether
+    the options are given as a `SpeakerOptions` or as a dict.
+    """
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            speaker_labels=True,
+            speaker_options=speaker_options,
+        ),
+    )
+
+    assert request_body.get("speaker_labels") is True
+    assert request_body.get("speaker_options") == {"include_speaker_confidence": True}
+
+
+def test_speaker_confidence_surfaces_on_words_and_utterances(httpx_mock: HTTPXMock):
+    """
+    Tests that the `speaker_confidence` the API returns per word and per
+    utterance is readable on the transcript, and is `None` where it is absent.
+    """
+    word = {"text": "hello", "start": 0, "end": 500, "confidence": 0.99, "speaker": "A"}
+    mock_response = {
+        **factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )(),
+        "words": [{**word, "speaker_confidence": 0.97}, word],
+        "utterances": [
+            {
+                **word,
+                "speaker_confidence": 0.91,
+                "words": [{**word, "speaker_confidence": 0.97}],
+            }
+        ],
+    }
+
+    _, transcript = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=mock_response,
+        config=aai.TranscriptionConfig(
+            speaker_labels=True,
+            speaker_options=aai.SpeakerOptions(include_speaker_confidence=True),
+        ),
+    )
+
+    assert transcript.words[0].speaker_confidence == 0.97
+    assert transcript.words[1].speaker_confidence is None
+    assert transcript.utterances[0].speaker_confidence == 0.91
+    assert transcript.utterances[0].words[0].speaker_confidence == 0.97
+    assert transcript.json_response["words"][0]["speaker_confidence"] == 0.97

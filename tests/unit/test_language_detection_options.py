@@ -1,4 +1,10 @@
+from pytest_httpx import HTTPXMock
+
 import assemblyai as aai
+import tests.unit.unit_test_utils as unit_test_utils
+from tests.unit import factories
+
+aai.settings.api_key = "test"
 
 
 def test_language_detection_options_creation():
@@ -240,3 +246,65 @@ def test_localization_default_none():
 
     assert options.localization is None
     assert "localization" not in options.dict(exclude_none=True)
+
+
+def test_language_detection_options_with_on_no_speech_detected():
+    """Test that LanguageDetectionOptions accepts on_no_speech_detected."""
+    assert aai.LanguageDetectionOptions().on_no_speech_detected is None
+
+    options = aai.LanguageDetectionOptions(
+        fallback_language="en",
+        on_no_speech_detected="fallback",
+    )
+
+    assert options.fallback_language == "en"
+    assert options.on_no_speech_detected == "fallback"
+
+
+def test_set_language_detection_with_on_no_speech_detected():
+    """Test the set_language_detection method with on_no_speech_detected."""
+    config = aai.TranscriptionConfig().set_language_detection(
+        fallback_language="en",
+        on_no_speech_detected="fallback",
+    )
+
+    assert config.language_detection is True
+    assert config.language_detection_options.fallback_language == "en"
+    assert config.language_detection_options.on_no_speech_detected == "fallback"
+
+
+def test_set_language_detection_on_no_speech_detected_only():
+    """Test set_language_detection with only the on_no_speech_detected parameter."""
+    config = aai.TranscriptionConfig().set_language_detection(
+        on_no_speech_detected="error"
+    )
+
+    assert config.language_detection is True
+    assert config.language_detection_options is not None
+    assert config.language_detection_options.on_no_speech_detected == "error"
+
+
+def test_on_no_speech_detected_in_request(httpx_mock: HTTPXMock):
+    """
+    Tests that `on_no_speech_detected` reaches the request body, so audio with
+    no speech completes with the fallback language as the caller asked.
+    """
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            factories.TranscriptCompletedResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            language_detection=True,
+            language_detection_options={
+                "fallback_language": "en",
+                "on_no_speech_detected": "fallback",
+            },
+        ),
+    )
+
+    assert request_body.get("language_detection") is True
+    assert request_body.get("language_detection_options") == {
+        "fallback_language": "en",
+        "on_no_speech_detected": "fallback",
+    }
