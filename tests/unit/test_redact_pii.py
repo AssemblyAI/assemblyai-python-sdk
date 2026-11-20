@@ -152,6 +152,40 @@ def test_redact_pii_audio_options_excluded_when_disabled(httpx_mock: HTTPXMock):
     assert request_body.get("redact_pii_audio_options") is None
 
 
+@pytest.mark.parametrize(
+    "audio_options",
+    [
+        aai.RedactPiiAudioOptions(return_redacted_no_speech_audio=True),
+        {"return_redacted_no_speech_audio": True},
+    ],
+    ids=["model", "dict"],
+)
+def test_redact_pii_audio_options_return_redacted_no_speech_audio(
+    httpx_mock: HTTPXMock, audio_options
+):
+    """
+    Tests that `return_redacted_no_speech_audio` reaches the request body,
+    whether the options are given as a `RedactPiiAudioOptions` or as a dict.
+    """
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            redact_pii=True,
+            redact_pii_audio=True,
+            redact_pii_audio_options=audio_options,
+            redact_pii_policies=[aai.types.PIIRedactionPolicy.person_name],
+        ),
+    )
+
+    assert request_body.get("redact_pii_audio") is True
+    assert request_body.get("redact_pii_audio_options") == {
+        "return_redacted_no_speech_audio": True,
+    }
+
+
 def test_redact_pii_fails_without_policies(httpx_mock: HTTPXMock):
     """
     Tests that enabling `redact_pii` without specifying any policies
@@ -252,6 +286,99 @@ def test_redact_pii_return_unredacted_cleared_on_disable():
 
     config.set_redact_pii(enable=False)
     assert config.redact_pii_return_unredacted is None
+
+
+_STATIC_ENTITIES = {"INTERNAL_TOOL": ["Bearclaw", "Cubclaw"]}
+
+
+def test_redact_static_entities_default_absent(httpx_mock: HTTPXMock):
+    """
+    Tests that `redact_static_entities` is absent from the request body when
+    not set, even when `redact_pii` is enabled.
+    """
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=aai.TranscriptionConfig(
+            redact_pii=True,
+            redact_pii_policies=[aai.types.PIIRedactionPolicy.date],
+        ),
+    )
+
+    assert "redact_static_entities" not in request_body
+
+
+def test_redact_static_entities_in_request_from_constructor(httpx_mock: HTTPXMock):
+    """
+    Tests that `redact_static_entities` given to `TranscriptionConfig` reaches
+    the request body.
+    """
+    config = aai.TranscriptionConfig(
+        redact_pii=True,
+        redact_pii_policies=[aai.types.PIIRedactionPolicy.date],
+        redact_static_entities=_STATIC_ENTITIES,
+    )
+
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=config,
+    )
+
+    assert config.redact_static_entities == _STATIC_ENTITIES
+    assert request_body.get("redact_pii") is True
+    assert request_body.get("redact_static_entities") == _STATIC_ENTITIES
+
+
+def test_redact_static_entities_in_request_from_set_redact_pii(httpx_mock: HTTPXMock):
+    """
+    Tests that `static_entities` on `set_redact_pii` puts
+    `redact_static_entities` in the request body.
+    """
+    config = aai.TranscriptionConfig().set_redact_pii(
+        policies=[aai.types.PIIRedactionPolicy.date],
+        static_entities=_STATIC_ENTITIES,
+    )
+
+    request_body, _ = unit_test_utils.submit_mock_transcription_request(
+        httpx_mock,
+        mock_response=factories.generate_dict_factory(
+            TranscriptWithPIIRedactionResponseFactory
+        )(),
+        config=config,
+    )
+
+    assert request_body.get("redact_static_entities") == _STATIC_ENTITIES
+
+
+def test_redact_static_entities_cleared_on_disable():
+    """
+    Tests that `set_redact_pii(enable=False)` clears the static entities, which
+    the API rejects without `redact_pii`.
+    """
+    config = aai.TranscriptionConfig().set_redact_pii(
+        policies=[aai.types.PIIRedactionPolicy.date],
+        static_entities=_STATIC_ENTITIES,
+    )
+    assert config.redact_static_entities == _STATIC_ENTITIES
+
+    config.set_redact_pii(enable=False)
+    assert config.redact_static_entities is None
+
+
+def test_redact_static_entities_ignored_without_redact_pii():
+    """
+    Tests that `redact_static_entities` without `redact_pii` is not sent,
+    as for the other redaction options.
+    """
+    config = aai.TranscriptionConfig(redact_static_entities=_STATIC_ENTITIES)
+
+    assert config.redact_static_entities is None
+    assert "redact_static_entities" not in config.raw.dict(exclude_none=True)
 
 
 def test_unredacted_response_fields_surface_on_transcript(httpx_mock: HTTPXMock):

@@ -324,6 +324,10 @@ class RedactPiiAudioOptions(BaseModel):
         None,
         description="Override the default audio redaction method (beep) with an alternative (silence).",
     )
+    return_redacted_no_speech_audio: Optional[bool] = Field(
+        None,
+        description="If True, also return a redacted audio URL for audio in which no speech is detected. By default one is returned only when speech is detected. Requires `redact_pii_audio`.",
+    )
 
 
 class EntityType(str, Enum):
@@ -668,6 +672,10 @@ class LanguageDetectionOptions(BaseModel):
         None,
         description='Controls behavior when language confidence is below threshold. Either "error" (default) or "fallback".',
     )
+    on_no_speech_detected: Optional[str] = Field(
+        None,
+        description='Controls behavior when no speech is detected in the audio. Either "error" (default), which fails the transcript, or "fallback", which completes it with an empty text and the `fallback_language`. "fallback" requires `fallback_language` to be a specific language code.',
+    )
     swiss_german: Optional[bool] = Field(
         None,
         description="If True, route German language requests as Swiss German audio. Only applies when language_detection is enabled and German is detected.",
@@ -994,6 +1002,10 @@ class SpeakerOptions(BaseModel):
         None,
         description="Diarization method for long files. Options: standard (default), experimental",
     )
+    include_speaker_confidence: Optional[bool] = Field(
+        None,
+        description="If True, the response includes a `speaker_confidence` for each word and each utterance",
+    )
 
     if pydantic_v2:
 
@@ -1075,6 +1087,8 @@ class RawTranscriptionConfig(BaseModel):
     "The replacement logic for detected PII."
     redact_pii_return_unredacted: Optional[bool] = None
     "If `redact_pii` is enabled, also return the unredacted text/words/utterances alongside the redacted fields."
+    redact_static_entities: Optional[Dict[str, List[str]]] = None
+    "A map of redaction label to the exact terms to redact under it, on top of the PII policies. Requires `redact_pii`."
 
     speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
@@ -1258,6 +1272,7 @@ class TranscriptionConfig:
             Union[SpeechUnderstandingRequest, Dict[str, Any]]
         ] = None,
         domain: Optional[str] = None,
+        redact_static_entities: Optional[Dict[str, List[str]]] = None,
     ) -> None:
         """
         Args:
@@ -1307,6 +1322,7 @@ class TranscriptionConfig:
             remove_audio_tags: When set to 'all', removes all bracketed audio/speaker tags from the transcript. Only supported for Universal-3 Pro.
             keyterms_prompt_options: Options for controlling keyterms boosting behavior when using `keyterms_prompt`.
             domain: The domain to use for the transcription (e.g. 'medical-v1').
+            redact_static_entities: A map of redaction label to the exact terms to redact under it (e.g. `{"INTERNAL_TOOL": ["Bearclaw"]}`), on top of the PII policies. Requires `redact_pii=True`.
         """
         self._raw_transcription_config = (
             raw_transcription_config
@@ -1340,6 +1356,7 @@ class TranscriptionConfig:
             redact_pii_policies,
             redact_pii_sub,
             redact_pii_return_unredacted,
+            redact_static_entities,
         )
         self.set_speaker_diarization(speaker_labels, speakers_expected, speaker_options)
         self.set_content_safety(content_safety, content_safety_confidence)
@@ -1631,6 +1648,12 @@ class TranscriptionConfig:
         "Returns whether the unredacted text/words/utterances should also be returned alongside redacted fields."
 
         return self._raw_transcription_config.redact_pii_return_unredacted
+
+    @property
+    def redact_static_entities(self) -> Optional[Dict[str, List[str]]]:
+        "Returns the map of redaction label to the exact terms redacted under it."
+
+        return self._raw_transcription_config.redact_static_entities
 
     @property
     def speaker_labels(self) -> Optional[bool]:
@@ -2035,6 +2058,7 @@ class TranscriptionConfig:
         policies: Optional[List[PIIRedactionPolicy]] = None,
         substitution: Optional[PIISubstitutionPolicy] = None,
         return_unredacted: Optional[bool] = None,
+        static_entities: Optional[Dict[str, List[str]]] = None,
     ) -> Self:
         """
         Enables Personal Identifiable Information (PII) Redaction feature.
@@ -2047,6 +2071,7 @@ class TranscriptionConfig:
             policies: A list of PII redaction policies to enable.
             substitution: The replacement logic for detected PII (`PIISubstutionPolicy.hash` by default).
             return_unredacted: Also return the unredacted text/words/utterances on the transcript response. Only valid when redaction is enabled.
+            static_entities: A map of redaction label to the exact terms to redact under it (e.g. `{"INTERNAL_TOOL": ["Bearclaw"]}`), on top of `policies`. Only valid when redaction is enabled.
         """
 
         if not enable:
@@ -2057,6 +2082,7 @@ class TranscriptionConfig:
             self._raw_transcription_config.redact_pii_policies = None
             self._raw_transcription_config.redact_pii_sub = None
             self._raw_transcription_config.redact_pii_return_unredacted = None
+            self._raw_transcription_config.redact_static_entities = None
 
             return self
 
@@ -2070,6 +2096,7 @@ class TranscriptionConfig:
         self._raw_transcription_config.redact_pii_policies = policies
         self._raw_transcription_config.redact_pii_sub = substitution
         self._raw_transcription_config.redact_pii_return_unredacted = return_unredacted
+        self._raw_transcription_config.redact_static_entities = static_entities
 
         return self
 
@@ -2157,6 +2184,7 @@ class TranscriptionConfig:
         fallback_language: Optional[str] = None,
         on_low_language_confidence: Optional[str] = None,
         localization: Optional[List[str]] = None,
+        on_no_speech_detected: Optional[str] = None,
     ) -> Self:
         """
         Enable Automatic Language Detection with optional configuration.
@@ -2168,6 +2196,7 @@ class TranscriptionConfig:
             fallback_language: The language to fallback to if detection fails.
             on_low_language_confidence: Controls behavior when language confidence is below threshold. Either "error" (default) or "fallback".
             localization: Locale codes (e.g. ["en_au"]) to render detected English in a regional spelling variant. Supported values are "en_au" and "en_uk".
+            on_no_speech_detected: Controls behavior when no speech is detected. Either "error" (default) or "fallback", which needs `fallback_language` to be a specific language code.
         """
 
         if not enable:
@@ -2186,6 +2215,7 @@ class TranscriptionConfig:
             or fallback_language
             or on_low_language_confidence
             or localization
+            or on_no_speech_detected
         ):
             self._raw_transcription_config.language_detection_options = (
                 LanguageDetectionOptions(
@@ -2193,6 +2223,7 @@ class TranscriptionConfig:
                     fallback_language=fallback_language,
                     on_low_language_confidence=on_low_language_confidence,
                     localization=localization,
+                    on_no_speech_detected=on_no_speech_detected,
                 )
             )
 
@@ -2286,6 +2317,8 @@ class Word(BaseModel):
     confidence: float
     speaker: Optional[str] = None
     channel: Optional[str] = None
+    speaker_confidence: Optional[float] = None
+    "The confidence in the speaker label, between 0 and 1. Returned for words and utterances only when `speaker_options.include_speaker_confidence` was set."
 
     # This is a workaround to address an issue where sentiment_analysis_results
     # may return contains sentiments where `start` is null.
@@ -2537,6 +2570,8 @@ class BaseTranscript(BaseModel):
     "The replacement logic for detected PII."
     redact_pii_return_unredacted: Optional[bool] = None
     "If `redact_pii` is enabled, also return the unredacted text/words/utterances alongside the redacted fields."
+    redact_static_entities: Optional[Dict[str, List[str]]] = None
+    "A map of redaction label to the exact terms to redact under it, on top of the PII policies. Requires `redact_pii`."
 
     speaker_labels: Optional[bool] = None
     "Enable Speaker Diarization."
