@@ -117,7 +117,9 @@ class LLMGatewayResponseEvent(BaseModel):
     type: Literal["LLMGatewayResponse"] = "LLMGatewayResponse"
     turn_order: int
     transcript: str
-    data: Any
+    data: Any = None
+    # Set when the gateway call failed; data is then the gateway's 4xx body or None.
+    error: Optional[str] = None
 
 
 class SpeakerRevisionItem(BaseModel):

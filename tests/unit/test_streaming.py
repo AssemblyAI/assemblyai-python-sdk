@@ -34,6 +34,7 @@ from assemblyai.streaming.v3._base import _build_uri, _dump_model_json
 from assemblyai.streaming.v3.models import (
     HeartbeatEvent,
     KeepAlive,
+    LLMGatewayResponseEvent,
     SilenceEvent,
     TerminateSession,
     UpdateConfiguration,
@@ -2624,6 +2625,67 @@ def test_silence_event_parses_from_wire_message():
     assert event.type == "Silence"
     assert event.start_ms == 12000
     assert event.end_ms == 13000
+
+
+def test_llm_gateway_response_parses_success():
+    # Given: a successful LLMGatewayResponse wire message
+    data = {
+        "type": "LLMGatewayResponse",
+        "turn_order": 0,
+        "transcript": "Hello there.",
+        "data": {"choices": [{"message": {"role": "assistant", "content": "Hi!"}}]},
+    }
+
+    event = StreamingClient._parse_message(data)
+
+    # Then: data is carried through and error is unset
+    assert isinstance(event, LLMGatewayResponseEvent)
+    assert event.data["choices"][0]["message"]["content"] == "Hi!"
+    assert event.error is None
+
+
+def test_llm_gateway_response_parses_gateway_error():
+    # Given: a failed turn carrying the gateway's 4xx body
+    data = {
+        "type": "LLMGatewayResponse",
+        "turn_order": 1,
+        "transcript": "I'm calling about my Best Buy order.",
+        "data": {
+            "metadata": {"errors": ["model qwen3.5-4b-32k-fast is not supported"]},
+            "request_id": "d5e3c268-257c-41f1-97b5-0de75037e723",
+            "message": "invalid request body",
+            "code": 400,
+        },
+        "error": "LLM Gateway returned 400: model qwen3.5-4b-32k-fast is not supported",
+    }
+
+    event = StreamingClient._parse_message(data)
+
+    # Then: both the error string and the gateway body are exposed
+    assert isinstance(event, LLMGatewayResponseEvent)
+    assert event.turn_order == 1
+    assert event.error == (
+        "LLM Gateway returned 400: model qwen3.5-4b-32k-fast is not supported"
+    )
+    assert event.data["code"] == 400
+
+
+def test_llm_gateway_response_parses_timeout_with_null_data():
+    # Given: a timed-out turn with no gateway body
+    data = {
+        "type": "LLMGatewayResponse",
+        "turn_order": 1,
+        "transcript": "Hello there.",
+        "data": None,
+        "error": "LLM Gateway request timed out",
+    }
+
+    event = StreamingClient._parse_message(data)
+
+    # Then: data is None and error is set
+    assert isinstance(event, LLMGatewayResponseEvent)
+    assert event.data is None
+    assert event.error == "LLM Gateway request timed out"
 
 
 def test_silence_event_dispatched_to_handler(mocker: MockFixture):
