@@ -19,8 +19,8 @@ class DictationLiveSession:
     """
     A live dictation that audio is pushed into.
 
-    Returned by `DictationTranscriber.open_live()`. The request starts on one
-    of the transcriber's worker threads the moment the session opens;
+    Returned by `DictationTranscriber.open_live()`. The request starts as soon
+    as one of the transcriber's worker threads is available;
     `write()` hands it audio, `close()` ends the audio, and `result()` waits
     for the transcript. Built for callback-driven sources — a microphone
     library, a WebRTC track, a telephony media stream — where the audio
@@ -222,7 +222,8 @@ class DictationTranscriber:
             config: Default dictation options. Per-call `config` overrides it.
             max_workers: Thread pool size for `open_live()` sessions, each of
                 which runs its request on a worker thread. Defaults to the CPU
-                count minus one.
+                count minus one, with a minimum of two workers so a second live
+                upload can start while the first is still recording.
             api_key: The API key to authenticate with. Builds a `Client` for this
                 transcriber. Given alongside `client`, it takes precedence: the
                 transcriber builds its own client from a copy of that client's
@@ -242,8 +243,7 @@ class DictationTranscriber:
         )
 
         if not max_workers:
-            cpu_count = os.cpu_count()
-            max_workers = max(1, cpu_count - 1) if cpu_count else 1
+            max_workers = max(2, (os.cpu_count() or 1) - 1)
 
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
@@ -320,8 +320,8 @@ class DictationTranscriber:
 
         The push-style counterpart of `transcribe_live()`, for sources that
         deliver audio through a callback rather than an iterator. The request
-        starts on a worker thread immediately; call `session.write(chunk)` from
-        the callback, then `session.result()` for the transcript once the
+        starts as soon as a worker thread is available. Call `session.write(chunk)`
+        from the callback, then `session.result()` for the transcript once the
         speaker stops. See `DictationLiveSession`.
 
         Args:

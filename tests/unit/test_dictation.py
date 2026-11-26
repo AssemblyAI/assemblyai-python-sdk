@@ -920,6 +920,43 @@ def test_open_live_starts_the_request_before_any_audio(monkeypatch):
         session.result()
 
 
+@pytest.mark.parametrize(
+    ("cpu_count", "max_workers"),
+    [(1, None), (2, None), (None, None), (1, 2)],
+    ids=["one-cpu", "two-cpus", "unknown-cpu-count", "explicit-workers"],
+)
+def test_open_live_uploads_two_recordings_concurrently(
+    monkeypatch, cpu_count, max_workers
+):
+    monkeypatch.setattr(dictation_client.os, "cpu_count", lambda: cpu_count)
+    first_audio = b"RIFFfirst"
+    second_audio = b"RIFFsecond"
+    uploaded = {first_audio: threading.Event(), second_audio: threading.Event()}
+
+    def fake(client, *, chunks, **kwargs):
+        uploaded[next(chunks)].set()
+        assert list(chunks) == []
+        return aai.DictationResponse(**_OK_RESPONSE)
+
+    monkeypatch.setattr(api, "transcribe_live", fake)
+
+    with aai.DictationTranscriber(max_workers=max_workers) as transcriber:
+        first = transcriber.open_live()
+        second = transcriber.open_live()
+        try:
+            first.write(first_audio)
+            second.write(second_audio)
+            assert uploaded[first_audio].wait(timeout=2.0)
+            assert uploaded[second_audio].wait(
+                timeout=2.0
+            ), "the second upload must start before the first recording ends"
+        finally:
+            first.close()
+            second.close()
+
+        assert first.result().text == second.result().text == _OK_RESPONSE["text"]
+
+
 def test_open_live_uses_the_transcribers_default_config(monkeypatch):
     # Given a transcriber with a default config and a session opened without one
     seen = _fake_live(monkeypatch)
