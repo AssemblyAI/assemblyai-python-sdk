@@ -635,10 +635,46 @@ def test_keyterms_prompt_at_the_count_cap_accepted():
     assert len(config.keyterms_prompt) == _DICTATION_MAX_KEYTERMS_COUNT
 
 
-def test_llm_instruction_too_long_raises():
-    # Given an llm_instruction exceeding the 2048-char cap
-    with pytest.raises(ValueError):
-        aai.DictationConfig(llm_instruction="x" * 3000)
+def test_llm_instruction_longer_than_the_old_cap_accepted():
+    # Given an instruction far past the old 2048-char client cap, which the
+    # service accepts (it limits only the whole config part)
+    config = aai.DictationConfig(llm_instruction="x" * 49152)
+
+    # Then the config keeps it whole
+    assert len(config.llm_instruction) == 49152
+
+
+def test_transcribe_live_sends_a_long_llm_instruction_whole(httpx_mock: HTTPXMock):
+    # Given a 10,000-char instruction
+    _mock_ok(httpx_mock)
+    instruction = "x" * 10000
+    config = aai.DictationConfig(llm_instruction=instruction)
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"), config=config)
+
+    # Then the config part carries all of it, untruncated
+    body = httpx_mock.get_requests()[0].read()
+    assert f'"llm_instruction": "{instruction}"'.encode() in body
+
+
+def test_oversized_config_rejection_maps_to_dictation_error(httpx_mock: HTTPXMock):
+    # Given a server rejecting a config part that is too large
+    httpx_mock.add_response(
+        url=LIVE_URL,
+        method="POST",
+        status_code=400,
+        json={"error": "config part too large"},
+    )
+
+    # When streaming, then the rejection surfaces as a DictationError
+    with pytest.raises(aai.DictationError, match="config part too large") as exc_info:
+        aai.DictationTranscriber().transcribe_live(
+            _chunks(b"RIFF"),
+            config=aai.DictationConfig(llm_instruction="x" * 100000),
+        )
+
+    assert exc_info.value.status_code == 400
 
 
 def test_transcribe_live_sends_rewrite_mode(httpx_mock: HTTPXMock):
