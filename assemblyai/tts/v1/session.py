@@ -510,7 +510,7 @@ class TTSSession:
         if threading.current_thread() is not self._reader:
             self._stopped.wait(1)
         if self.error is not None:
-            return self.error
+            return self._surfaced()
         code, reason = close_code_and_reason(exc)
         if self._ws is not ws or code == 1000:  # closed by close() or cleanly
             return RuntimeError("the session is not open")

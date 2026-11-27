@@ -904,6 +904,44 @@ def test_an_error_the_block_already_saw_is_not_raised_twice(server):
     assert len(seen) == 1  # the with block exited quietly
 
 
+@pytest.mark.parametrize(
+    "code, error",
+    [
+        pytest.param(3010, _INPUT_RATE_EXCEEDED, id="error-frame"),
+        pytest.param(1012, None, id="bare-close"),
+    ],
+)
+def test_a_send_error_caught_inside_with_is_not_raised_twice(server, code, error):
+    seen = []
+    with aai.TTSSession() as session:
+        server.close_on_next_send(code, error)
+        try:
+            session.generate("Too much, too fast.")
+        except aai.TTSError as err:
+            seen.append(err)
+    assert len(seen) == 1
+    assert seen[0] is session.error
+
+
+def test_a_send_error_a_handler_raised_still_surfaces_on_exit(server):
+    # _emit logs a handler's exception, so nothing in the block saw it.
+    sent = threading.Event()
+
+    def send_after_close(event):
+        try:
+            server.close_on_next_send(1012)
+            session.generate("late")
+        finally:
+            sent.set()
+
+    with pytest.raises(aai.TTSError) as exc_info:
+        with aai.TTSSession() as session:
+            session.on(aai.TTSEvents.FlushDone, send_after_close)
+            session.flush()
+            assert sent.wait(2)
+    assert exc_info.value.body["close_code"] == 1012
+
+
 def test_speak_splits_long_text_across_generate_frames(server):
     with aai.TTSSession() as session:
         text = "a" * 2000 + "b" * 2000 + "c" * 1000
