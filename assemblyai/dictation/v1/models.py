@@ -5,16 +5,23 @@ the transcribers raise, live here alongside the client that uses them.
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 try:
-    # pydantic v2 import
-    from pydantic import BaseModel, ConfigDict, Field, field_validator
+    # pydantic v2 import (`model_validator` exists only in v2; pydantic 1.10
+    # also exports `ConfigDict`, so it is not the probe)
+    from pydantic import (
+        BaseModel,
+        ConfigDict,
+        Field,
+        field_validator,
+        model_validator,
+    )
 
     pydantic_v2 = True
 except ImportError:
     # pydantic v1 import (fallback for Python < 3.14)
-    from pydantic import BaseModel, Field, validator
+    from pydantic import BaseModel, Field, root_validator, validator
 
     pydantic_v2 = False
 
@@ -23,6 +30,7 @@ from ...types import AssemblyAIError
 __all__ = [
     "DictationConfig",
     "DictationError",
+    "DictationLLMRequest",
     "DictationResponse",
     "DictationRewriteMode",
     "DictationWord",
@@ -56,6 +64,8 @@ _DICTATION_MAX_KEYTERMS_PROMPT_LEN = 8000
 _DICTATION_MAX_KEYTERMS_COUNT = 100
 _DICTATION_MAX_LLM_INSTRUCTION_LEN = 2048
 _DICTATION_MAX_STT_PROMPT_LEN = 6000
+_DICTATION_MAX_LLM_OUTPUT_TOKENS = 8192
+_DICTATION_RESERVED_PROMPT_REPLACEMENTS = ("text", "transcript")
 
 
 class DictationRewriteMode(str, Enum):
@@ -72,13 +82,148 @@ class DictationRewriteMode(str, Enum):
         return self.value
 
 
+def _check_llm_request(values: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Raises on the `llm` combinations the Dictation API rejects with a 400.
+
+    A saved prompt runs as saved, so only `prompt_replacements` may come with
+    `aai_prompt`, and a replacement cannot take a name Dictation or LLM
+    Gateway fills itself.
+    """
+
+    replacements = values.get("prompt_replacements")
+    if values.get("aai_prompt") is None:
+        if replacements is not None:
+            raise ValueError("prompt_replacements requires aai_prompt")
+        return values
+
+    extra = sorted(
+        name
+        for name, value in values.items()
+        if value is not None and name not in ("aai_prompt", "prompt_replacements")
+    )
+    if extra:
+        raise ValueError(
+            f"a saved prompt runs as saved; drop {', '.join(extra)} or aai_prompt"
+        )
+
+    for key in _DICTATION_RESERVED_PROMPT_REPLACEMENTS:
+        if replacements and key in replacements:
+            raise ValueError(
+                f"prompt_replacements cannot set {key}: Dictation fills `text` "
+                "with the transcript and LLM Gateway reserves `transcript`"
+            )
+    return values
+
+
+class DictationLLMRequest(BaseModel):
+    """
+    An LLM Gateway request Dictation runs over the transcript, in place of
+    `llm_instruction`.
+
+    Either write the prompt yourself in `messages` or `prompt`, with
+    `{{turn}}` where the transcript goes, or name a saved prompt in
+    `aai_prompt` (it gets the transcript as `{{ text }}`). Every field is
+    optional, and unset fields are not sent. The rewrite comes back in
+    `DictationResponse.llm_response`.
+
+    Unknown fields are rejected: Dictation accepts this exact set and returns
+    a 400 for any other field, such as `fallbacks`, `tools`, `stream` or
+    `transcript_id`.
+    """
+
+    model: Optional[str] = None
+    """The LLM Gateway model. It must be one the Dictation rewrite runs on;
+    without it, `rewrite_mode` picks one. Not allowed with `aai_prompt`."""
+
+    messages: Optional[List[Dict[str, Any]]] = None
+    """Chat messages, as in an LLM Gateway chat completions request. Put
+    `{{turn}}` where the transcript goes."""
+
+    prompt: Optional[str] = None
+    "A single prompt, in place of `messages`. Put `{{turn}}` where the transcript goes."
+
+    temperature: Optional[float] = None
+    "Sampling temperature. Dictation uses 0 unless this is set."
+
+    top_p: Optional[float] = None
+    "Nucleus sampling cutoff."
+
+    top_k: Optional[int] = None
+    "Top-k sampling cutoff."
+
+    max_tokens: Optional[int] = Field(default=None, le=_DICTATION_MAX_LLM_OUTPUT_TOKENS)
+    """Output token limit, at most 8192. Unset, Dictation sizes it from the
+    transcript, so a prompt that expands the text may need a larger one. A
+    rewrite that runs out comes back with `llm_error` "truncated"."""
+
+    max_completion_tokens: Optional[int] = Field(
+        default=None, le=_DICTATION_MAX_LLM_OUTPUT_TOKENS
+    )
+    "Output token limit, at most 8192. The same limit under its other name."
+
+    response_format: Optional[Dict[str, Any]] = None
+    "The LLM Gateway `response_format`, e.g. a JSON schema for the output."
+
+    reasoning_effort: Optional[str] = None
+    "How much the model reasons before it answers, for models that support it."
+
+    aai_prompt: Optional[str] = None
+    """The name of a prompt saved in your account. The saved prompt's model
+    and settings apply, so only `prompt_replacements` may accompany it, and
+    `rewrite_mode` may not be set. An unknown name comes back as `llm_error`
+    "prompt_not_found"."""
+
+    prompt_replacements: Optional[Dict[str, Any]] = None
+    """Values for the `{{ tag }}` placeholders of the saved prompt. Requires
+    `aai_prompt`. `text` (the transcript) and `transcript` are reserved."""
+
+    zero_data_retention: Optional[bool] = None
+    """Accepted for parity with LLM Gateway. Dictation sets zero data
+    retention on every rewrite request regardless."""
+
+    if pydantic_v2:
+        model_config = ConfigDict(extra="forbid")
+
+        @model_validator(mode="after")
+        def _check_rules(self) -> "DictationLLMRequest":
+            _check_llm_request(dict(self))
+            return self
+
+    else:
+
+        class Config:
+            extra = "forbid"
+
+        @root_validator(skip_on_failure=True, allow_reuse=True)
+        def _check_rules(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+            return _check_llm_request(values)
+
+
+def _check_rewrite_source(values: Dict[str, Any]) -> Dict[str, Any]:
+    """Raises when the config asks for the rewrite two ways at once."""
+
+    llm = values.get("llm")
+    if llm is None:
+        return values
+    if values.get("llm_instruction") is not None:
+        raise ValueError("set either llm_instruction or llm, not both")
+    if llm.aai_prompt is not None and values.get("rewrite_mode") is not None:
+        raise ValueError(
+            "rewrite_mode does not apply to a saved prompt (aai_prompt): "
+            "the saved prompt picks its own model"
+        )
+    return values
+
+
 class DictationConfig(BaseModel):
     """
     Options for a Dictation API request.
 
     `language_codes`, `stt_prompt` and `keyterms_prompt` shape the
     transcript; `llm_instruction` asks the server to run a follow-up LLM pass over it
-    (the rewrite lands in `DictationResponse.llm_response`). `sample_rate`
+    (the rewrite lands in `DictationResponse.llm_response`), and `llm` sends
+    an LLM Gateway request of your own for that pass instead. `sample_rate`
     and `channels` are required only for raw PCM audio — container formats
     carry them in their own headers.
 
@@ -124,6 +269,13 @@ class DictationConfig(BaseModel):
     "Format this as a SOAP note." The rewritten text comes back as
     `llm_response`; the raw transcript stays in `text`. Max 2048 characters."""
 
+    llm: Optional[DictationLLMRequest] = None
+    """An LLM Gateway request of your own for the rewrite, in place of
+    `llm_instruction`: your own `messages` or `prompt` with `{{turn}}` where
+    the transcript goes, or a saved prompt by `aai_prompt`. A plain dict is
+    accepted. Set either this or `llm_instruction`, not both. The rewrite
+    comes back as `llm_response`."""
+
     rewrite_mode: Optional[DictationRewriteMode] = None
     """Model tier that runs the rewrite: `fast` or `smart`. `smart` follows
     detailed formatting instructions more reliably at higher latency. Defaults
@@ -131,6 +283,11 @@ class DictationConfig(BaseModel):
 
     if pydantic_v2:
         model_config = ConfigDict(extra="forbid")
+
+        @model_validator(mode="after")
+        def _check_rewrite(self) -> "DictationConfig":
+            _check_rewrite_source(dict(self))
+            return self
 
         @field_validator("keyterms_prompt")
         @classmethod
@@ -153,6 +310,10 @@ class DictationConfig(BaseModel):
 
         class Config:
             extra = "forbid"
+
+        @root_validator(skip_on_failure=True, allow_reuse=True)
+        def _check_rewrite(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+            return _check_rewrite_source(values)
 
         @validator("keyterms_prompt")
         def _normalize_keyterms_prompt(cls, v):
@@ -194,8 +355,8 @@ class DictationResponse(BaseModel):
     "Overall transcript confidence in the range 0-1."
 
     llm_response: Optional[str] = None
-    """The transcript rewritten by the LLM pass `llm_instruction` asked for.
-    `None` when no instruction was sent or the pass failed."""
+    """The transcript rewritten by the LLM pass `llm_instruction` or `llm`
+    asked for. `None` when neither was sent or the pass failed."""
 
     llm_error: Optional[str] = None
     "Why the LLM pass failed, when it did. `None` otherwise."
@@ -222,8 +383,8 @@ class DictationResponse(BaseModel):
         """
         The text to show the user: the LLM rewrite when there is one.
 
-        Falls back to the raw transcript when no `llm_instruction` was sent
-        or the LLM pass failed, so reading it is safe either way.
+        Falls back to the raw transcript when neither `llm_instruction` nor
+        `llm` was sent or the LLM pass failed, so reading it is safe either way.
         """
 
         return self.llm_response if self.llm_response is not None else self.text

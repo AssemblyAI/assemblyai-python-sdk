@@ -799,6 +799,43 @@ config = aai.DictationConfig(
 </details>
 
 <details>
+  <summary>Send your own LLM request</summary>
+
+Set `llm` instead of `llm_instruction` to send an LLM Gateway chat completions request of your own for the rewrite. Write `messages` or `prompt` yourself and put `{{turn}}` where the transcript goes. The model's output comes back in `llm_response`, like any other rewrite:
+
+```python
+import assemblyai as aai
+
+aai.settings.api_key = "<YOUR_API_KEY>"
+
+config = aai.DictationConfig(
+    llm={
+        "model": "gemma-4-31b",
+        "messages": [
+            {"role": "system", "content": "Rewrite the dictated note as a short, formal email."},
+            {"role": "user", "content": "{{turn}}"},
+        ],
+        "max_tokens": 1024,
+    }
+)
+
+result = aai.DictationTranscriber().transcribe_live("./note.wav", config=config)
+print(result.final_text)
+```
+
+To keep the prompt off the device, save it in your account and send only its name in `aai_prompt`. Dictation passes the transcript as `{{ text }}`, and `prompt_replacements` fills your own tags:
+
+```python
+config = aai.DictationConfig(
+    llm={"aai_prompt": "dictation-email", "prompt_replacements": {"signoff": "Best, Sam"}}
+)
+```
+
+`llm` takes a dict or an `aai.DictationLLMRequest`, and rejects fields Dictation does not accept, such as `tools` or `stream`. The config is rejected before anything is sent when you set both `llm` and `llm_instruction`, set `max_tokens` or `max_completion_tokens` above 8192, or add any field or `rewrite_mode` to a saved prompt (only `prompt_replacements` may go with `aai_prompt`, and it can't set `text` or `transcript`).
+
+</details>
+
+<details>
   <summary>Configure the dictation</summary>
 
 ```python
@@ -817,7 +854,7 @@ config = aai.DictationConfig(
 result = aai.DictationTranscriber().transcribe_live("./note.wav", config=config)
 ```
 
-`stt_prompt` describes the situation the audio was recorded in and steers the decoder as it writes the transcript; `llm_instruction` reshapes that transcript afterwards. `sample_rate` and `channels` are required only for raw PCM; WAV carries them in its own header. A config passed to `transcribe_live()` or `open_live()` overrides the transcriber's default config for that call. `DictationConfig` rejects unknown fields, so a typo or a sync-only option surfaces as a validation error instead of a setting that quietly does nothing.
+`stt_prompt` describes the situation the audio was recorded in and steers the decoder as it writes the transcript; `llm_instruction` (or your own `llm` request, never both) reshapes that transcript afterwards. `sample_rate` and `channels` are required only for raw PCM; WAV carries them in its own header. A config passed to `transcribe_live()` or `open_live()` overrides the transcriber's default config for that call. `DictationConfig` rejects unknown fields, so a typo or a sync-only option surfaces as a validation error instead of a setting that quietly does nothing.
 
 </details>
 

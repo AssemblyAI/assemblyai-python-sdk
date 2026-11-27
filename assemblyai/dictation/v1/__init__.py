@@ -4,6 +4,7 @@ from .client import DictationLiveSession, DictationTranscriber
 from .models import (
     DictationConfig,
     DictationError,
+    DictationLLMRequest,
     DictationResponse,
     DictationRewriteMode,
     DictationWord,
@@ -16,6 +17,7 @@ __all__ = [
     "AudioSource",
     "DictationConfig",
     "DictationError",
+    "DictationLLMRequest",
     "DictationLiveSession",
     "DictationResponse",
     "DictationRewriteMode",
