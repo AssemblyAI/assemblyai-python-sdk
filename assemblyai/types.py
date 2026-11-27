@@ -1726,7 +1726,7 @@ class TranscriptionConfig:
 
             custom_spellings[_to] = custom_spelling["from"]
 
-        return custom_spellings if custom_spelling else None
+        return custom_spellings if custom_spellings else None
 
     @property
     def disfluencies(self) -> Optional[bool]:
