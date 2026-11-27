@@ -8,6 +8,7 @@ httpx, so a body read after the call sees a spent generator or a closed file.
 
 import email
 import io
+import json
 import threading
 from typing import List, Optional
 
@@ -669,6 +670,182 @@ def test_rewrite_mode_rejects_an_unknown_tier():
     # Given a tier the API does not define
     with pytest.raises(ValueError):
         aai.DictationConfig(rewrite_mode="gemma")
+
+
+# --- own LLM request (`llm`) -------------------------------------------------
+
+
+def _config_json(httpx_mock: HTTPXMock) -> dict:
+    """The JSON `config` part of the one recorded request."""
+
+    request = httpx_mock.get_requests()[0]
+    request.read()
+    return json.loads(dict(_parts(request))["config"].get_payload(decode=True))
+
+
+def test_transcribe_live_sends_an_own_llm_request(httpx_mock: HTTPXMock):
+    # Given an LLM Gateway request of the caller's own, with {{turn}} where
+    # the transcript goes
+    _mock_ok(httpx_mock)
+    llm = {
+        "model": "gemma-4-31b",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Rewrite the dictated note as a short, formal email.",
+            },
+            {"role": "user", "content": "{{turn}}"},
+        ],
+    }
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(
+        _chunks(b"RIFF"), config=aai.DictationConfig(llm=llm)
+    )
+
+    # Then the config part carries it unchanged under `llm`
+    config = _config_json(httpx_mock)
+    assert config["llm"] == llm
+    assert "llm_instruction" not in config
+
+
+def test_transcribe_live_sends_a_saved_prompt(httpx_mock: HTTPXMock):
+    # Given a saved prompt with a replacement of the caller's own
+    _mock_ok(httpx_mock)
+    llm = {
+        "aai_prompt": "dictation-email",
+        "prompt_replacements": {"signoff": "Best, Sam"},
+    }
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(
+        _chunks(b"RIFF"), config=aai.DictationConfig(llm=llm)
+    )
+
+    # Then the config part carries the saved-prompt request as given
+    assert _config_json(httpx_mock)["llm"] == llm
+
+
+def test_config_json_sends_only_set_llm_fields(httpx_mock: HTTPXMock):
+    # Given an llm request that sets only `prompt`
+    _mock_ok(httpx_mock)
+    config = aai.DictationConfig(llm={"prompt": "Fix punctuation: {{turn}}"})
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(_chunks(b"RIFF"), config=config)
+
+    # Then no unset field leaks as null, and {{turn}} reaches the wire as
+    # written: the server fills it, not the SDK
+    assert _config_json(httpx_mock)["llm"] == {"prompt": "Fix punctuation: {{turn}}"}
+
+
+def test_empty_llm_is_sent_as_an_empty_object(httpx_mock: HTTPXMock):
+    # Given an llm request with nothing in it
+    _mock_ok(httpx_mock)
+
+    # When streaming
+    aai.DictationTranscriber().transcribe_live(
+        _chunks(b"RIFF"), config=aai.DictationConfig(llm={})
+    )
+
+    # Then it is sent as given: the docs name no rule for it, so the server
+    # decides
+    assert _config_json(httpx_mock)["llm"] == {}
+
+
+def test_llm_dict_is_coerced_to_the_typed_model():
+    # Given a plain dict
+    config = aai.DictationConfig(llm={"prompt": "{{turn}}"})
+
+    # Then it becomes the typed request
+    assert isinstance(config.llm, aai.DictationLLMRequest)
+    assert config.llm.prompt == "{{turn}}"
+
+
+@pytest.mark.parametrize(
+    "field", ["fallbacks", "tools", "stream", "transcript_id", "Model"]
+)
+def test_llm_rejects_undocumented_fields(field):
+    # Given a field Dictation's `llm` does not accept (names are
+    # case-sensitive)
+    # When building the request, then it is rejected rather than dropped
+    with pytest.raises(ValueError):
+        aai.DictationLLMRequest(**{"prompt": "{{turn}}", field: True})
+
+
+def test_llm_and_llm_instruction_together_raise():
+    # Given both ways of asking for a rewrite
+    # Then the config is rejected, as the API rejects it with a 400
+    with pytest.raises(ValueError, match="not both"):
+        aai.DictationConfig(
+            llm={"prompt": "{{turn}}"}, llm_instruction="Fix punctuation."
+        )
+
+
+@pytest.mark.parametrize("field", ["max_tokens", "max_completion_tokens"])
+def test_llm_output_token_cap(field):
+    # Given an output cap at the documented maximum, then it is accepted
+    aai.DictationConfig(llm={"prompt": "{{turn}}", field: 8192})
+
+    # And one over it is rejected
+    with pytest.raises(ValueError):
+        aai.DictationConfig(llm={"prompt": "{{turn}}", field: 8193})
+
+
+@pytest.mark.parametrize("field", ["max_tokens", "max_completion_tokens"])
+def test_llm_output_token_cap_has_no_floor(field):
+    # Given a value the docs do not forbid, below any useful size
+    config = aai.DictationConfig(llm={"prompt": "{{turn}}", field: 0})
+
+    # Then it is kept for the server to judge: the docs set only a maximum
+    assert getattr(config.llm, field) == 0
+
+
+def test_aai_prompt_rejects_other_llm_fields():
+    # Given a saved prompt with a setting the saved prompt already owns
+    # Then the config is rejected and names the field to drop
+    with pytest.raises(ValueError, match="saved prompt runs as saved; drop model"):
+        aai.DictationConfig(
+            llm={"aai_prompt": "dictation-email", "model": "gemma-4-31b"}
+        )
+
+
+def test_aai_prompt_rejects_rewrite_mode():
+    # Given a saved prompt and a rewrite tier
+    # Then the config is rejected: the saved prompt picks its own model
+    with pytest.raises(
+        ValueError, match="rewrite_mode does not apply to a saved prompt"
+    ):
+        aai.DictationConfig(llm={"aai_prompt": "dictation-email"}, rewrite_mode="smart")
+
+
+@pytest.mark.parametrize("key", ["text", "transcript"])
+def test_prompt_replacements_rejects_reserved_keys(key):
+    # Given a replacement Dictation or LLM Gateway fills itself
+    with pytest.raises(ValueError, match=f"prompt_replacements cannot set {key}"):
+        aai.DictationConfig(
+            llm={"aai_prompt": "dictation-email", "prompt_replacements": {key: "x"}}
+        )
+
+
+def test_prompt_replacements_requires_aai_prompt():
+    # Given replacements with no saved prompt to fill
+    with pytest.raises(ValueError, match="prompt_replacements requires aai_prompt"):
+        aai.DictationConfig(
+            llm={"prompt": "{{turn}}", "prompt_replacements": {"signoff": "Best, Sam"}}
+        )
+
+
+def test_rewrite_mode_with_an_own_llm_request_is_accepted():
+    # Given an own request without a model, and a rewrite tier
+    config = aai.DictationConfig(
+        llm={"messages": [{"role": "user", "content": "{{turn}}"}]},
+        rewrite_mode="smart",
+    )
+
+    # Then both stay: rewrite_mode picks the model when `llm` has none
+    assert config.rewrite_mode == aai.DictationRewriteMode.smart
+    assert config.llm.messages == [{"role": "user", "content": "{{turn}}"}]
 
 
 def test_error_envelope_maps_to_dictation_error(httpx_mock: HTTPXMock):

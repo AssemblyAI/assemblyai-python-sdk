@@ -299,6 +299,25 @@ async def test_transcribe_live_uses_default_config_and_per_call_override(monkeyp
     assert second["config"] == {"llm_instruction": "override instruction"}
 
 
+async def test_transcribe_live_sends_llm(monkeypatch):
+    # Given a config with an own LLM request
+    seen = _capture(monkeypatch)
+    llm = {
+        "model": "gemma-4-31b",
+        "messages": [{"role": "user", "content": "{{turn}}"}],
+    }
+
+    # When streaming
+    async with aai.AsyncDictationTranscriber() as transcriber:
+        await transcriber.transcribe_live(
+            _achunks(b"RIFF"), config=aai.DictationConfig(llm=llm)
+        )
+
+    # Then the config handed to the transport carries it under `llm`
+    (call,) = seen["calls"]
+    assert call["config"] == {"llm": llm}
+
+
 async def test_transcribe_live_marks_pcm_from_config(monkeypatch):
     # Given a config carrying the fields only raw PCM needs
     seen = _capture(monkeypatch)
