@@ -785,7 +785,7 @@ if result.llm_error:
     print("LLM pass failed:", result.llm_error)
 ```
 
-The instruction is capped at 2048 characters.
+The instruction has no length cap of its own; the service limits only the size of the whole config, and a config it rejects raises `DictationError`.
 
 `rewrite_mode` picks the model tier that runs the rewrite. `fast` is the default; `smart` follows detailed formatting instructions more reliably, at higher latency:
 

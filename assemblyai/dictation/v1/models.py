@@ -54,7 +54,6 @@ class DictationError(AssemblyAIError):
 
 _DICTATION_MAX_KEYTERMS_PROMPT_LEN = 8000
 _DICTATION_MAX_KEYTERMS_COUNT = 100
-_DICTATION_MAX_LLM_INSTRUCTION_LEN = 2048
 _DICTATION_MAX_STT_PROMPT_LEN = 6000
 
 
@@ -117,12 +116,12 @@ class DictationConfig(BaseModel):
     keyterms_prompt: Optional[List[str]] = None
     "Keyterms biasing the decoder. Whitespace is stripped and empty terms dropped. Max 100 terms / 8000 characters total."
 
-    llm_instruction: Optional[str] = Field(
-        default=None, max_length=_DICTATION_MAX_LLM_INSTRUCTION_LEN
-    )
+    llm_instruction: Optional[str] = None
     """Instruction for a follow-up LLM pass over the transcript, e.g.
     "Format this as a SOAP note." The rewritten text comes back as
-    `llm_response`; the raw transcript stays in `text`. Max 2048 characters."""
+    `llm_response`; the raw transcript stays in `text`. No client-side length
+    limit: the service limits only the size of the whole config, and rejects a
+    larger one with a 400, raised as DictationError."""
 
     rewrite_mode: Optional[DictationRewriteMode] = None
     """Model tier that runs the rewrite: `fast` or `smart`. `smart` follows
