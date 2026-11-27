@@ -95,6 +95,8 @@ class RealTimeTranscriber(_BaseStreamingClient):
         self._write_thread = threading.Thread(target=self._write_message)
         self._read_thread = threading.Thread(target=self._read_message)
         self._stop_event = threading.Event()
+        self._connect_lock = threading.Lock()
+        self._connect_started = False
         # Deliberate single-slot shared-memory handoff: the write thread parks
         # a ConnectionClosed here and the read thread drains it. Synchronization
         # is provided by `_stop_event.set()` (write side) + `recv(timeout=1)`
@@ -111,7 +113,20 @@ class RealTimeTranscriber(_BaseStreamingClient):
         error, etc.) ``Error`` is dispatched to any
         ``on(RealTimeEvents.Error, ...)`` handler rather than raised, so
         registration order matters: call ``on()`` before ``connect()``.
+
+        Each instance is single-use, including after a failed handshake.
+        Create a new instance for a new connection.
         """
+        # Reserve before the handshake, including while another caller is
+        # connecting. The read/write threads cannot be started a second time.
+        with self._connect_lock:
+            if self._connect_started:
+                raise RuntimeError(
+                    "RealTimeTranscriber has already been connected; "
+                    "create a new instance for a new connection."
+                )
+            self._connect_started = True
+
         _emit_param_warnings(params)
 
         uri = _build_uri(self._options.api_host, params)
@@ -158,8 +173,12 @@ class RealTimeTranscriber(_BaseStreamingClient):
                 self._report_connection_closed(exc)
                 return
 
-        self._write_thread.start()
-        self._read_thread.start()
+        try:
+            self._write_thread.start()
+            self._read_thread.start()
+        except Exception:
+            self.disconnect()
+            raise
 
         logger.debug("Connected to WebSocket server")
 
