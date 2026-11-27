@@ -35,6 +35,7 @@ class Word(BaseModel):
     text: str
     word_is_final: bool
     speaker: Optional[str] = None
+    speaker_confidence: Optional[float] = None
 
 
 class TurnEvent(BaseModel):
@@ -48,6 +49,7 @@ class TurnEvent(BaseModel):
     language_code: Optional[str] = None
     language_confidence: Optional[float] = None
     speaker_label: Optional[str] = None
+    speaker_confidence: Optional[float] = None
 
 
 class SessionConfiguration(BaseModel):
