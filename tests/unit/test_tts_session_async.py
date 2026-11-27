@@ -404,6 +404,27 @@ async def test_a_send_on_a_bare_close_raises_a_tts_error(server):
     assert exc_info.value.body["close_code"] == 1012
 
 
+@pytest.mark.parametrize(
+    "code, error",
+    [
+        pytest.param(3010, _INPUT_RATE_EXCEEDED, id="error-frame"),
+        pytest.param(1012, None, id="bare-close"),
+    ],
+)
+async def test_a_send_error_caught_inside_async_with_is_not_raised_twice(
+    server, code, error
+):
+    seen = []
+    async with aai.AsyncTTSSession() as session:
+        server.close_on_next_send(code, error)
+        try:
+            await session.generate("Too much, too fast.")
+        except aai.TTSError as err:
+            seen.append(err)
+    assert len(seen) == 1
+    assert seen[0] is session.error
+
+
 async def test_a_cancel_drops_every_pipelined_request(server):
     server.answer_flush = False
     async with aai.AsyncTTSSession() as session:
