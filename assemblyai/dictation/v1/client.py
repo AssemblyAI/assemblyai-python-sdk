@@ -221,8 +221,10 @@ class DictationTranscriber:
             client: The HTTP client to use. Defaults to the shared default client.
             config: Default dictation options. Per-call `config` overrides it.
             max_workers: Thread pool size for `open_live()` sessions, each of
-                which runs its request on a worker thread. Defaults to the CPU
-                count minus one.
+                which holds a worker thread for its whole recording. This is
+                the number of sessions that can run at once; more queue until
+                a worker frees up. Defaults to the CPU count plus four, capped
+                at 32.
             api_key: The API key to authenticate with. Builds a `Client` for this
                 transcriber. Given alongside `client`, it takes precedence: the
                 transcriber builds its own client from a copy of that client's
@@ -242,8 +244,10 @@ class DictationTranscriber:
         )
 
         if not max_workers:
-            cpu_count = os.cpu_count()
-            max_workers = max(1, cpu_count - 1) if cpu_count else 1
+            # Each session blocks its worker on network I/O for the whole
+            # recording, so size the pool like ThreadPoolExecutor does for
+            # I/O-bound work rather than by CPU count alone.
+            max_workers = min(32, (os.cpu_count() or 1) + 4)
 
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,

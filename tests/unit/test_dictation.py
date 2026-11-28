@@ -920,6 +920,43 @@ def test_open_live_starts_the_request_before_any_audio(monkeypatch):
         session.result()
 
 
+def test_open_live_sessions_run_concurrently_on_a_small_machine(monkeypatch):
+    # Given a 2-vCPU host and a transport that holds each request open until
+    # its audio ends, the way a live upload does
+    monkeypatch.setattr(dictation_client.os, "cpu_count", lambda: 2)
+    started = threading.Semaphore(0)
+
+    def fake(client, **kwargs):
+        started.release()
+        list(kwargs["chunks"])
+        return aai.DictationResponse.parse_obj(_OK_RESPONSE)
+
+    monkeypatch.setattr(api, "transcribe_live", fake)
+
+    with aai.DictationTranscriber() as transcriber:
+        first = transcriber.open_live()
+        assert started.acquire(timeout=2.0)
+
+        # When a second session opens while the first is still recording
+        second = transcriber.open_live()
+        try:
+            # Then its request starts right away instead of queueing behind
+            # the first session's whole recording
+            assert started.acquire(timeout=2.0)
+        finally:
+            first.close()
+            second.close()
+            first.result()
+            second.result()
+
+
+def test_max_workers_still_sizes_the_pool():
+    # Given an explicit pool size
+    with aai.DictationTranscriber(max_workers=3) as transcriber:
+        # Then it is used as given
+        assert transcriber._executor._max_workers == 3
+
+
 def test_open_live_uses_the_transcribers_default_config(monkeypatch):
     # Given a transcriber with a default config and a session opened without one
     seen = _fake_live(monkeypatch)

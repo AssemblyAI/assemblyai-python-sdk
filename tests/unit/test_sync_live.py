@@ -558,6 +558,36 @@ def test_open_live_starts_the_request_before_any_audio(monkeypatch):
         session.result()
 
 
+def test_open_live_sessions_run_concurrently_on_a_small_machine(monkeypatch):
+    # Given a 2-vCPU host and a transport that holds each request open until
+    # its audio ends, the way a live upload does
+    monkeypatch.setattr(sync_client.os, "cpu_count", lambda: 2)
+    started = threading.Semaphore(0)
+
+    def fake(client, **kwargs):
+        started.release()
+        list(kwargs["chunks"])
+        return aai.SyncTranscriptResponse.parse_obj(_OK_RESPONSE)
+
+    monkeypatch.setattr(api, "transcribe_live", fake)
+
+    with aai.SyncTranscriber() as transcriber:
+        first = transcriber.open_live()
+        assert started.acquire(timeout=2.0)
+
+        # When a second session opens while the first is still recording
+        second = transcriber.open_live()
+        try:
+            # Then its request starts right away instead of queueing behind
+            # the first session's whole recording
+            assert started.acquire(timeout=2.0)
+        finally:
+            first.close()
+            second.close()
+            first.result()
+            second.result()
+
+
 def test_live_session_context_manager_ends_the_audio(monkeypatch):
     # Given audio written inside a with-block
     _fake_live(monkeypatch, api, _drain)
