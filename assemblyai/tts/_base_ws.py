@@ -11,7 +11,7 @@ from .. import _audio
 from ..__version__ import __version__
 from ..types import Settings
 from .v1.api import _RETRYABLE_STATUSES
-from .v1.models import TTSConfig, TTSContainer, TTSError
+from .v1.models import TTSConfig, TTSContainer, TTSEncoding, TTSError
 
 # The route of the WebSocket API, after the host and any path prefix of
 # `settings.tts_base_url`.
@@ -167,6 +167,11 @@ def check_session_config(config: TTSConfig) -> None:
         raise ValueError(
             "a wav container and bit_rate do not apply to a session, which streams "
             "raw pcm_s16le, pcm_mulaw or pcm_alaw; leave them unset in its TTSConfig"
+        )
+    if config.encoding == TTSEncoding.mp3:
+        raise ValueError(
+            "mp3 does not apply to a session, which streams raw pcm_s16le, "
+            "pcm_mulaw or pcm_alaw; use one of those, or TextToSpeech for mp3"
         )
 
 
