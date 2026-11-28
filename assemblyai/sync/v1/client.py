@@ -216,8 +216,10 @@ class SyncTranscriber:
         Args:
             client: The HTTP client to use. Defaults to the shared default client.
             config: Default transcription options. Per-call `config` overrides it.
-            max_workers: Thread pool size for `transcribe_async`. Defaults to
-                the CPU count minus one.
+            max_workers: Thread pool size for `transcribe_async` and
+                `open_live`. An `open_live()` session holds a worker for its
+                whole recording. Defaults to the CPU count plus four, capped
+                at 32.
             api_key: The API key to authenticate with. Builds a `Client` for this
                 transcriber. Given alongside `client`, it takes precedence: the
                 transcriber builds its own client from a copy of that client's
@@ -236,8 +238,10 @@ class SyncTranscriber:
         )
 
         if not max_workers:
-            cpu_count = os.cpu_count()
-            max_workers = max(1, cpu_count - 1) if cpu_count else 1
+            # An `open_live()` session blocks its worker on network I/O for the
+            # whole recording, so size the pool like ThreadPoolExecutor does
+            # for I/O-bound work rather than by CPU count alone.
+            max_workers = min(32, (os.cpu_count() or 1) + 4)
 
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
