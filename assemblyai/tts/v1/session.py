@@ -112,8 +112,8 @@ class TTSSession:
         Args:
             config: The voice and audio options (`voice_id`, `model_id`,
                 `language`, `sample_rate`, `encoding`). A session streams raw
-                PCM or G.711: `container` may only be `raw`, and `bit_rate`
-                does not apply.
+                PCM or G.711: `encoding` may not be `mp3`, `container` may
+                only be `raw`, and `bit_rate` does not apply.
             client: A `Client` whose settings (API key, `tts_base_url`) to
                 use. Defaults to the shared default client.
             api_key: The API key to authenticate with; takes precedence over
@@ -133,7 +133,7 @@ class TTSSession:
 
         Raises:
             TypeError: if `config` is not a `TTSConfig`.
-            ValueError: if `config` sets a `wav` container or `bit_rate`.
+            ValueError: if `config` sets `mp3`, a `wav` container or `bit_rate`.
         """
         _audio.check_config(type(self).__name__, config, TTSConfig)
         self.config = config or TTSConfig()

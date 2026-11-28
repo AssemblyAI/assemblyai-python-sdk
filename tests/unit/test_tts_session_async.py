@@ -621,6 +621,12 @@ async def test_http_only_options_are_refused_when_the_session_is_built(config):
         aai.AsyncTTSSession(config=config)
 
 
+@pytest.mark.parametrize("encoding", ["mp3", aai.TTSEncoding.mp3], ids=["str", "enum"])
+async def test_mp3_is_refused_when_the_session_is_built(encoding):
+    with pytest.raises(ValueError, match="mp3"):
+        aai.AsyncTTSSession(config=aai.TTSConfig(encoding=encoding))
+
+
 async def test_a_raw_container_is_what_a_session_streams(server):
     async with aai.AsyncTTSSession(config=aai.TTSConfig(container="raw")):
         pass

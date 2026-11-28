@@ -352,6 +352,21 @@ def test_http_only_options_are_refused_when_the_session_is_built(server, config)
     assert not server.connect.called
 
 
+@pytest.mark.parametrize("encoding", ["mp3", aai.TTSEncoding.mp3], ids=["str", "enum"])
+def test_mp3_is_refused_when_the_session_is_built(server, encoding):
+    with pytest.raises(ValueError, match="mp3"):
+        aai.TTSSession(config=aai.TTSConfig(encoding=encoding))
+    assert not server.connect.called
+
+
+@pytest.mark.parametrize("encoding", ["pcm_s16le", "pcm_mulaw", "pcm_alaw"])
+def test_pcm_and_g711_encodings_are_what_a_session_streams(server, encoding):
+    with aai.TTSSession(config=aai.TTSConfig(encoding=encoding)):
+        pass
+    query = parse_qs(urlsplit(server.connect.call_args.args[0]).query)
+    assert query["encoding"] == [encoding]
+
+
 @pytest.mark.parametrize(
     "container", ["raw", aai.TTSContainer.raw], ids=["str", "enum"]
 )
